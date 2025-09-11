@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Kayak \u2192 GDS Formatter",
+  "version": "1.1.2",
+  "description": "Copy the selected Kayak flight as VI* block or *I (Sabre) line.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Kayak \u2192 GDS"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "*://*.kayak.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "aircraft-map.json",
+        "airports.json",
+        "content.js"
+      ],
+      "matches": [
+        "*://*.kayak.com/*"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.kayak.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
