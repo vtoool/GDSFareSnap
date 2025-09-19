@@ -115,7 +115,13 @@
   function removeCardButton(card){
     if (!card) return;
     const btn = card.querySelector(BTN_SEL);
-    if (btn) btn.remove();
+    if (btn) {
+      const anchor = btn.parentElement;
+      if (anchor && btn.dataset.anchorReset === '1') {
+        anchor.style.position = '';
+      }
+      btn.remove();
+    }
     card.classList.remove(ROOT_CLASS);
   }
 
@@ -142,8 +148,19 @@
     btn.setAttribute('aria-label', 'Copy star-I itinerary');
     btn.innerHTML = '<span aria-hidden="true" class="pill">*I</span>';
 
-    card.classList.add(ROOT_CLASS);
-    card.appendChild(btn);
+    const anchor = selectBtn.parentElement || card;
+    const anchorStyle = getComputedStyle(anchor);
+    const needsAnchorPosition = anchorStyle.position === 'static';
+    if (needsAnchorPosition) {
+      anchor.style.position = 'relative';
+    }
+    btn.dataset.anchorReset = needsAnchorPosition ? '1' : '';
+    btn.style.position = 'absolute';
+    btn.style.top = '50%';
+    btn.style.marginTop = '-22px';
+    btn.style.right = '0.5rem';
+
+    anchor.appendChild(btn);
 
     btn.addEventListener('click', async (ev) => {
       ev.preventDefault();
@@ -158,7 +175,7 @@
         toast('*I copied');
       }catch(err){
         console.error('Copy *I failed:', err);
-        toast('Copy failed');
+        toast(err?.message || 'Copy failed');
       }
     });
   }
@@ -211,16 +228,30 @@
       }
     }
 
-    // Merge split "City" + "(CODE)"
+    // Merge split tokens we care about
     const merged = [];
     for (let i=0;i<keep.length;i++){
       const t = keep[i];
-      if (!/\([A-Z]{3}\)/.test(t) && i+1<keep.length && /^\([A-Z]{3}\)$/.test(keep[i+1])){
-        merged.push(t + ' ' + keep[i+1]);
+      const next = keep[i+1] || '';
+
+      // Case 1: "City" + "(CODE)"
+      if (!/\([A-Z]{3}\)/.test(t) && /^\([A-Z]{3}\)$/.test(next)){
+        merged.push(t + ' ' + next);
         i++;
-      } else {
-        merged.push(t);
+        continue;
       }
+
+      // Case 2: "<Airline Name>" + "<pure flight number>"
+      const nameUpper = t.trim().toUpperCase();
+      if (typeof AIRLINE_CODES !== 'undefined' &&
+          AIRLINE_CODES[nameUpper] &&
+          /^\d{1,4}$/.test(next)){
+        merged.push(t + ' ' + next);
+        i++;
+        continue;
+      }
+
+      merged.push(t);
     }
     return merged.join('\n');
   }
