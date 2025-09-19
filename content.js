@@ -48,7 +48,9 @@
     const r = el.getBoundingClientRect();
     if (r.height < 220 || r.width < 280) return false;
     const txt = (el.innerText || '');
-    if (!/\bDepart\b/i.test(txt) || !/\bReturn\b/i.test(txt)) return false;
+    const hasDepartLike = /\b(Depart|Departure|Outbound)\b/i.test(txt);
+    const hasReturnLike = /\b(Return|Inbound|Arrival)\b/i.test(txt);
+    if (!hasDepartLike && !hasReturnLike) return false;
     const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
     return timeMatches.length >= 2;
   }
@@ -180,16 +182,17 @@
     const airlineLike   = /(Airlines?|Airways|Aviation|Virgin Atlantic|British Airways|United|Delta|KLM|Air Canada|American|Lufthansa|SWISS|Austrian|TAP|Aer Lingus|Iberia|Finnair|SAS|Turkish|Emirates|Qatar|Etihad|JetBlue|Alaska|Hawaiian|Frontier|Spirit)/i;
     const aircraftLike  = /(Boeing|Airbus|Embraer|Bombardier|CRJ|E-?Jet|Dreamliner|neo|MAX|777|787|737|A3\d{2}|A220|A321|A320|A319|A330|A350)/i;
     const timeLike      = /^(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?$/i;
-    const durationLike  = /^\d+h\s?\d+m$/i;
+    const durationLike  = /^\d+h(?:\s?\d+m)?$/i;
     const changeLike    = /Change planes in/i;
     const operatedLike  = /·\s*Operated by/i;
-    const departHdr     = /^Depart(?:\s*[•·])?/i;
-    const returnHdr     = /^Return(?:\s*[•·])?/i;
+    const departHdr     = /^(Depart|Departure|Outbound)(?:\s*[•·])?/i;
+    const returnHdr     = /^(Return|Inbound)(?:\s*[•·])?/i;
     const arrivesLike   = /^Arrives\b/i;
     const overnightLike = /Overnight flight/i;
     const airportLike   = /\([A-Z]{3}\)/;
     const wifiLike      = /Wi-?Fi available/i;
     const limitedSeats  = /Limited seats remaining/i;
+    const flightCodeLike = /^[A-Z]{2,3}\s?\d{1,4}$/;
 
     const blacklist = [
       /^\$\d/, /Select/, /deal(s)?\s*from/i, /per\s*son/i,
@@ -202,6 +205,7 @@
           durationLike.test(t) || airlineLike.test(t) || aircraftLike.test(t) ||
           timeLike.test(t) || airportLike.test(t) || changeLike.test(t) ||
           operatedLike.test(t) || arrivesLike.test(t) || overnightLike.test(t) ||
+          flightCodeLike.test(t) ||
           wifiLike.test(t) || limitedSeats.test(t)) {
         keep.push(t);
       }

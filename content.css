@@ -1,21 +1,29 @@
 .kayak-copy-btn{
   position:absolute;
-  top:8px; right:8px;
-  display:inline-flex; align-items:center; gap:6px; justify-content:center;
-  height:28px; padding:0 10px;
-  border-radius:999px;
-  border:1px solid rgba(0,0,0,.15);
-  background:rgba(255,255,255,.95);
-  box-shadow:0 2px 8px rgba(0,0,0,.15);
+  top:10px; right:10px;
+  display:inline-flex; align-items:center; justify-content:center;
+  width:44px; height:44px;
+  padding:0;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.8);
+  background:linear-gradient(180deg, rgba(255,255,255,.95) 0%, rgba(238,241,245,.95) 100%);
+  box-shadow:0 4px 14px rgba(9,19,33,.25);
   cursor:pointer; z-index:2147483000;
-  backdrop-filter:saturate(1.1) blur(2px);
-  font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  backdrop-filter:saturate(1.1) blur(3px);
+  transition:transform .18s ease, box-shadow .18s ease;
+  font:700 14px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  color:#101a2a;
 }
-.kayak-copy-btn:hover{ transform:translateY(-1px); }
-.kayak-copy-btn:active{ transform:translateY(0); }
+.kayak-copy-btn:hover{ transform:translateY(-2px); box-shadow:0 6px 18px rgba(9,19,33,.32); }
+.kayak-copy-btn:active{ transform:translateY(0); box-shadow:0 3px 10px rgba(9,19,33,.25); }
 
 .kayak-copy-btn .pill{
   font-weight:700;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:100%; height:100%;
+  letter-spacing:.04em;
 }
 .kayak-copy-btn .label{
   font-weight:600;
