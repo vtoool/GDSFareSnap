@@ -1,11 +1,12 @@
-// content.js — place *I button below the primary “Select” action in expanded cards
+// content.js — surface a floating *I copy button on expanded Kayak cards
 (() => {
   'use strict';
 
-  const BTN_CLASS  = 'kayak-copy-btn';
-  const BTN_SEL    = '.' + BTN_CLASS;
-  const MAX_CLIMB  = 12;
-  const SELECT_RX  = /\bSelect\b/i;
+  const BTN_CLASS   = 'kayak-copy-btn';
+  const BTN_SEL     = '.' + BTN_CLASS;
+  const ROOT_CLASS  = 'kayak-copy-root';
+  const MAX_CLIMB   = 12;
+  const SELECT_RX   = /\bSelect\b/i;
 
   // settings cache
   let SETTINGS = { bookingClass:'J', segmentStatus:'SS1' };
@@ -109,8 +110,24 @@
 
   /* ---------- Button injection near the primary Select button ---------- */
 
+  function removeCardButton(card){
+    if (!card) return;
+    const btn = card.querySelector(BTN_SEL);
+    if (btn) btn.remove();
+    card.classList.remove(ROOT_CLASS);
+  }
+
   function ensureCardButton(card){
     if (!card || !isVisible(card)) return;
+
+    const expansionHost = card.getAttribute('aria-expanded') != null
+      ? card
+      : card.closest('[aria-expanded]');
+    if (expansionHost && expansionHost.getAttribute('aria-expanded') !== 'true'){
+      removeCardButton(card);
+      return;
+    }
+
     if (card.querySelector(BTN_SEL)) return;
 
     const selectBtn = findSelectButton(card);
@@ -121,32 +138,13 @@
     btn.type = 'button';
     btn.title = 'Copy *I itinerary';
     btn.setAttribute('aria-label', 'Copy star-I itinerary');
-    btn.textContent = '*I';
+    btn.innerHTML = '<span aria-hidden="true" class="pill">*I</span><span class="label">Copy</span>';
 
-    btn.style.cssText = [
-      'display:block',
-      'margin-top:8px',
-      'width:100%',
-      'padding:10px 14px',
-      'border-radius:8px',
-      'border:1px solid rgba(0,0,0,.15)',
-      'background:rgba(255,255,255,.96)',
-      'box-shadow:0 1px 6px rgba(0,0,0,.12)',
-      'font:600 13px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
-      'cursor:pointer'
-    ].join(';');
-
-    const parent = selectBtn.parentElement;
-    if (parent){
-      const parentStyle = getComputedStyle(parent);
-      if (parentStyle.display === 'flex' && parentStyle.flexDirection === 'column'){
-        btn.style.alignSelf = 'stretch';
-      }
-    }
-
-    selectBtn.insertAdjacentElement('afterend', btn);
+    card.classList.add(ROOT_CLASS);
+    card.appendChild(btn);
 
     btn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
       ev.stopPropagation();
       try{
         const raw = extractVisibleText(card);
@@ -236,7 +234,12 @@
       if (m.type === 'childList'){
         m.addedNodes && m.addedNodes.forEach(n => { if (n.nodeType === 1) processNode(n); });
       } else if (m.type === 'attributes' && m.attributeName === 'aria-expanded'){
-        if (m.target && m.target.getAttribute('aria-expanded') === 'true') processNode(m.target);
+        if (m.target && m.target.getAttribute('aria-expanded') === 'true'){
+          processNode(m.target);
+        } else if (m.target && m.target.getAttribute('aria-expanded') === 'false'){
+          const card = findCardFrom(m.target);
+          removeCardButton(card);
+        }
       }
     }
   });
