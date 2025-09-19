@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Kayak ➜ *I Settings</title>
+  <style>
+    body{ font: 14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin:16px; color:#111;}
+    label{ display:block; margin:10px 0 4px; font-weight:600; }
+    input[type="text"]{ width:120px; padding:6px 8px; border:1px solid #c7c7c7; border-radius:8px; font-size:14px; }
+    small{ color:#666; }
+    .row{ display:flex; gap:12px; align-items:center; }
+    button{ margin-top:12px; padding:8px 12px; border-radius:8px; border:1px solid #c7c7c7; background:#fff; cursor:pointer; font-weight:600; }
+    .ok{ color:#0a7; margin-left:8px; display:none; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <div>
+      <label for="bookingClass">Booking class</label>
+      <input id="bookingClass" type="text" maxlength="1" placeholder="J" />
+      <small>1 letter</small>
+    </div>
+    <div>
+      <label for="segmentStatus">Segment status</label>
+      <input id="segmentStatus" type="text" maxlength="3" placeholder="SS1" />
+      <small>3 chars</small>
+    </div>
+  </div>
+  <button id="saveBtn">Save</button><span id="ok" class="ok">Saved</span>
+
+  <script src="popup.js"></script>
+</body>
+</html>
