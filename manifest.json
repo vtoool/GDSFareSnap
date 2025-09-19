@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Kayak \u279c *I (GDS)",
+  "name": "Kayak ➜ *I (GDS)",
   "version": "2.0.0",
   "description": "On expanded Kayak cards, shows a *I pill that copies the itinerary in *I GDS format. Popup has booking class + segment status settings.",
   "icons": {
@@ -32,8 +32,13 @@
       "all_frames": true
     }
   ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "kayak-copy@example.com"
+    }
+  },
   "action": {
-    "default_title": "Kayak \u279c *I",
+    "default_title": "Kayak ➜ *I",
     "default_popup": "popup.html"
   }
 }
