@@ -127,31 +127,30 @@
 
     // Format to *I lines
     const out = [];
-    const connIndicator = (segs.length > 1) ? '*' : ' '; // star if connection in this section
-    let idx = 1;
-    for(const s of segs){
-      const flightId = (s.number.length < 4 ? ` ${s.airlineCode} ${s.number}${opts.bookingClass}` : `${s.airlineCode}${s.number}${opts.bookingClass}`);
-      let line = "";
-      line += String(idx++).padStart(2,' ');
-      line += ` ${flightId}`.padEnd(10);
-      line += ` ${s.depDate} ${s.depDOW}`.replace(/\s+/g,' ').padEnd(10);
-      line += ` ${s.depAirport}${s.arrAirport}${connIndicator}${opts.segmentStatus}`.padEnd(13);
-      line += ` ${s.depGDS}`.rjust?.(6) || s.depGDS.rjust?.(6); // placeholder if polyfill absent
-      // We'll do manual padding next lines:
-      line = line.replace(/\s+$/,''); // trim end before times
-      line += " "*(max(0, 22 - line.length)); // ensure some spacing before times (fallback)
-      // Safer: rebuild times fixed width
-      const left = line;
-      const times = `${s.depGDS}`.rjust?.(6) || s.depGDS; // JS doesn't have rjust; we'll handle below
-      // We'll not rely on rjust—just pad with spaces:
-      function padLeft(str, width){ return (Array(width).join(' ') + str).slice(-width); }
-      const dep = padLeft(s.depGDS, 6);
-      const arr = padLeft(s.arrGDS, 6);
-      line = left + dep + " " + arr;
-      if (s.arrDate) line += " " + s.arrDate;
+    const connIndicator = (segs.length > 1) ? '*' : ' ';
+
+    function formatFlightDesignator(airlineCode, number, bookingClass){
+      const base = number.length < 4
+        ? `${airlineCode} ${number}`
+        : `${airlineCode}${number}`;
+      return `${base}${bookingClass}`;
+    }
+
+    for(let idx = 0; idx < segs.length; idx++){
+      const s = segs[idx];
+      const segNumber = String(idx + 1).padStart(2, '0');
+      const flightField = formatFlightDesignator(s.airlineCode, s.number, opts.bookingClass).padEnd(10, ' ');
+      const dateField = `${s.depDate} ${s.depDOW}`.trim().padEnd(11, ' ');
+      const cityField = `${s.depAirport}${s.arrAirport}${connIndicator}${opts.segmentStatus}`.padEnd(13, ' ');
+      const depTime = String(s.depGDS || '').padStart(6, ' ');
+      const arrTime = String(s.arrGDS || '').padStart(6, ' ');
+
+      let line = `${segNumber} ${flightField}${dateField}${cityField}${depTime} ${arrTime}`.replace(/\s+$/, '');
+      if (s.arrDate) line += ` ${s.arrDate}`;
       line += ` /DC${s.airlineCode} /E`;
       out.push(line);
     }
+
     return out;
   }
 
