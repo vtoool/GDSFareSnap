@@ -13,8 +13,10 @@
     const bc = (booking.value || 'J').toUpperCase().slice(0,1);
     const ss = (status.value || 'SS1').toUpperCase().slice(0,3);
     chrome.storage.sync.set({ bookingClass: bc, segmentStatus: ss }, ()=>{
+      okEl.textContent = 'saved';
       okEl.style.display = 'inline-block';
-      setTimeout(()=> okEl.style.display='none', 1200);
+      // close after a short confirmation
+      setTimeout(() => { window.close(); }, 600);
     });
   });
 })();
