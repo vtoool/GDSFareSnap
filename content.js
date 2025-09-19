@@ -47,7 +47,7 @@
     if (r.height < 220 || r.width < 280) return false;
     const txt = (el.innerText || '');
     if (!/\bDepart\b/i.test(txt) || !/\bReturn\b/i.test(txt)) return false;
-    const timeMatches = txt.match(/(?:1[0-2]|0?[1-9]):[0-5]\d\s?(?:am|pm)/ig) || [];
+    const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
     return timeMatches.length >= 2;
   }
 
@@ -71,14 +71,14 @@
     return null;
   }
 
-  // Find the “Depart • …” and “Return • …” header elements inside a card
+  // Find the “Depart …” and “Return …” header elements inside a card
   function findSectionHeaders(card){
     const headers = [];
     const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, {
       acceptNode(n){
         const v = (n.nodeValue || '').trim();
         if(!v) return NodeFilter.FILTER_SKIP;
-        if(/^Depart\s*•/i.test(v) || /^Return\s*•/i.test(v)) return NodeFilter.FILTER_ACCEPT;
+        if(/^Depart(?:\s*[•·])?/i.test(v) || /^Return(?:\s*[•·])?/i.test(v)) return NodeFilter.FILTER_ACCEPT;
         return NodeFilter.FILTER_SKIP;
       }
     });
@@ -167,12 +167,12 @@
     const keep = [];
     const airlineLike   = /(Airlines?|Airways|Aviation|Virgin Atlantic|British Airways|United|Delta|KLM|Air Canada|American|Lufthansa|SWISS|Austrian|TAP|Aer Lingus|Iberia|Finnair|SAS|Turkish|Emirates|Qatar|Etihad|JetBlue|Alaska|Hawaiian|Frontier|Spirit)/i;
     const aircraftLike  = /(Boeing|Airbus|Embraer|Bombardier|CRJ|E-?Jet|Dreamliner|neo|MAX|777|787|737|A3\d{2}|A220|A321|A320|A319|A330|A350)/i;
-    const timeLike      = /^(?:1[0-2]|0?[1-9]):[0-5]\d\s?(?:am|pm)$/i;
+    const timeLike      = /^(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?$/i;
     const durationLike  = /^\d+h\s?\d+m$/i;
     const changeLike    = /Change planes in/i;
     const operatedLike  = /·\s*Operated by/i;
-    const departHdr     = /^Depart\s*•/i;
-    const returnHdr     = /^Return\s*•/i;
+    const departHdr     = /^Depart(?:\s*[•·])?/i;
+    const returnHdr     = /^Return(?:\s*[•·])?/i;
     const arrivesLike   = /^Arrives\b/i;
     const overnightLike = /Overnight flight/i;
     const airportLike   = /\([A-Z]{3}\)/;
