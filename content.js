@@ -144,8 +144,8 @@
     const btn = document.createElement('button');
     btn.className = BTN_CLASS;
     btn.type = 'button';
-    btn.title = 'Copy *I itinerary';
-    btn.setAttribute('aria-label', 'Copy star-I itinerary');
+    btn.title = 'Copy option details';
+    btn.setAttribute('aria-label', 'Copy itinerary option details');
     btn.innerHTML = '<span aria-hidden="true" class="pill">*I</span>';
 
     card.classList.add(ROOT_CLASS);
@@ -156,14 +156,10 @@
       ev.stopPropagation();
       try{
         const raw = extractVisibleText(card);
-        const txt = window.convertTextToI(raw, {
-          bookingClass:  SETTINGS.bookingClass,
-          segmentStatus: SETTINGS.segmentStatus
-        });
-        await navigator.clipboard.writeText(txt);
-        toast('*I copied');
+        await navigator.clipboard.writeText(raw);
+        toast('Option details copied');
       }catch(err){
-        console.error('Copy *I failed:', err);
+        console.error('Copy option failed:', err);
         toast(err?.message || 'Copy failed');
       }
     });
