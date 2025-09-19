@@ -1,10 +1,11 @@
-// content.js — place *I pill next to the section header time (Depart/Return)
+// content.js — place *I button below the primary “Select” action in expanded cards
 (() => {
   'use strict';
 
   const BTN_CLASS  = 'kayak-copy-btn';
   const BTN_SEL    = '.' + BTN_CLASS;
   const MAX_CLIMB  = 12;
+  const SELECT_RX  = /\bSelect\b/i;
 
   // settings cache
   let SETTINGS = { bookingClass:'J', segmentStatus:'SS1' };
@@ -71,41 +72,49 @@
     return null;
   }
 
-  // Find the “Depart …” and “Return …” header elements inside a card
-  function findSectionHeaders(card){
-    const headers = [];
-    const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, {
-      acceptNode(n){
-        const v = (n.nodeValue || '').trim();
-        if(!v) return NodeFilter.FILTER_SKIP;
-        if(/^Depart(?:\s*[•·])?/i.test(v) || /^Return(?:\s*[•·])?/i.test(v)) return NodeFilter.FILTER_ACCEPT;
-        return NodeFilter.FILTER_SKIP;
+  function findSelectButton(card){
+    if (!card) return null;
+
+    const preferredSelectors = [
+      'button[data-testid*="select"]',
+      'button[data-test*="select"]',
+      'button[aria-label*="Select"]'
+    ];
+
+    for (const sel of preferredSelectors){
+      const candidate = card.querySelector(sel);
+      if (candidate && isVisible(candidate) && SELECT_RX.test(
+        (candidate.textContent || '') + ' ' +
+        (candidate.getAttribute('aria-label') || '')
+      )) {
+        return candidate;
       }
-    });
-    while (walker.nextNode()){
-      const el = walker.currentNode.parentElement;
-      // Climb to a blocky ancestor that likely holds the duration on the right
-      let h = el;
-      for (let i=0; i<4 && h && h.parentElement; i++){
-        const r = h.getBoundingClientRect();
-        if (r.height > 24 && r.width > 200) break;
-        h = h.parentElement;
-      }
-      if (h && isVisible(h)) headers.push(h);
     }
-    return headers;
+
+    const candidates = card.querySelectorAll('button, a[role="button"], div[role="button"]');
+    for (const candidate of candidates){
+      if (!isVisible(candidate)) continue;
+      const label = [
+        candidate.textContent || '',
+        candidate.getAttribute('aria-label') || '',
+        candidate.getAttribute('data-test') || '',
+        candidate.getAttribute('data-testid') || '',
+        candidate.getAttribute('title') || ''
+      ].join(' ');
+      if (SELECT_RX.test(label)) return candidate;
+    }
+
+    return null;
   }
 
-  /* ---------- Button injection next to header time ---------- */
+  /* ---------- Button injection near the primary Select button ---------- */
 
-  function ensureHeaderButton(header, card){
-    if (!header || !isVisible(header)) return;
-    if (header.querySelector(BTN_SEL)) return;
+  function ensureCardButton(card){
+    if (!card || !isVisible(card)) return;
+    if (card.querySelector(BTN_SEL)) return;
 
-    // Anchor header for absolute positioning
-    if (getComputedStyle(header).position === 'static') {
-      header.style.position = 'relative';
-    }
+    const selectBtn = findSelectButton(card);
+    if (!selectBtn) return;
 
     const btn = document.createElement('button');
     btn.className = BTN_CLASS;
@@ -114,23 +123,28 @@
     btn.setAttribute('aria-label', 'Copy star-I itinerary');
     btn.textContent = '*I';
 
-    // Inline/pill style placed to the right of the duration
     btn.style.cssText = [
-      'position:absolute',
-      'top:4px',
-      'right:8px',
-      'height:22px',
-      'padding:0 8px',
-      'border-radius:999px',
+      'display:block',
+      'margin-top:8px',
+      'width:100%',
+      'padding:10px 14px',
+      'border-radius:8px',
       'border:1px solid rgba(0,0,0,.15)',
       'background:rgba(255,255,255,.96)',
-      'box-shadow:0 2px 8px rgba(0,0,0,.12)',
-      'font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
-      'cursor:pointer',
-      'z-index:2147483000'
+      'box-shadow:0 1px 6px rgba(0,0,0,.12)',
+      'font:600 13px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
+      'cursor:pointer'
     ].join(';');
 
-    header.appendChild(btn);
+    const parent = selectBtn.parentElement;
+    if (parent){
+      const parentStyle = getComputedStyle(parent);
+      if (parentStyle.display === 'flex' && parentStyle.flexDirection === 'column'){
+        btn.style.alignSelf = 'stretch';
+      }
+    }
+
+    selectBtn.insertAdjacentElement('afterend', btn);
 
     btn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
@@ -214,8 +228,7 @@
   function processNode(n){
     const card = findCardFrom(n);
     if (!card) return;
-    const headers = findSectionHeaders(card);
-    headers.forEach(h => ensureHeaderButton(h, card));
+    ensureCardButton(card);
   }
 
   const mo = new MutationObserver((muts) => {
