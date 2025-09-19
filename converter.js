@@ -23,7 +23,7 @@
 
   function parseHeaderDate(line){
     // "Depart • Sat, Oct 4" -> {dow:'J', day:'04', mon:'OCT'}
-    const m = line.match(/(Depart|Return)\s*•\s*(Sun|Mon|Tue|Wed|Thu|Fri|Sat),\s*([A-Za-z]{3,})\s*(\d{1,2})/i);
+    const m = line.match(/(Depart|Return)\s*(?:[•·-]\s*)?(Sun|Mon|Tue|Wed|Thu|Fri|Sat),\s*([A-Za-z]{3,})\s*(\d{1,2})/i);
     if(!m) return null;
     const dow = DOW_CODE[m[2].toUpperCase().slice(0,3)];
     const mon = m[3].toUpperCase().slice(0,3);
@@ -158,7 +158,7 @@
     // return [{headerDate, lines: [...]}, ...] for Depart and Return
     const indices = [];
     for(let i=0;i<lines.length;i++){
-      if(/^Depart\s*•/i.test(lines[i]) || /^Return\s*•/i.test(lines[i])) indices.push(i);
+      if(/^Depart(?:\s*[•·-])?\s+/i.test(lines[i]) || /^Return(?:\s*[•·-])?\s+/i.test(lines[i])) indices.push(i);
     }
     if(indices.length===0) return [];
     const sections = [];

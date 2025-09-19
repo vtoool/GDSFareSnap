@@ -138,7 +138,7 @@
     btn.type = 'button';
     btn.title = 'Copy *I itinerary';
     btn.setAttribute('aria-label', 'Copy star-I itinerary');
-    btn.innerHTML = '<span aria-hidden="true" class="pill">*I</span><span class="label">Copy</span>';
+    btn.innerHTML = '<span aria-hidden="true" class="pill">*I</span>';
 
     card.classList.add(ROOT_CLASS);
     card.appendChild(btn);
