@@ -10,22 +10,47 @@
 
   function pad2(n){ return String(n).padStart(2,'0'); }
   function toAmPmMinutes(s){ // "12:20 pm" -> minutes from midnight and GDS "1220P"
-    const m = s.match(/^(\d{1,2}):(\d{2})\s*([ap]m)$/i);
-    if(!m) return { mins:null, gds:s };
-    let hh = parseInt(m[1],10), mm = parseInt(m[2],10);
-    const ap = m[3].toUpperCase();
-    if(ap==='PM' && hh!==12) hh += 12;
-    if(ap==='AM' && hh===12) hh = 0;
-    const mins = hh*60+mm;
-    const gds = `${pad2(((hh+11)%12)+1)}${pad2(mm)}${ap[0]}`; // 13:05 -> 105P style
-    return { mins, gds };
+    if(!s) return { mins:null, gds:s };
+    let cleaned = s.replace(/\(.*?\)/g, ' ')
+                   .replace(/\s*\+\s?\d+(?:\s*day(?:s)?)?/ig, ' ')
+                   .replace(/\s*next day/ig, ' ')
+                   .replace(/\s+/g, ' ')
+                   .trim();
+    if(!cleaned) return { mins:null, gds:s };
+
+    let m = cleaned.match(/^(\d{1,2}):(\d{2})\s*([ap]m)$/i);
+    if(m){
+      let hh = parseInt(m[1],10), mm = parseInt(m[2],10);
+      const ap = m[3].toUpperCase();
+      if(ap==='PM' && hh!==12) hh += 12;
+      if(ap==='AM' && hh===12) hh = 0;
+      const mins = hh*60+mm;
+      const gds = `${pad2(((hh+11)%12)+1)}${pad2(mm)}${ap[0]}`; // 13:05 -> 105P style
+      return { mins, gds };
+    }
+
+    m = cleaned.match(/^(\d{1,2}):(\d{2})$/);
+    if(m){
+      let hh = parseInt(m[1],10), mm = parseInt(m[2],10);
+      if(hh > 23 || mm > 59) return { mins:null, gds:s };
+      const mins = hh*60 + mm;
+      const isPm = hh >= 12;
+      let disp = hh % 12;
+      if(disp === 0) disp = 12;
+      const gds = `${pad2(disp)}${pad2(mm)}${isPm ? 'P' : 'A'}`;
+      return { mins, gds };
+    }
+
+    return { mins:null, gds:s };
   }
 
   function parseHeaderDate(line){
     // "Depart • Sat, Oct 4" -> {dow:'J', day:'04', mon:'OCT'}
-    const m = line.match(/(Depart|Return)\s*(?:[•·-]\s*)?(Sun|Mon|Tue|Wed|Thu|Fri|Sat),\s*([A-Za-z]{3,})\s*(\d{1,2})/i);
+    const cleaned = line.replace(/\(.*?\)/g, ' ').replace(/\s+/g,' ').trim();
+    const m = cleaned.match(/(Depart(?:ure)?|Return|Outbound|Inbound)\s*(?:[•·-]\s*)?(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
     if(!m) return null;
-    const dow = DOW_CODE[m[2].toUpperCase().slice(0,3)];
+    const dowKey = m[2] ? m[2].toUpperCase().slice(0,3) : '';
+    const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
     const mon = m[3].toUpperCase().slice(0,3);
     const day = pad2(m[4]);
     return { dow, mon, day };
@@ -33,9 +58,11 @@
 
   function parseArrivesDate(line){
     // "Arrives Fri, Oct 24"
-    const m = line.match(/Arrives\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat),\s*([A-Za-z]{3,})\s*(\d{1,2})/i);
+    const cleaned = line.replace(/\(.*?\)/g, ' ').replace(/\s*\+\s?\d+(?:\s*day(?:s)?)?/ig,' ').replace(/\s+/g,' ').trim();
+    const m = cleaned.match(/Arrives\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
     if(!m) return null;
-    const dow = DOW_CODE[m[1].toUpperCase().slice(0,3)];
+    const dowKey = m[1] ? m[1].toUpperCase().slice(0,3) : '';
+    const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
     const mon = m[2].toUpperCase().slice(0,3);
     const day = pad2(m[3]);
     return { dow, mon, day };
@@ -54,11 +81,60 @@
 
   function extractFlightNumberLine(line){
     // e.g., "United Airlines 949"
-    const m = line.match(/^\s*([A-Za-z].*?)\s+(\d{1,4})\s*$/);
+    const cleaned = line.replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
+    const m = cleaned.match(/^([A-Za-z].*?)\s+(\d{1,4})$/);
     if(!m) return null;
     const airlineName = m[1].trim().toUpperCase();
     const num = m[2];
     return { airlineName, num };
+  }
+
+  function findAirlineCodeNearby(lines, idx){
+    for(let look = idx; look >= 0 && look >= idx - 3; look--){
+      const name = (lines[look] || '').trim().toUpperCase();
+      if(name && AIRLINE_CODES[name]) return AIRLINE_CODES[name];
+    }
+    return null;
+  }
+
+  function resolveAirlineCode(candidate, contextCode){
+    if(contextCode) return contextCode;
+    if(candidate.length === 3 && /^[A-Z]{3}$/.test(candidate)){
+      return candidate.slice(0,2);
+    }
+    return candidate;
+  }
+
+  function getFlightInfo(lines, idx){
+    const raw = (lines[idx] || '').replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
+    if(!raw) return null;
+
+    const direct = extractFlightNumberLine(raw);
+    if(direct && AIRLINE_CODES[direct.airlineName]){
+      return {
+        airlineCode: AIRLINE_CODES[direct.airlineName],
+        number: direct.num,
+        index: idx
+      };
+    }
+
+    const designatorRe = /\b([A-Z0-9]{2,3})(?:\s|-)?(\d{1,4})\b/g;
+    let match;
+    while((match = designatorRe.exec(raw))){
+      const candidate = match[1].toUpperCase();
+      const number = match[2];
+      if(!/[A-Z]/.test(candidate)) continue; // skip if no letters (pure numeric)
+      const before = raw.slice(0, match.index).trim();
+      const prevWord = before.split(/\s+/).pop() || '';
+      if(/(Boeing|Airbus|Embraer|Bombardier|Dreamliner|neo|MAX|CRJ|E-?Jet)/i.test(prevWord)){
+        continue;
+      }
+      const contextCode = findAirlineCodeNearby(lines, idx);
+      const airlineCode = resolveAirlineCode(candidate, contextCode);
+      return { airlineCode, number, index: idx };
+    }
+
+    return null;
   }
 
   function convertSection(lines, headerDate, opts){
@@ -67,17 +143,16 @@
     let i=0;
     while(i<lines.length){
       // Seek a flight number line
-      let fnInfo=null, j=i;
+      let flightInfo=null, j=i;
       for(; j<lines.length; j++){
-        const maybe = extractFlightNumberLine(lines[j]);
-        if(maybe && AIRLINE_CODES[maybe.airlineName]){ fnInfo = maybe; break; }
+        const maybe = getFlightInfo(lines, j);
+        if(maybe){ flightInfo = maybe; break; }
       }
-      if(!fnInfo){ break; }
+      if(!flightInfo){ break; }
       // After that, find two times and two airports in order (dep time, dep airport, arr time, arr airport)
       let depTime=null, depAirport=null, arrTime=null, arrAirport=null, arrivesDate=null;
-      // Look backwards up to 3 lines for an immediate preceding airline name (not required)
       // Move past flight line
-      let k = j+1;
+      let k = flightInfo.index + 1;
       // Find dep time
       for(; k<lines.length; k++){
         const t = toAmPmMinutes(lines[k]);
@@ -107,10 +182,11 @@
       }
 
       if(depTime && depAirport && arrTime && arrAirport){
-        const airlineCode = AIRLINE_CODES[fnInfo.airlineName];
+        const airlineCode = flightInfo.airlineCode;
+        const flightNumber = flightInfo.number;
         segs.push({
           airlineCode,
-          number: fnInfo.num,
+          number: flightNumber,
           depDate: `${headerDate.day}${headerDate.mon}`,
           depDOW: headerDate.dow,
           depAirport,
@@ -121,7 +197,7 @@
         });
         i = k; // continue scan after what we consumed
       }else{
-        i = j+1;
+        i = flightInfo.index + 1;
       }
     }
 
@@ -158,7 +234,7 @@
     // return [{headerDate, lines: [...]}, ...] for Depart and Return
     const indices = [];
     for(let i=0;i<lines.length;i++){
-      if(/^Depart(?:\s*[•·-])?\s+/i.test(lines[i]) || /^Return(?:\s*[•·-])?\s+/i.test(lines[i])) indices.push(i);
+      if(/^(Depart(?:ure)?|Return|Outbound|Inbound)(?:\s*[•·-])?\s+/i.test(lines[i])) indices.push(i);
     }
     if(indices.length===0) return [];
     const sections = [];
@@ -172,7 +248,44 @@
   }
 
   function sanitize(raw){
-    return raw.split(/\r?\n/).map(s => s.replace(/\s+/g,' ').trim()).filter(Boolean);
+    const base = raw.split(/\r?\n/)
+      .map(s => s.replace(/\s+/g,' ').trim())
+      .filter(Boolean);
+    const expanded = [];
+    const timeRe = /(\d{1,2}:\d{2}\s*(?:[ap]m)?)/ig;
+
+    for(const line of base){
+      if(/^(Depart|Departure|Return|Outbound|Inbound)\b/i.test(line)){
+        expanded.push(line);
+        continue;
+      }
+
+      const bulletParts = line.split(/\s*[•·]\s*/).map(p => p.trim()).filter(Boolean);
+      if(bulletParts.length > 1){
+        expanded.push(...bulletParts);
+        continue;
+      }
+
+      timeRe.lastIndex = 0;
+      const timeMatches = [];
+      let match;
+      while((match = timeRe.exec(line))){
+        timeMatches.push(match[0].trim());
+      }
+      if(timeMatches.length >= 1){
+        expanded.push(...timeMatches);
+        const leftover = line.replace(timeRe, ' ')
+          .replace(/[-–—]/g,' ')
+          .replace(/\s+/g,' ')
+          .trim();
+        if(leftover) expanded.push(leftover);
+        continue;
+      }
+
+      expanded.push(line);
+    }
+
+    return expanded;
   }
 
   // Public API
