@@ -298,7 +298,31 @@
       expanded.push(line);
     }
 
-    return expanded;
+    const normalized = [];
+    const headerOnly = /^(Depart(?:ure)?|Return|Outbound|Inbound)$/i;
+
+    for (let i = 0; i < expanded.length; i++) {
+      const line = expanded[i];
+      if (headerOnly.test(line)) {
+        let combined = line;
+        let consumed = 0;
+        for (let look = 1; look <= 3 && (i + look) < expanded.length; look++) {
+          combined += ' ' + expanded[i + look];
+          if (parseHeaderDate(combined)) {
+            normalized.push(combined);
+            consumed = look;
+            break;
+          }
+        }
+        if (consumed) {
+          i += consumed;
+          continue;
+        }
+      }
+      normalized.push(line);
+    }
+
+    return normalized;
   }
 
   // Public API

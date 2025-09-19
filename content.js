@@ -148,19 +148,8 @@
     btn.setAttribute('aria-label', 'Copy star-I itinerary');
     btn.innerHTML = '<span aria-hidden="true" class="pill">*I</span>';
 
-    const anchor = selectBtn.parentElement || card;
-    const anchorStyle = getComputedStyle(anchor);
-    const needsAnchorPosition = anchorStyle.position === 'static';
-    if (needsAnchorPosition) {
-      anchor.style.position = 'relative';
-    }
-    btn.dataset.anchorReset = needsAnchorPosition ? '1' : '';
-    btn.style.position = 'absolute';
-    btn.style.top = '50%';
-    btn.style.marginTop = '-22px';
-    btn.style.right = '0.5rem';
-
-    anchor.appendChild(btn);
+    card.classList.add(ROOT_CLASS);
+    card.appendChild(btn);
 
     btn.addEventListener('click', async (ev) => {
       ev.preventDefault();
