@@ -118,6 +118,19 @@
       };
     }
 
+    // Support airline name on one line and flight number on the next
+    const nameOnly = raw.trim().toUpperCase();
+    if(AIRLINE_CODES[nameOnly] && (idx + 1) < lines.length){
+      const next = (lines[idx + 1] || '').trim();
+      if(/^\d{1,4}$/.test(next)){
+        return {
+          airlineCode: AIRLINE_CODES[nameOnly],
+          number: next,
+          index: idx + 1
+        };
+      }
+    }
+
     const designatorRe = /\b([A-Z0-9]{2,3})(?:\s|-)?(\d{1,4})\b/g;
     let match;
     while((match = designatorRe.exec(raw))){
