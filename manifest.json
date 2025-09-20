@@ -18,7 +18,8 @@
     {
       "matches": [
         "*://*.kayak.com/*",
-        "*://kayak.com/*"
+        "*://kayak.com/*",
+        "https://matrix.itasoftware.com/*"
       ],
       "js": [
         "airlines.js",
