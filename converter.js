@@ -7,6 +7,7 @@
   const MONTHS = {JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11};
   const MONTH_3 = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
   const DOW_CODE = { SUN:'S', MON:'M', TUE:'T', WED:'W', THU:'Q', FRI:'F', SAT:'J' };
+  const UNKNOWN_AIRLINE_CODE = 'XX';
 
   function pad2(n){ return String(n).padStart(2,'0'); }
   function toAmPmMinutes(s){ // "12:20 pm" -> minutes from midnight and GDS "1220P"
@@ -85,8 +86,29 @@
     const m = cleaned.match(/^([A-Za-z].*?)\s+(\d{1,4})$/);
     if(!m) return null;
     const airlineName = m[1].trim().toUpperCase();
+    if(/\bOPERATED BY\b/.test(airlineName)) return null;
     const num = m[2];
     return { airlineName, num };
+  }
+
+  function looksLikeAirlineName(name){
+    const normalized = (name || '').trim().toUpperCase();
+    if(!normalized) return false;
+    if(/\bOPERATED BY\b/.test(normalized)) return false;
+    if(AIRLINE_CODES[normalized]) return true;
+    return /\b(AIR|AIRWAYS|AIRLINES|AVIATION|FLY|JET|CONDOR|ICELANDAIR|TRANSAT|PORTER|VIRGIN|SKY|AERO|WING)\b/.test(normalized);
+  }
+
+  function determineAirlineCodeFromName(name){
+    const normalized = (name || '').trim().toUpperCase();
+    if(!normalized) return { code: UNKNOWN_AIRLINE_CODE, isKnown: false };
+    if(AIRLINE_CODES[normalized]){
+      return { code: AIRLINE_CODES[normalized], isKnown: true };
+    }
+    if(/^[A-Z0-9]{2,3}$/.test(normalized)){
+      return { code: resolveAirlineCode(normalized, null), isKnown: false };
+    }
+    return { code: UNKNOWN_AIRLINE_CODE, isKnown: false };
   }
 
   function findAirlineCodeNearby(lines, idx){
@@ -110,9 +132,10 @@
     if(!raw) return null;
 
     const direct = extractFlightNumberLine(raw);
-    if(direct && AIRLINE_CODES[direct.airlineName]){
+    if(direct && looksLikeAirlineName(direct.airlineName)){
+      const info = determineAirlineCodeFromName(direct.airlineName);
       return {
-        airlineCode: AIRLINE_CODES[direct.airlineName],
+        airlineCode: info.code,
         number: direct.num,
         index: idx
       };
@@ -120,11 +143,12 @@
 
     // Support airline name on one line and flight number on the next
     const nameOnly = raw.trim().toUpperCase();
-    if(AIRLINE_CODES[nameOnly] && (idx + 1) < lines.length){
+    if(looksLikeAirlineName(nameOnly) && (idx + 1) < lines.length){
       const next = (lines[idx + 1] || '').trim();
       if(/^\d{1,4}$/.test(next)){
+        const info = determineAirlineCodeFromName(nameOnly);
         return {
-          airlineCode: AIRLINE_CODES[nameOnly],
+          airlineCode: info.code,
           number: next,
           index: idx + 1
         };

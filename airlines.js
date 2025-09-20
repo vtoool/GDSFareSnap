@@ -16,6 +16,10 @@ const AIRLINE_CODES = {
     'VOLARIS': 'Y4',
     'INTERJET': '4O',
     'COPA AIRLINES': 'CM',
+    'SUN COUNTRY AIRLINES': 'SY',
+    'SUN COUNTRY': 'SY',
+    'PORTER AIRLINES': 'PD',
+    'PORTER': 'PD',
 
     // --- Regional North America ---
     'SKYWEST': 'OO',
@@ -52,6 +56,12 @@ const AIRLINE_CODES = {
     'AUSTRIAN AIRLINES': 'OS',
     'BRUSSELS AIRLINES': 'SN',
     'FINNAIR': 'AY',
+    'CONDOR': 'DE',
+    'CONDOR AIRLINES': 'DE',
+    'CONDOR FLUGDIENST': 'DE',
+    'ICELANDAIR': 'FI',
+    'AIR TRANSAT': 'TS',
+    'EUROWINGS': 'EW',
     'LOT POLISH AIRLINES': 'LO',
     'NORWEGIAN AIR SHUTTLE': 'DY',
     'SCANDINAVIAN AIRLINES': 'SK',
@@ -60,6 +70,7 @@ const AIRLINE_CODES = {
     'VIRGIN ATLANTIC': 'VS',
     'VUELING': 'VY',
     'WIZZ AIR': 'W6',
+    'TUI FLY': 'X3',
     
     // --- Asia & Oceania ---
     'SINGAPORE AIRLINES': 'SQ',
