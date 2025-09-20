@@ -133,9 +133,14 @@
   }
 
   function extractFlightNumberLine(line){
-    // e.g., "United Airlines 949"
-    const cleaned = line.replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
-    const m = cleaned.match(/^([A-Za-z].*?)\s+(\d{1,4})$/);
+    // e.g., "United Airlines 949" or "Scandinavian Airlines 661 (operated by Cityjet)"
+    const cleaned = (line || '')
+      .replace(/[•·]/g, ' ')
+      .replace(/\s+/g,' ')
+      .trim();
+    if(!cleaned) return null;
+    if(isLikelyEquipmentLine(cleaned)) return null;
+    const m = cleaned.match(/^([A-Za-z][A-Za-z\s'&.-]*?)\s+(\d{1,4})\b/);
     if(!m) return null;
     const airlineName = m[1].trim().toUpperCase();
     if(/\bOPERATED BY\b/.test(airlineName)) return null;
@@ -144,11 +149,17 @@
   }
 
   function looksLikeAirlineName(name){
-    const normalized = (name || '').trim().toUpperCase();
+    const normalized = (name || '')
+      .replace(/[•·]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase();
     if(!normalized) return false;
     if(/\bOPERATED BY\b/.test(normalized)) return false;
+    if(/\b(AIRBUS|BOEING|EMBRAER|BOMBARDIER|CANADAIR|DE HAVILLAND|MCDONNELL|DOUGLAS|LOCKHEED|SUKHOI|SUPERJET|FOKKER|TUP|ANTONOV|IL-\d+|SAAB|ATR|TURBOPROP|JETLINER|AIRCRAFT|E-?JET|CRJ|MAX|NEO)\b/.test(normalized)) return false;
     if(AIRLINE_CODES[normalized]) return true;
-    return /\b(AIR|AIRWAYS|AIRLINES|AVIATION|FLY|JET|CONDOR|ICELANDAIR|TRANSAT|PORTER|VIRGIN|SKY|AERO|WING)\b/.test(normalized);
+    if(/\bAIR\s/.test(normalized)) return true;
+    return /\b(AIRLINES?|AIRWAYS|AVIATION|FLY|JET |JETBLUE|JET2|CONDOR|ICELANDAIR|TRANSAT|PORTER|VIRGIN|SKY|AERO|WING)\b/.test(normalized);
   }
 
   function determineAirlineCodeFromName(name){
@@ -161,6 +172,34 @@
       return { code: resolveAirlineCode(normalized, null), isKnown: false };
     }
     return { code: UNKNOWN_AIRLINE_CODE, isKnown: false };
+  }
+
+  function isLikelyEquipmentLine(line){
+    const cleaned = (line || '')
+      .replace(/[•·]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if(!cleaned) return false;
+    if(/\bOPERATED BY\b/i.test(cleaned)) return false;
+    if(/\b(AIRLINES?|AIRWAYS|AVIATION)\b/i.test(cleaned)) return false;
+
+    const keywordRx = /\b(AIRBUS|BOEING|EMBRAER|BOMBARDIER|CANADAIR|DE HAVILLAND|MCDONNELL|DOUGLAS|LOCKHEED|SUKHOI|SUPERJET|FOKKER|TUP|ANTONOV|IL-?\d*|SAAB|ATR|CITATION|GULFSTREAM|TURBOPROP|JETLINER|AIRCRAFT|DASH|E-?JET|CRJ|MD-?\d*)\b/i;
+    if(keywordRx.test(cleaned)) return true;
+
+    const rjContextRx = /\b(CANADAIR|BOMBARDIER|REGIONAL JET|CITYJET|SKYWEST|ENVOY|GOJET|EXPRESSJET|AMERICAN EAGLE)\b/i;
+    if(/\bRJ\s?\d{2,3}\b/i.test(cleaned) && rjContextRx.test(cleaned)) return true;
+
+    if(/\b(?:MAX|NEO)\b/i.test(cleaned) && /\d/.test(cleaned)) return true;
+    if(/\b\d{3,4}-\d{2,3}\b/.test(cleaned)) return true;
+
+    if(/^(?:E-?\d{2,3}(?:-E2)?|CRJ ?\d{2,3}|Q\d{3,4}|Dash ?\d(?:-?\d{2,3})?)$/i.test(cleaned)) return true;
+
+    const abModelRx = /\b(?:A|B)\d{3,4}(?:-?\d+)?\b/i;
+    if(abModelRx.test(cleaned) && (/(AIRBUS|BOEING)/i.test(cleaned) || /\b(?:MAX|NEO)\b/i.test(cleaned) || /-/.test(cleaned))){
+      return true;
+    }
+
+    return false;
   }
 
   function findAirlineCodeNearby(lines, idx){
@@ -182,6 +221,7 @@
   function getFlightInfo(lines, idx){
     const raw = (lines[idx] || '').replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
     if(!raw) return null;
+    if(isLikelyEquipmentLine(raw)) return null;
 
     const direct = extractFlightNumberLine(raw);
     if(direct && looksLikeAirlineName(direct.airlineName)){
