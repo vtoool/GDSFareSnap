@@ -340,8 +340,12 @@
         }
         if(backTimes.length){
           backTimes.reverse();
-          depTime = backTimes[0] || depTime;
-          if(backTimes.length > 1) arrTime = backTimes[1];
+          if((!depTime || depTime.mins == null) && backTimes[0] && backTimes[0].mins != null){
+            depTime = backTimes[0];
+          }
+          if((!arrTime || arrTime.mins == null) && backTimes.length > 1 && backTimes[1] && backTimes[1].mins != null){
+            arrTime = backTimes[1];
+          }
         }
       }
 
