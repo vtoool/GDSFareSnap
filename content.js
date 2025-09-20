@@ -26,7 +26,6 @@
   let itaDetailRoot = null;
   let itaDetailHost = null;
   let itaDetailGroup = null;
-  let itaDetailButton = null;
   let itaDetailCopyTarget = null;
   let itaDetailEnsureTimer = null;
   let itaDetailRetryStart = 0;
@@ -53,6 +52,7 @@
         SETTINGS.enableDirectionButtons = storedDirections;
         buttonConfigVersion++;
         refreshExistingGroups();
+        scheduleItaDetailEnsure(true);
       } else {
         SETTINGS.enableDirectionButtons = storedDirections;
       }
@@ -66,6 +66,7 @@
       SETTINGS.enableDirectionButtons = !!chg.enableDirectionButtons.newValue;
       buttonConfigVersion++;
       refreshExistingGroups();
+      scheduleItaDetailEnsure(true);
     }
   });
 
@@ -1253,7 +1254,6 @@
     if (itaDetailGroup && itaDetailGroup.parentNode !== host){
       itaDetailGroup.remove();
       itaDetailGroup = null;
-      itaDetailButton = null;
     }
 
     if (!itaDetailGroup){
@@ -1271,28 +1271,33 @@
       host.appendChild(itaDetailGroup);
     }
 
-    if (!itaDetailButton || !itaDetailButton.isConnected){
+    const detailTarget = itaDetailCopyTarget || root;
+    const currentVersion = itaDetailGroup.dataset.configVersion;
+    const targetChanged = itaDetailGroup.__kayakCard !== detailTarget;
+    if (targetChanged){
+      itaDetailGroup.__kayakCard = detailTarget;
+    }
+
+    if (targetChanged || currentVersion !== String(buttonConfigVersion)){
       itaDetailGroup.innerHTML = '';
-      const config = {
-        key: 'details',
-        label: '*I',
-        title: 'Copy itinerary details',
-        ariaLabel: 'Copy itinerary details to clipboard',
-        direction: 'all',
-        successMessage: 'Copied'
-      };
-      itaDetailButton = createButton(itaDetailCopyTarget || root, config);
-      itaDetailButton.dataset.itaDetail = '1';
-      itaDetailGroup.appendChild(itaDetailButton);
+      const configs = getButtonConfigs();
+      configs.forEach(cfg => {
+        const btn = createButton(detailTarget, cfg);
+        btn.dataset.itaDetail = '1';
+        itaDetailGroup.appendChild(btn);
+      });
+      itaDetailGroup.dataset.configVersion = String(buttonConfigVersion);
     }
   }
 
   function cleanupItaDetailButton(){
-    if (itaDetailGroup && itaDetailGroup.parentNode){
-      itaDetailGroup.remove();
+    if (itaDetailGroup){
+      delete itaDetailGroup.__kayakCard;
+      if (itaDetailGroup.parentNode){
+        itaDetailGroup.remove();
+      }
     }
     itaDetailGroup = null;
-    itaDetailButton = null;
     itaDetailCopyTarget = null;
     if (itaDetailHost && itaDetailHostNeedsReset && itaDetailHost.classList){
       itaDetailHost.classList.remove('kayak-copy-inline-host');
