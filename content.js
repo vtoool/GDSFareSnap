@@ -156,8 +156,20 @@
       ev.stopPropagation();
       try{
         const raw = extractVisibleText(card);
-        await navigator.clipboard.writeText(raw);
-        toast('Option details copied');
+        if(!raw || !raw.trim()){
+          throw new Error('No itinerary details found');
+        }
+
+        let converted;
+        try {
+          converted = window.convertTextToI(raw, SETTINGS);
+        } catch (parseErr) {
+          console.error('Conversion failed:', parseErr);
+          throw new Error(parseErr?.message || 'Conversion failed');
+        }
+
+        await navigator.clipboard.writeText(converted);
+        toast('*I copied to clipboard');
       }catch(err){
         console.error('Copy option failed:', err);
         toast(err?.message || 'Copy failed');
@@ -201,14 +213,39 @@
       /Business Basic|Economy|Premium|Upper Class/i, /^Bags?$/i, /^Seat(s)?$/i, /^CO2/i
     ];
 
-    for(const t of tokens){
+    const dowPartLike = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)(?:day)?[,]?$/i;
+    const monthPartLike = /^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\.?|,)?$/i;
+    const monthDayLike = /^(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)(?:day)?[,]?\s*)?(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[A-Za-z]*\s*\d{1,2}(?:st|nd|rd|th)?$/i;
+    const dayNumberLike = /^\d{1,2}(?:st|nd|rd|th)?$/i;
+
+    for(let i = 0; i < tokens.length; i++){
+      const t = tokens[i];
+      const next = tokens[i + 1] || '';
       if (blacklist.some(rx => rx.test(t))) continue;
+
       if (departHdr.test(t) || returnHdr.test(t) ||
           durationLike.test(t) || airlineLike.test(t) || aircraftLike.test(t) ||
           timeLike.test(t) || airportLike.test(t) || changeLike.test(t) ||
           operatedLike.test(t) || arrivesLike.test(t) || overnightLike.test(t) ||
           flightCodeLike.test(t) ||
-          wifiLike.test(t) || limitedSeats.test(t)) {
+          wifiLike.test(t) || limitedSeats.test(t) ||
+          monthDayLike.test(t)) {
+        keep.push(t);
+        continue;
+      }
+
+      if (dowPartLike.test(t) || monthPartLike.test(t)){
+        keep.push(t);
+        continue;
+      }
+
+      if (dayNumberLike.test(t) && (monthPartLike.test(next) || dowPartLike.test(next))){
+        keep.push(t);
+        continue;
+      }
+
+      const prevKept = keep[keep.length - 1] || '';
+      if (dayNumberLike.test(t) && (monthPartLike.test(prevKept) || dowPartLike.test(prevKept))){
         keep.push(t);
       }
     }
