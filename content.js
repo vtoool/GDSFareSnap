@@ -72,10 +72,33 @@
     toast._t = setTimeout(() => t.classList.remove('show'), 1400);
   }
 
+  function cardLooksLikeAd(card){
+    if(!card) return false;
+    if(card.id === OVERLAY_ROOT_ID) return false;
+    const adBadge = card.querySelector('[data-testid*="ad" i], [data-test*="ad" i], [class*="AdBadge"], [class*="ad-badge"]');
+    if(adBadge){
+      const txt = (adBadge.innerText || adBadge.textContent || '').trim();
+      if(/\bAd\b/i.test(txt) || /Sponsored/i.test(txt)) return true;
+    }
+    const labelSources = [
+      card.getAttribute('aria-label') || '',
+      card.getAttribute('data-testid') || '',
+      card.getAttribute('data-test') || ''
+    ];
+    if(labelSources.some(val => /\bSponsored\b/i.test(val) || /\bAd\b/i.test(val))) return true;
+
+    const textContent = (card.innerText || '').trim();
+    if(!textContent) return false;
+    if(/\bSponsored\b/i.test(textContent)) return true;
+    if(/(?:\||•|·)\s*Ad\b/i.test(textContent)) return true;
+    return false;
+  }
+
   function shouldIgnoreCard(card){
     if(!card) return true;
     if(card.closest('.CRPe-main-banner-content')) return true;
     if(card.closest('.h_nb')) return true;
+    if(cardLooksLikeAd(card)) return true;
     return false;
   }
 
@@ -84,7 +107,67 @@
     if(!txt) return false;
     const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
     const airportMatches = txt.match(/\([A-Z]{3}\)/g) || [];
-    return timeMatches.length >= 2 && airportMatches.length >= 2;
+    if(timeMatches.length < 2 || airportMatches.length < 2) return false;
+    const durationMatches = txt.match(/\d+h(?:\s?\d+m)?/ig) || [];
+    const flightNumberMatches = txt.match(/\b[A-Z]{1,3}\s?\d{1,4}\b/g) || [];
+    const keywordMatches = txt.match(/\b(Depart|Departure|Return|Inbound|Outbound|Arrives|Operated by|Change planes)\b/ig) || [];
+    const hasFlightNumber = flightNumberMatches.some(code => {
+      const normalized = code.replace(/\s+/g, '');
+      return /[A-Z]{2}\d{1,4}/i.test(normalized);
+    });
+    return hasFlightNumber || durationMatches.length > 0 || keywordMatches.length > 0;
+  }
+
+  let cachedAvoidTop = 0;
+  let lastAvoidMeasure = 0;
+
+  function measureAvoidTop(){
+    const now = Date.now();
+    if(now - lastAvoidMeasure < 200){
+      return cachedAvoidTop;
+    }
+    lastAvoidMeasure = now;
+    const viewWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const candidates = new Set();
+    const selectorList = [
+      'header[role="banner"]',
+      'header[data-testid]',
+      'header',
+      '[data-testid*="header" i]',
+      '[data-test*="header" i]',
+      '.common-header',
+      '.CommonHeader',
+      '.common-Header',
+      '.header',
+      '.Header'
+    ];
+
+    selectorList.forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => candidates.add(el));
+    });
+
+    if(document.body){
+      Array.from(document.body.children).forEach(el => candidates.add(el));
+    }
+
+    let maxBottom = 0;
+    candidates.forEach(el => {
+      if(!el || el === overlayRoot) return;
+      if(el.closest && el.closest(`#${OVERLAY_ROOT_ID}`)) return;
+      const cs = getComputedStyle(el);
+      if(cs.position !== 'fixed' && cs.position !== 'sticky') return;
+      if(cs.display === 'none' || cs.visibility === 'hidden') return;
+      if(parseFloat(cs.opacity || '1') === 0) return;
+      const rect = el.getBoundingClientRect();
+      if(!rect || rect.bottom <= 0) return;
+      if(rect.top > 180) return;
+      if(rect.height < 20) return;
+      if(rect.width < Math.min(viewWidth, 280)) return;
+      maxBottom = Math.max(maxBottom, rect.bottom);
+    });
+
+    cachedAvoidTop = maxBottom || 0;
+    return cachedAvoidTop;
   }
 
   function getButtonConfigs(){
@@ -254,9 +337,16 @@
     const groupRect = group.getBoundingClientRect();
     const viewWidth = window.innerWidth || document.documentElement.clientWidth || 0;
     const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-    const maxTop = Math.max(0, viewHeight - groupRect.height - 4);
+    const avoidTop = measureAvoidTop();
+    if(rect.bottom <= avoidTop + 4 || rect.top >= viewHeight){
+      group.style.display = 'none';
+      group.style.visibility = 'hidden';
+      return;
+    }
+    const maxTop = Math.max(avoidTop + 4, viewHeight - groupRect.height - 4);
     const maxLeft = Math.max(0, viewWidth - groupRect.width - 4);
-    const top = clamp(rect.top + 10, 4, maxTop);
+    const desiredTop = rect.top + 10;
+    const top = clamp(Math.max(desiredTop, avoidTop + 8), avoidTop + 4, maxTop);
     const left = clamp(rect.right - groupRect.width - 10, 4, maxLeft);
 
     group.style.top = `${Math.round(top)}px`;
