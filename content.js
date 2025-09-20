@@ -1202,6 +1202,7 @@
     const normalized = (line || '').replace(/\s+/g, ' ').trim().toUpperCase();
     if(!normalized) return false;
     if(/^[0-9]/.test(normalized)) return false;
+    if(/\b(AIRBUS|BOEING|EMBRAER|BOMBARDIER|CANADAIR|DE HAVILLAND|MCDONNELL|DOUGLAS|LOCKHEED|SUKHOI|SUPERJET|FOKKER|TUP|ANTONOV|IL-?\d*|SAAB|ATR|TURBOPROP|JETLINER|AIRCRAFT|E-?JET|CRJ|MAX|NEO)\b/.test(normalized)) return false;
     if(typeof AIRLINE_CODES !== 'undefined' && AIRLINE_CODES[normalized]) return true;
     const airlineKeywords = [
       'AIR ', 'AIRLINES', 'AIRWAYS', 'AVIATION', 'FLY', 'JET ', 'JETBLUE', 'JET2', 'CONDOR', 'LUFTHANSA', 'UNITED', 'DELTA',
