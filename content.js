@@ -22,6 +22,16 @@
   let itaResultsObserver = null;
   let itaObservedRoot = null;
 
+  let itaDetailRoot = null;
+  let itaDetailHost = null;
+  let itaDetailGroup = null;
+  let itaDetailButton = null;
+  let itaDetailCopyTarget = null;
+  let itaDetailEnsureTimer = null;
+  let itaDetailRetryStart = 0;
+  let itaDetailRetryCount = 0;
+  let itaDetailHostNeedsReset = false;
+
   let cardResizeObserver = null;
   if (typeof ResizeObserver !== 'undefined') {
     cardResizeObserver = new ResizeObserver(() => {
@@ -255,6 +265,15 @@
 
         await navigator.clipboard.writeText(converted);
         markButtonCopied(btn);
+        if (typeof config.onSuccess === 'function') {
+          try {
+            config.onSuccess({ text: converted, button: btn, source: card });
+          } catch (hookErr) {
+            console.error('Success handler failed:', hookErr);
+          }
+        } else if (config.successMessage) {
+          toast(config.successMessage);
+        }
       }catch(err){
         console.error('Copy option failed:', err);
         toast(err?.message || 'Copy failed');
@@ -961,6 +980,222 @@
     schedulePositionSync();
   }
 
+  /* ---------- ITA itinerary details view button ---------- */
+
+  function looksLikeItaDetailContainer(el){
+    if (!IS_ITA || !el || !el.querySelector) return false;
+    if (el === document.body || el === document.documentElement) return false;
+    if (!el.isConnected) return false;
+    if (!isVisible(el)) return false;
+
+    if (el.closest){
+      const sidebar = el.closest('aside, [data-testid*="sidebar" i], [class*="sidebar" i]');
+      if (sidebar && sidebar !== el) return false;
+      const shareBlock = el.closest('[data-testid*="share" i], [data-testid*="export" i], [class*="share-export" i], [class*="ShareExport" i]');
+      if (shareBlock && shareBlock !== el) return false;
+    }
+
+    const heading = el.querySelector('h2, h3, h4, [role="heading"]');
+    if (heading){
+      const headingText = (heading.textContent || '').replace(/\s+/g,' ').trim();
+      if (/Share\s*&\s*Export/i.test(headingText)) return false;
+    }
+
+    const text = (el.innerText || '').replace(/\s+/g,' ').trim();
+    if (!text) return false;
+
+    const airportMatches = text.match(/\([A-Z]{3}\)/g) || [];
+    if (airportMatches.length < 2) return false;
+
+    const timeMatches = text.match(/\d{1,2}:\d{2}\s*(?:AM|PM)?/gi) || [];
+    if (timeMatches.length < 2) return false;
+
+    if (!/\b(Itinerary|Depart|Departure|Outbound|Inbound|Return|Flight|Duration|Layover|Economy|Business|Cabin)\b/i.test(text)){
+      return false;
+    }
+
+    if (/Share\s*&\s*Export/i.test(text) && airportMatches.length < 3){
+      return false;
+    }
+
+    const rect = el.getBoundingClientRect();
+    if (!rect || rect.width < 280 || rect.height < 140) return false;
+
+    return true;
+  }
+
+  function getItaDetailsRoot(){
+    if (!IS_ITA) return null;
+    const selectors = 'h1, h2, h3, h4, [role="heading"]';
+    const nodes = document.querySelectorAll(selectors);
+    const headings = [];
+    nodes.forEach(node => {
+      const txt = (node.textContent || '').replace(/\s+/g,' ').trim();
+      if (!txt) return;
+      if (!/Itinerary Details/i.test(txt)) return;
+      if (!isVisible(node)) return;
+      headings.push(node);
+    });
+    for (const heading of headings){
+      let current = heading;
+      while (current && current !== document.body){
+        if (looksLikeItaDetailContainer(current)){
+          return current;
+        }
+        current = current.parentElement;
+      }
+      const parent = heading.parentElement;
+      if (parent && parent.querySelectorAll){
+        const candidates = parent.querySelectorAll('[data-testid*="itinerary" i], [class*="itinerary" i], section, article');
+        for (const candidate of candidates){
+          if (!candidate.contains(heading)) continue;
+          if (looksLikeItaDetailContainer(candidate)){
+            return candidate;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function getItaDetailsCopyTarget(root){
+    if (!root || !root.querySelector) return root;
+    const selectors = [
+      '[data-testid*="segment" i]',
+      '[data-testid*="detail" i]',
+      '[class*="segment" i]',
+      'table'
+    ];
+    for (const sel of selectors){
+      const candidate = root.querySelector(sel);
+      if (!candidate || candidate === itaDetailGroup) continue;
+      const text = (candidate.innerText || '').replace(/\s+/g,' ').trim();
+      if (!text) continue;
+      if (/\([A-Z]{3}\)/.test(text) && /\d{1,2}:\d{2}/.test(text)){
+        return candidate;
+      }
+    }
+    return root;
+  }
+
+  function ensureItaDetailButton(){
+    if (!IS_ITA) return;
+
+    const root = getItaDetailsRoot();
+    if (!root || !root.isConnected || !isVisible(root)){
+      if (itaDetailRoot || itaDetailGroup){
+        cleanupItaDetailButton();
+      }
+      if (!itaDetailRetryStart){
+        itaDetailRetryStart = Date.now();
+        itaDetailRetryCount = 0;
+      }
+      if (Date.now() - itaDetailRetryStart <= 5000){
+        itaDetailRetryCount = Math.min(itaDetailRetryCount + 1, 20);
+        scheduleItaDetailEnsure(false);
+      } else {
+        itaDetailRetryStart = 0;
+        itaDetailRetryCount = 0;
+      }
+      return;
+    }
+
+    if (itaDetailRoot && itaDetailRoot !== root){
+      cleanupItaDetailButton();
+    }
+
+    itaDetailRoot = root;
+    itaDetailRetryStart = 0;
+    itaDetailRetryCount = 0;
+
+    const host = root;
+    if (itaDetailHost && itaDetailHost !== host){
+      if (itaDetailHostNeedsReset && itaDetailHost.classList){
+        itaDetailHost.classList.remove('kayak-copy-inline-host');
+      }
+      itaDetailHostNeedsReset = false;
+    }
+    itaDetailHost = host;
+
+    const computedPos = host instanceof Element ? getComputedStyle(host).position : '';
+    if (!computedPos || computedPos === 'static'){
+      if (!host.classList.contains('kayak-copy-inline-host')){
+        host.classList.add('kayak-copy-inline-host');
+      }
+      itaDetailHostNeedsReset = true;
+    } else {
+      itaDetailHostNeedsReset = false;
+    }
+
+    itaDetailCopyTarget = getItaDetailsCopyTarget(root) || root;
+
+    if (itaDetailGroup && itaDetailGroup.parentNode !== host){
+      itaDetailGroup.remove();
+      itaDetailGroup = null;
+      itaDetailButton = null;
+    }
+
+    if (!itaDetailGroup){
+      const group = document.createElement('div');
+      group.className = BTN_GROUP_CLASS;
+      group.classList.add('kayak-copy-btn-group--ita');
+      group.dataset.inline = '1';
+      group.dataset.itaDetail = '1';
+      group.setAttribute('role', 'group');
+      host.appendChild(group);
+      itaDetailGroup = group;
+    }
+
+    if (!itaDetailGroup.isConnected){
+      host.appendChild(itaDetailGroup);
+    }
+
+    if (!itaDetailButton || !itaDetailButton.isConnected){
+      itaDetailGroup.innerHTML = '';
+      const config = {
+        key: 'details',
+        label: '*I',
+        title: 'Copy itinerary details',
+        ariaLabel: 'Copy itinerary details to clipboard',
+        direction: 'all',
+        successMessage: 'Copied'
+      };
+      itaDetailButton = createButton(itaDetailCopyTarget || root, config);
+      itaDetailButton.dataset.itaDetail = '1';
+      itaDetailGroup.appendChild(itaDetailButton);
+    }
+  }
+
+  function cleanupItaDetailButton(){
+    if (itaDetailGroup && itaDetailGroup.parentNode){
+      itaDetailGroup.remove();
+    }
+    itaDetailGroup = null;
+    itaDetailButton = null;
+    itaDetailCopyTarget = null;
+    if (itaDetailHost && itaDetailHostNeedsReset && itaDetailHost.classList){
+      itaDetailHost.classList.remove('kayak-copy-inline-host');
+    }
+    itaDetailHostNeedsReset = false;
+    itaDetailHost = null;
+    itaDetailRoot = null;
+    itaDetailRetryStart = 0;
+    itaDetailRetryCount = 0;
+  }
+
+  function scheduleItaDetailEnsure(immediate = false){
+    if (!IS_ITA) return;
+    if (itaDetailEnsureTimer){
+      clearTimeout(itaDetailEnsureTimer);
+      itaDetailEnsureTimer = null;
+    }
+    const delay = immediate ? 0 : Math.min(420, 120 + itaDetailRetryCount * 160);
+    itaDetailEnsureTimer = setTimeout(() => {
+      itaDetailEnsureTimer = null;
+      ensureItaDetailButton();
+    }, delay);
+  }
+
   /* ---------- Visible text extractor (kept from previous build) ---------- */
 
   function looksLikeItaAirlineName(line){
@@ -1212,16 +1447,21 @@
 
   const mo = new MutationObserver((muts) => {
     let needsCleanup = false;
+    let detailHint = false;
     for (const m of muts){
       if (m.type === 'childList'){
         if (m.addedNodes){
           m.addedNodes.forEach(n => { if (n.nodeType === 1) processNode(n); });
           if (IS_ITA && m.addedNodes.length){
             needsCleanup = true;
+            detailHint = true;
           }
         }
         if (m.removedNodes && m.removedNodes.length){
-          if (IS_ITA) needsCleanup = true;
+          if (IS_ITA) {
+            needsCleanup = true;
+            detailHint = true;
+          }
         }
       } else if (m.type === 'attributes'){
         if (m.attributeName === 'aria-expanded'){
@@ -1243,6 +1483,7 @@
               }
             }
             needsCleanup = true;
+            detailHint = true;
           }
         }
       }
@@ -1250,6 +1491,9 @@
     if (IS_ITA && needsCleanup){
       const force = !itaObservedRoot || !itaObservedRoot.isConnected;
       cleanupItaGroups(force);
+    }
+    if (IS_ITA && detailHint){
+      scheduleItaDetailEnsure();
     }
     schedulePositionSync();
   });
@@ -1259,6 +1503,14 @@
     attributes:true,
     attributeFilter: IS_ITA ? ['aria-expanded','class'] : ['aria-expanded']
   });
+
+  if (IS_ITA){
+    const rescheduleDetail = () => scheduleItaDetailEnsure();
+    window.addEventListener('popstate', rescheduleDetail);
+    window.addEventListener('hashchange', rescheduleDetail);
+    window.addEventListener('pageshow', () => scheduleItaDetailEnsure(true));
+    scheduleItaDetailEnsure(true);
+  }
 
   // Initial pass
   (function initialScan(){
