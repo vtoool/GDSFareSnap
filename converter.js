@@ -342,7 +342,7 @@
     // Renumber across whole journey
     let n=1;
     const numbered = outLines.map(l => l.replace(/^\s*\d+/, String(n++).padStart(2,' ')));
-    return numbered.join('\\n');
+    return numbered.join('\n');
   };
 
   // Dead-stub helpers for later
