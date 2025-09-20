@@ -2,6 +2,9 @@
 (() => {
   'use strict';
 
+  const HOSTNAME = (location && location.hostname) || '';
+  const IS_ITA = /(?:^|\.)matrix\.itasoftware\.com$/i.test(HOSTNAME);
+
   const BTN_CLASS    = 'kayak-copy-btn';
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
@@ -422,6 +425,15 @@
     const r = el.getBoundingClientRect();
     if (r.height < 220 || r.width < 280) return false;
     const txt = (el.innerText || '');
+
+    if(IS_ITA){
+      const routeLike = /\([A-Z]{3}\)[^\n]+?\bto\b[^\n]+?\([A-Z]{3}\)/i.test(txt);
+      if(!routeLike) return false;
+      const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
+      if(timeMatches.length < 2) return false;
+      return true;
+    }
+
     const hasDepartLike = /\b(Depart|Departure|Outbound)\b/i.test(txt);
     const hasReturnLike = /\b(Return|Inbound|Arrival)\b/i.test(txt);
     if (!hasDepartLike && !hasReturnLike) return false;
@@ -524,15 +536,17 @@
     }
 
     const selectBtn = findSelectButton(card);
-    if (!selectBtn){
+    if (!selectBtn && !IS_ITA){
       removeCardButton(card);
       return;
     }
 
-    const selectRect = selectBtn.getBoundingClientRect();
-    if (selectRect.width < 80 || selectRect.height < 28){
-      removeCardButton(card);
-      return;
+    if(selectBtn){
+      const selectRect = selectBtn.getBoundingClientRect();
+      if (selectRect.width < 80 || selectRect.height < 28){
+        removeCardButton(card);
+        return;
+      }
     }
 
     if(!cardHasFlightClues(card)){
@@ -603,6 +617,7 @@
       /^\$\d/, /Select/, /deal(s)?\s*from/i, /per\s*son/i,
       /Business Basic|Economy|Premium|Upper Class/i, /^Bags?$/i, /^Seat(s)?$/i, /^CO2/i
     ];
+    const bookingClassLike = /\(([A-Z0-9]{1,2})\)/;
 
     const dowPartLike = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)(?:day)?[,]?$/i;
     const monthPartLike = /^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\.?|,)?$/i;
@@ -612,7 +627,12 @@
     for(let i = 0; i < tokens.length; i++){
       const t = tokens[i];
       const next = tokens[i + 1] || '';
-      if (blacklist.some(rx => rx.test(t))) continue;
+      if (blacklist.some(rx => rx.test(t))){
+        if(bookingClassLike.test(t)){
+          keep.push(t);
+        }
+        continue;
+      }
 
       if (departHdr.test(t) || returnHdr.test(t) ||
           durationLike.test(t) || airlineLike.test(t) || aircraftLike.test(t) ||
@@ -701,11 +721,14 @@
 
   // Initial pass
   (function initialScan(){
+    const matchers = IS_ITA
+      ? [/\([A-Z]{3}\)\s+to\s+/i, /\bEconomy\b/i]
+      : [/\bDepart\b/i];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode(n){
         const v = (n.nodeValue || '').trim();
         if(!v) return NodeFilter.FILTER_SKIP;
-        if(/(^|\s)Depart\b/i.test(v)) return NodeFilter.FILTER_ACCEPT;
+        if(matchers.some(rx => rx.test(v))) return NodeFilter.FILTER_ACCEPT;
         return NodeFilter.FILTER_SKIP;
       }
     });

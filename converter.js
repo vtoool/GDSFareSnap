@@ -82,9 +82,48 @@
     return { dow, mon, day };
   }
 
+  function parseInlineOnDate(line){
+    const cleaned = line.replace(/\(.*?\)/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const m = cleaned.match(/\bon\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
+    if(!m) return null;
+    const dowKey = m[1] ? m[1].toUpperCase().slice(0,3) : '';
+    const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
+    const mon = m[2].toUpperCase().slice(0,3);
+    const day = pad2(m[3]);
+    return { dow, mon, day };
+  }
+
   function extractAirportCode(line){
     const m = line.match(/\(([A-Z]{3})\)/);
     return m ? m[1] : null;
+  }
+
+  function parseRouteHeaderLine(line){
+    const cleaned = (line || '').replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
+    if(!cleaned) return null;
+    if(!/\bto\b/i.test(cleaned) || !/\bon\s+/i.test(cleaned)) return null;
+    const codeRx = /\(([A-Z]{3})\)/g;
+    const codes = [];
+    let match;
+    while((match = codeRx.exec(cleaned))){
+      codes.push(match[1]);
+      if(codes.length === 2) break;
+    }
+    if(codes.length < 2) return null;
+    const headerDate = parseInlineOnDate(cleaned);
+    if(!headerDate) return null;
+    return { origin: codes[0], dest: codes[1], headerDate };
+  }
+
+  function extractBookingClass(line){
+    const cleaned = (line || '').replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
+    if(!cleaned) return null;
+    const match = cleaned.match(/\(([A-Z0-9]{1,2})\)/);
+    if(!match) return null;
+    if(!/(Economy|Business|First|Premium|Coach|Cabin|Class)/i.test(cleaned)) return null;
+    return match[1].toUpperCase();
   }
 
   function isAirlineLine(line){
@@ -191,6 +230,9 @@
     const segs = [];
     let i = 0;
     let currentDate = headerDate ? { ...headerDate } : null;
+    let lastRouteInfo = null;
+    let homeAirport = null;
+    let inboundActive = false;
 
     const applyDepartsOverride = (line) => {
       const depInfo = parseDepartsDate(line || '');
@@ -200,6 +242,14 @@
         return true;
       }
       return false;
+    };
+
+    const findRouteHeaderBefore = (idx) => {
+      for(let look = idx; look >= 0 && look >= idx - 8; look--){
+        const info = parseRouteHeaderLine(lines[look]);
+        if(info) return { info, index: look };
+      }
+      return null;
     };
 
     while(i < lines.length){
@@ -219,32 +269,102 @@
       let arrivesDate = null;
       let k = flightInfo.index + 1;
 
+      const routeLookup = findRouteHeaderBefore(flightInfo.index);
+      const routeInfo = routeLookup ? routeLookup.info : null;
+      if(routeInfo){
+        lastRouteInfo = routeInfo;
+        if(!homeAirport && routeInfo.origin){
+          homeAirport = routeInfo.origin;
+        }
+        if(homeAirport && routeInfo.dest === homeAirport){
+          inboundActive = true;
+        }
+        if(!inboundActive && homeAirport && routeLookup && routeLookup.index > 0){
+          const prevLookup = findRouteHeaderBefore(routeLookup.index - 1);
+          if(prevLookup && prevLookup.info.dest === homeAirport){
+            inboundActive = true;
+          }
+        }
+        const prevDow = currentDate ? currentDate.dow : '';
+        const nextDow = routeInfo.headerDate.dow || prevDow || '';
+        currentDate = {
+          day: routeInfo.headerDate.day,
+          mon: routeInfo.headerDate.mon,
+          dow: nextDow
+        };
+      }
+
       for(; k < lines.length; k++){
         if(applyDepartsOverride(lines[k])) continue;
+        if(parseRouteHeaderLine(lines[k])) break;
         const t = toAmPmMinutes(lines[k]);
         if(t.mins != null){ depTime = t; k++; break; }
       }
-      for(; k < lines.length; k++){
-        if(applyDepartsOverride(lines[k])) continue;
-        const code = extractAirportCode(lines[k]);
-        if(code){ depAirport = code; k++; break; }
+      if(!routeInfo){
+        for(; k < lines.length; k++){
+          if(applyDepartsOverride(lines[k])) continue;
+          if(parseRouteHeaderLine(lines[k])) break;
+          const code = extractAirportCode(lines[k]);
+          if(code){ depAirport = code; k++; break; }
+        }
       }
       for(; k < lines.length; k++){
         if(applyDepartsOverride(lines[k])) continue;
+        if(parseRouteHeaderLine(lines[k])) break;
         const t = toAmPmMinutes(lines[k]);
         if(t.mins != null){ arrTime = t; k++; break; }
       }
-      for(; k < lines.length; k++){
-        if(applyDepartsOverride(lines[k])) continue;
-        const code = extractAirportCode(lines[k]);
-        if(code){ arrAirport = code; k++; break; }
+      if(!routeInfo){
+        for(; k < lines.length; k++){
+          if(applyDepartsOverride(lines[k])) continue;
+          if(parseRouteHeaderLine(lines[k])) break;
+          const code = extractAirportCode(lines[k]);
+          if(code){ arrAirport = code; k++; break; }
+        }
       }
 
-      for(let z = k; z < Math.min(k + 4, lines.length); z++){
+      if(routeInfo){
+        depAirport = depAirport || routeInfo.origin || depAirport;
+        arrAirport = arrAirport || routeInfo.dest || arrAirport;
+      }
+
+      if(flightInfo.index > 0){
+        const backTimes = [];
+        for(let look = flightInfo.index - 1; look >= 0 && backTimes.length < 3; look--){
+          const info = parseRouteHeaderLine(lines[look]);
+          if(info) break;
+          const t = toAmPmMinutes(lines[look]);
+          if(t.mins != null){
+            backTimes.push(t);
+          }
+        }
+        if(backTimes.length){
+          backTimes.reverse();
+          depTime = backTimes[0] || depTime;
+          if(backTimes.length > 1) arrTime = backTimes[1];
+        }
+      }
+
+      let bookingClass = null;
+      for(let z = k; z < Math.min(k + 6, lines.length); z++){
         if(applyDepartsOverride(lines[z])) continue;
+        if(!bookingClass){
+          const bc = extractBookingClass(lines[z]);
+          if(bc){
+            bookingClass = bc;
+            continue;
+          }
+        }
         const ad = parseArrivesDate(lines[z]);
         if(ad){ arrivesDate = ad; break; }
         if(extractFlightNumberLine(lines[z])) break;
+      }
+
+      if(!bookingClass){
+        for(let look = flightInfo.index + 1; look < Math.min(flightInfo.index + 6, lines.length); look++){
+          const bc = extractBookingClass(lines[look]);
+          if(bc){ bookingClass = bc; break; }
+        }
       }
 
       if(depTime && depAirport && arrTime && arrAirport){
@@ -264,7 +384,12 @@
           arrAirport,
           depGDS: depTime.gds,
           arrGDS: arrTime.gds,
-          arrDate: arrDateString
+          routeOrigin: lastRouteInfo ? lastRouteInfo.origin : null,
+          routeDest: lastRouteInfo ? lastRouteInfo.dest : null,
+          headerRef: currentDate ? { ...currentDate } : null,
+          bookingClass,
+          arrDate: arrDateString,
+          direction: inboundActive ? 'inbound' : 'outbound'
         });
         if(arrivesDate){
           const prevDow = currentDate ? currentDate.dow : '';
@@ -299,7 +424,8 @@
     for(let idx = 0; idx < segs.length; idx++){
       const s = segs[idx];
       const segNumber = String(idx + 1).padStart(2, '0');
-      const flightField = formatFlightDesignator(s.airlineCode, s.number, opts.bookingClass).padEnd(10, ' ');
+      const bookingClass = (s.bookingClass || opts.bookingClass || '').toUpperCase();
+      const flightField = formatFlightDesignator(s.airlineCode, s.number, bookingClass).padEnd(10, ' ');
       const dateField = `${s.depDate} ${s.depDOW}`.trim().padEnd(11, ' ');
       const cityField = `${s.depAirport}${s.arrAirport}${connIndicator}${opts.segmentStatus}`.padEnd(13, ' ');
       const depTime = String(s.depGDS || '').padStart(6, ' ');
@@ -407,6 +533,37 @@
   function parseSectionsWithSegments(rawText){
     const lines = sanitize(rawText);
     const sections = splitIntoSections(lines);
+    if(sections.length === 0){
+      const allSegments = collectSegments(lines, null);
+      if(allSegments.length === 0) return [];
+      const firstSeg = allSegments[0];
+      const homeAirport = firstSeg ? (firstSeg.routeOrigin || firstSeg.depAirport) : null;
+      const outbound = [];
+      const inbound = [];
+      let inboundSeen = false;
+      for(const seg of allSegments){
+        if(!inboundSeen && homeAirport && seg.routeDest === homeAirport){
+          inboundSeen = true;
+        }
+        if(seg.direction === 'inbound' || inboundSeen){
+          inbound.push(seg);
+        } else {
+          outbound.push(seg);
+        }
+      }
+      const headerFromSeg = (seg) => (seg && seg.headerRef) ? { ...seg.headerRef } : null;
+      const derived = [];
+      if(outbound.length){
+        derived.push({ headerDate: headerFromSeg(outbound[0]), kind:'outbound', segments: outbound });
+      }
+      if(inbound.length){
+        derived.push({ headerDate: headerFromSeg(inbound[0]), kind:'inbound', segments: inbound });
+      }
+      if(derived.length === 0){
+        derived.push({ headerDate: headerFromSeg(firstSeg), kind:'outbound', segments: allSegments });
+      }
+      return derived;
+    }
     return sections.map(sec => ({
       headerDate: sec.headerDate,
       kind: sec.kind,
