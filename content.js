@@ -17,6 +17,10 @@
 
   const cardGroupMap = new WeakMap();
   const activeGroups = new Set();
+  const itaGroupsByKey = new Map();
+
+  let itaResultsObserver = null;
+  let itaObservedRoot = null;
 
   let cardResizeObserver = null;
   if (typeof ResizeObserver !== 'undefined') {
@@ -447,6 +451,186 @@
     schedulePositionSync();
   }
 
+  function getItaSummaryRowFromDetail(detailRow){
+    if (!detailRow || !detailRow.previousElementSibling) return null;
+    let prev = detailRow.previousElementSibling;
+    while (prev) {
+      if (prev.classList && prev.classList.contains('row')) {
+        return prev;
+      }
+      prev = prev.previousElementSibling;
+    }
+    return null;
+  }
+
+  function getItaDetailRowFromSummary(summaryRow){
+    if (!summaryRow) return null;
+    let next = summaryRow.nextElementSibling;
+    while (next) {
+      if (next.classList && next.classList.contains('detail-row')) {
+        return next;
+      }
+      if (next.classList && next.classList.contains('row')) {
+        break;
+      }
+      next = next.nextElementSibling;
+    }
+    return null;
+  }
+
+  function isItaDetailVisible(summaryRow, detailRow){
+    if (!summaryRow || !detailRow) return false;
+    if (!summaryRow.classList || !summaryRow.classList.contains('expanded-row')) return false;
+    if (!isVisible(detailRow)) return false;
+    const expander = detailRow.querySelector && detailRow.querySelector('.detail-expander');
+    if (expander) {
+      const style = (expander.getAttribute('style') || '').replace(/\s+/g, '').toLowerCase();
+      if (style) {
+        const zeroHeight = /height:0px/.test(style);
+        const zeroMin = /min-height:0px/.test(style);
+        if (zeroHeight && zeroMin) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function getItaDetailCell(node, allowCollapsed = false){
+    if (!IS_ITA || !node) return null;
+    let el = node.nodeType === 1 ? node : node.parentElement;
+    while (el && el.nodeType === 1 && el.tagName !== 'TR' && el.tagName !== 'TD') {
+      el = el.parentElement;
+    }
+    if (!el) return null;
+    if (el.closest) {
+      const detailRow = el.closest('tr.detail-row');
+      if (detailRow) {
+        const td = detailRow.querySelector('td');
+        if (td) return td;
+      }
+    }
+    const summaryRow = el.closest ? el.closest('tr.row') : null;
+    if (summaryRow) {
+      const detailRow = getItaDetailRowFromSummary(summaryRow);
+      if (detailRow) {
+        const td = detailRow.querySelector('td');
+        if (td && (allowCollapsed || isItaDetailVisible(summaryRow, detailRow))) {
+          return td;
+        }
+      }
+    }
+    return null;
+  }
+
+  function getItaItineraryKey(summaryRow, detailRow){
+    if (!summaryRow && detailRow) {
+      summaryRow = getItaSummaryRowFromDetail(detailRow);
+    }
+    if (!summaryRow) return '';
+    const attrSources = [
+      summaryRow.getAttribute && summaryRow.getAttribute('data-itinerary-id'),
+      summaryRow.getAttribute && summaryRow.getAttribute('data-result-id'),
+      summaryRow.getAttribute && summaryRow.getAttribute('id')
+    ];
+    for (const val of attrSources) {
+      if (val) return val;
+    }
+    if (summaryRow.querySelector) {
+      const priceLink = summaryRow.querySelector('a[href*="/itinerary"]');
+      if (priceLink) {
+        const href = priceLink.getAttribute('href');
+        if (href) return href;
+      }
+    }
+    if (detailRow && detailRow.id) {
+      return detailRow.id;
+    }
+    const parent = summaryRow.parentElement;
+    if (parent) {
+      const rows = Array.from(parent.children).filter(el => el.classList && el.classList.contains('row'));
+      const idx = rows.indexOf(summaryRow);
+      if (idx >= 0) {
+        return `row-index:${idx}`;
+      }
+    }
+    return '';
+  }
+
+  function ensureItaResultsObserver(card){
+    if (!IS_ITA || !card || !card.closest) return;
+    const table = card.closest('table');
+    if (!table) return;
+    if (itaObservedRoot && itaObservedRoot !== table) {
+      cleanupItaGroups(true);
+      if (itaResultsObserver) {
+        try { itaResultsObserver.disconnect(); } catch (err) {}
+      }
+      itaObservedRoot = null;
+    }
+    if (!itaResultsObserver) {
+      itaResultsObserver = new MutationObserver((muts) => {
+        const forceClear = !itaObservedRoot || !itaObservedRoot.isConnected;
+        let needsCleanup = forceClear;
+        if (!needsCleanup) {
+          for (const m of muts) {
+            if (m.type === 'childList' && ((m.addedNodes && m.addedNodes.length) || (m.removedNodes && m.removedNodes.length))) {
+              needsCleanup = true;
+              break;
+            }
+          }
+        }
+        if (needsCleanup) {
+          cleanupItaGroups(forceClear);
+        }
+      });
+    }
+    if (itaObservedRoot !== table) {
+      if (itaResultsObserver) {
+        try { itaResultsObserver.disconnect(); } catch (err) {}
+      }
+      itaObservedRoot = table;
+      try {
+        itaResultsObserver.observe(table, { childList: true, subtree: true });
+      } catch (err) {
+        // ignore observer errors
+      }
+    }
+  }
+
+  function cleanupItaGroups(force = false){
+    if (!IS_ITA) return;
+    const snapshot = Array.from(activeGroups);
+    snapshot.forEach(group => {
+      if (!group || group.dataset.inline !== '1' || !group.classList.contains('kayak-copy-btn-group--ita')) {
+        return;
+      }
+      const card = group.__kayakCard;
+      const host = group.__inlineHost;
+      const detailRow = group.__kayakDetailRow || (card && card.closest ? card.closest('tr.detail-row') : null);
+      const summaryRow = group.__kayakSummaryRow || (detailRow ? getItaSummaryRowFromDetail(detailRow) : null);
+      const stillValid = !force && host && host.isConnected && card && card.isConnected && detailRow && detailRow.isConnected && summaryRow && summaryRow.isConnected && isItaDetailVisible(summaryRow, detailRow);
+      if (stillValid) {
+        return;
+      }
+      const key = group.dataset && group.dataset.itaKey;
+      if (card) {
+        removeCardButton(card);
+      } else {
+        if (key && itaGroupsByKey.get(key) === group) {
+          itaGroupsByKey.delete(key);
+        }
+        unregisterGroup(group);
+        if (group.parentNode) {
+          group.remove();
+        }
+      }
+    });
+    if (force) {
+      itaGroupsByKey.clear();
+    }
+  }
+
   /* ---------- Card + header detection ---------- */
 
   function looksLikeItaExpandedCard(el){
@@ -470,8 +654,11 @@
     return true;
   }
 
-  function normalizeItaCard(el){
+  function normalizeItaCard(el, opts){
     if(!IS_ITA || !el) return el;
+    const allowCollapsed = opts && opts.allowCollapsed;
+    const detailCell = getItaDetailCell(el, !!allowCollapsed);
+    if(detailCell) return detailCell;
     if(el.tagName === 'TD') return el;
     if(el.tagName === 'TR'){
       const cell = el.querySelector('td');
@@ -505,6 +692,12 @@
 
   // Find the expanded “card” container
   function findCardFrom(node){
+    if (IS_ITA) {
+      const detail = getItaDetailCell(node, false);
+      if (detail) {
+        return normalizeItaCard(detail);
+      }
+    }
     let el = node.nodeType === 1 ? node : node.parentElement;
     let hops = 0;
     while (el && hops++ < MAX_CLIMB) {
@@ -563,10 +756,14 @@
   function removeCardButton(card){
     if (!card) return;
     if (IS_ITA){
-      card = normalizeItaCard(card);
+      card = normalizeItaCard(card, { allowCollapsed: true });
     }
     const group = cardGroupMap.get(card);
     if (group){
+      const key = group.dataset && group.dataset.itaKey;
+      if (key && itaGroupsByKey.get(key) === group) {
+        itaGroupsByKey.delete(key);
+      }
       const host = group.__inlineHost;
       unregisterGroup(group);
       if (group.parentNode) group.remove();
@@ -583,44 +780,52 @@
 
     card = normalizeItaCard(card);
 
-    if (!card.isConnected){
+    if (!card || !card.isConnected){
       removeCardButton(card);
       return;
     }
 
-    if (!isVisible(card)){
-      schedulePositionSync();
-      return;
-    }
+    const detailRow = card.closest ? card.closest('tr.detail-row') : null;
+    const summaryRow = detailRow ? getItaSummaryRowFromDetail(detailRow) : null;
 
-    const expansionHost = card.getAttribute && card.getAttribute('aria-expanded') != null
-      ? card
-      : (card.closest ? card.closest('[aria-expanded]') : null);
-    if (expansionHost && expansionHost.getAttribute('aria-expanded') === 'false'){
+    if (!detailRow || !summaryRow){
       removeCardButton(card);
       return;
     }
 
-    if (shouldIgnoreCard(card)){
+    if (!isItaDetailVisible(summaryRow, detailRow)){
       removeCardButton(card);
       return;
     }
 
-    let host = card;
-    if (host.tagName === 'TR'){
-      const cell = host.querySelector('td');
-      if (cell) host = cell;
+    if (shouldIgnoreCard(card) || shouldIgnoreCard(summaryRow)){
+      removeCardButton(card);
+      return;
     }
-    if (host && host.querySelector && !host.matches('td')){
-      const cell = host.querySelector('td');
-      if (cell) host = cell;
-    }
+
+    ensureItaResultsObserver(card);
+
+    const host = card;
     if (!host || !host.isConnected){
       removeCardButton(card);
       return;
     }
 
     host.classList && host.classList.add('kayak-copy-inline-host');
+
+    const key = getItaItineraryKey(summaryRow, detailRow);
+    if (key){
+      const existing = itaGroupsByKey.get(key);
+      if (existing && existing.__kayakCard !== card){
+        if (existing.__kayakCard){
+          removeCardButton(existing.__kayakCard);
+        } else {
+          itaGroupsByKey.delete(key);
+          unregisterGroup(existing);
+          if (existing.parentNode) existing.remove();
+        }
+      }
+    }
 
     let group = cardGroupMap.get(card);
     if (!group){
@@ -629,7 +834,15 @@
       group.setAttribute('role', 'group');
       group.dataset.inline = '1';
       group.__inlineHost = host;
+      group.__kayakSummaryRow = summaryRow;
+      group.__kayakDetailRow = detailRow;
       group.classList.add('kayak-copy-btn-group--ita');
+      if (key){
+        group.dataset.itaKey = key;
+        itaGroupsByKey.set(key, group);
+      } else {
+        delete group.dataset.itaKey;
+      }
       cardGroupMap.set(card, group);
       registerGroup(card, group);
       buildGroupForCard(card, group);
@@ -640,12 +853,24 @@
       }
       group.dataset.inline = '1';
       group.__inlineHost = host;
+      group.__kayakSummaryRow = summaryRow;
+      group.__kayakDetailRow = detailRow;
       group.classList.add('kayak-copy-btn-group--ita');
       if (!activeGroups.has(group)){
         registerGroup(card, group);
       }
       if (group.dataset.configVersion !== String(buttonConfigVersion)){
         buildGroupForCard(card, group);
+      }
+      const prevKey = group.dataset && group.dataset.itaKey;
+      if (prevKey && prevKey !== key && itaGroupsByKey.get(prevKey) === group) {
+        itaGroupsByKey.delete(prevKey);
+      }
+      if (key){
+        group.dataset.itaKey = key;
+        itaGroupsByKey.set(key, group);
+      } else {
+        delete group.dataset.itaKey;
       }
     }
 
@@ -986,25 +1211,53 @@
   }
 
   const mo = new MutationObserver((muts) => {
+    let needsCleanup = false;
     for (const m of muts){
       if (m.type === 'childList'){
-        m.addedNodes && m.addedNodes.forEach(n => { if (n.nodeType === 1) processNode(n); });
-        if (m.removedNodes && m.removedNodes.length){
-          schedulePositionSync();
+        if (m.addedNodes){
+          m.addedNodes.forEach(n => { if (n.nodeType === 1) processNode(n); });
+          if (IS_ITA && m.addedNodes.length){
+            needsCleanup = true;
+          }
         }
-      } else if (m.type === 'attributes' && m.attributeName === 'aria-expanded'){
-        if (m.target && m.target.getAttribute('aria-expanded') === 'true'){
-          processNode(m.target);
-        } else if (m.target && m.target.getAttribute('aria-expanded') === 'false'){
-          const card = findCardFrom(m.target);
-          removeCardButton(card);
+        if (m.removedNodes && m.removedNodes.length){
+          if (IS_ITA) needsCleanup = true;
+        }
+      } else if (m.type === 'attributes'){
+        if (m.attributeName === 'aria-expanded'){
+          if (m.target && m.target.getAttribute('aria-expanded') === 'true'){
+            processNode(m.target);
+          } else if (m.target && m.target.getAttribute('aria-expanded') === 'false'){
+            const card = findCardFrom(m.target);
+            removeCardButton(card);
+          }
+        } else if (IS_ITA && m.attributeName === 'class'){
+          const target = m.target;
+          if (target && target.classList && target.classList.contains('row')){
+            if (target.classList.contains('expanded-row')){
+              processNode(target);
+            } else {
+              const detailCell = getItaDetailCell(target, true);
+              if (detailCell){
+                removeCardButton(detailCell);
+              }
+            }
+            needsCleanup = true;
+          }
         }
       }
+    }
+    if (IS_ITA && needsCleanup){
+      const force = !itaObservedRoot || !itaObservedRoot.isConnected;
+      cleanupItaGroups(force);
     }
     schedulePositionSync();
   });
   mo.observe(document.documentElement || document.body, {
-    subtree:true, childList:true, attributes:true, attributeFilter:['aria-expanded']
+    subtree:true,
+    childList:true,
+    attributes:true,
+    attributeFilter: IS_ITA ? ['aria-expanded','class'] : ['aria-expanded']
   });
 
   // Initial pass
