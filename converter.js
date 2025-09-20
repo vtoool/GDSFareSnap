@@ -69,6 +69,19 @@
     return { dow, mon, day };
   }
 
+  function parseDepartsDate(line){
+    const cleaned = line.replace(/\(.*?\)/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const m = cleaned.match(/Departs(?:\s+on)?\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
+    if(!m) return null;
+    const dowKey = m[1] ? m[1].toUpperCase().slice(0,3) : '';
+    const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
+    const mon = m[2].toUpperCase().slice(0,3);
+    const day = pad2(m[3]);
+    return { dow, mon, day };
+  }
+
   function extractAirportCode(line){
     const m = line.match(/\(([A-Z]{3})\)/);
     return m ? m[1] : null;
@@ -174,48 +187,63 @@
     return null;
   }
 
-  function convertSection(lines, headerDate, opts){
-    // Build segments by scanning patterns: Airline [optional], "Airline NNNN", times and airports
+  function collectSegments(lines, headerDate){
     const segs = [];
-    let i=0;
+    let i = 0;
     let currentDate = headerDate ? { ...headerDate } : null;
-    while(i<lines.length){
-      // Seek a flight number line
-      let flightInfo=null, j=i;
-      for(; j<lines.length; j++){
+
+    const applyDepartsOverride = (line) => {
+      const depInfo = parseDepartsDate(line || '');
+      if(depInfo){
+        const nextDow = depInfo.dow || (currentDate ? currentDate.dow : '');
+        currentDate = { day: depInfo.day, mon: depInfo.mon, dow: nextDow };
+        return true;
+      }
+      return false;
+    };
+
+    while(i < lines.length){
+      let flightInfo = null;
+      let j = i;
+      for(; j < lines.length; j++){
+        if(applyDepartsOverride(lines[j])) continue;
         const maybe = getFlightInfo(lines, j);
         if(maybe){ flightInfo = maybe; break; }
       }
-      if(!flightInfo){ break; }
-      // After that, find two times and two airports in order (dep time, dep airport, arr time, arr airport)
-      let depTime=null, depAirport=null, arrTime=null, arrAirport=null, arrivesDate=null;
-      // Move past flight line
+      if(!flightInfo) break;
+
+      let depTime = null;
+      let depAirport = null;
+      let arrTime = null;
+      let arrAirport = null;
+      let arrivesDate = null;
       let k = flightInfo.index + 1;
-      // Find dep time
-      for(; k<lines.length; k++){
+
+      for(; k < lines.length; k++){
+        if(applyDepartsOverride(lines[k])) continue;
         const t = toAmPmMinutes(lines[k]);
-        if(t.mins!=null){ depTime=t; k++; break; }
+        if(t.mins != null){ depTime = t; k++; break; }
       }
-      // Find dep airport (line with (XXX))
-      for(; k<lines.length; k++){
+      for(; k < lines.length; k++){
+        if(applyDepartsOverride(lines[k])) continue;
         const code = extractAirportCode(lines[k]);
-        if(code){ depAirport=code; k++; break; }
+        if(code){ depAirport = code; k++; break; }
       }
-      // Skip duration lines etc until next time
-      for(; k<lines.length; k++){
+      for(; k < lines.length; k++){
+        if(applyDepartsOverride(lines[k])) continue;
         const t = toAmPmMinutes(lines[k]);
-        if(t.mins!=null){ arrTime=t; k++; break; }
+        if(t.mins != null){ arrTime = t; k++; break; }
       }
-      // Find arr airport
-      for(; k<lines.length; k++){
+      for(; k < lines.length; k++){
+        if(applyDepartsOverride(lines[k])) continue;
         const code = extractAirportCode(lines[k]);
-        if(code){ arrAirport=code; k++; break; }
+        if(code){ arrAirport = code; k++; break; }
       }
-      // Optionally check following lines for "Arrives ..." date
-      for(let z=k; z<Math.min(k+4, lines.length); z++){
+
+      for(let z = k; z < Math.min(k + 4, lines.length); z++){
+        if(applyDepartsOverride(lines[z])) continue;
         const ad = parseArrivesDate(lines[z]);
         if(ad){ arrivesDate = ad; break; }
-        // If we see a new flight number line, stop
         if(extractFlightNumberLine(lines[z])) break;
       }
 
@@ -240,29 +268,33 @@
         });
         if(arrivesDate){
           const prevDow = currentDate ? currentDate.dow : '';
-          const nextDow = prevDow || arrivesDate.dow || '';
+          const nextDow = arrivesDate.dow || prevDow || '';
           currentDate = {
             day: arrivesDate.day,
             mon: arrivesDate.mon,
             dow: nextDow
           };
         }
-        i = k; // continue scan after what we consumed
+        i = k;
       }else{
         i = flightInfo.index + 1;
       }
     }
 
-    // Format to *I lines
+    return segs;
+  }
+
+  function formatSegmentsToILines(segs, opts){
     const out = [];
+    if(segs.length === 0) return out;
     const connIndicator = (segs.length > 1) ? '*' : ' ';
 
-    function formatFlightDesignator(airlineCode, number, bookingClass){
+    const formatFlightDesignator = (airlineCode, number, bookingClass) => {
       const base = number.length < 4
         ? `${airlineCode} ${number}`
         : `${airlineCode}${number}`;
       return `${base}${bookingClass}`;
-    }
+    };
 
     for(let idx = 0; idx < segs.length; idx++){
       const s = segs[idx];
@@ -372,15 +404,65 @@
     return normalized;
   }
 
+  function parseSectionsWithSegments(rawText){
+    const lines = sanitize(rawText);
+    const sections = splitIntoSections(lines);
+    return sections.map(sec => ({
+      headerDate: sec.headerDate,
+      kind: sec.kind,
+      segments: collectSegments(sec.lines, sec.headerDate)
+    }));
+  }
+
+  function filterSectionsByDirection(sections, desired){
+    if(desired === 'all') return sections;
+    return sections.filter(sec => desired === 'inbound' ? sec.kind === 'inbound' : sec.kind !== 'inbound');
+  }
+
+  function buildAvailabilityCommandFromSegments(segments){
+    if(!segments || segments.length === 0){
+      throw new Error('No segments parsed from itinerary.');
+    }
+    const first = segments[0];
+    const last = segments[segments.length - 1];
+    if(!first || !last || !first.depDate || !first.depAirport || !last.arrAirport){
+      throw new Error('Missing required data for availability search.');
+    }
+
+    const rawDay = first.depDate.slice(0, 2);
+    const month = first.depDate.slice(2);
+    const dayNumeric = parseInt(rawDay, 10);
+    if(!Number.isFinite(dayNumeric) || dayNumeric <= 0 || !month){
+      throw new Error('Invalid departure date for availability search.');
+    }
+    const dayPart = String(dayNumeric);
+
+    let command = `1${dayPart}${month}${first.depAirport}${last.arrAirport}`;
+
+    const transitAirports = segments.slice(0, -1).map(seg => seg.arrAirport).filter(Boolean);
+    if(transitAirports.length){
+      command += `12A${transitAirports.join('/')}`;
+    }
+
+    const seenAirlines = new Set();
+    let airlineSuffix = '';
+    for(const seg of segments){
+      const code = (seg.airlineCode || '').trim();
+      if(!code || seenAirlines.has(code)) continue;
+      seenAirlines.add(code);
+      airlineSuffix += `¥${code}`;
+    }
+
+    command += airlineSuffix;
+    return command;
+  }
+
   // Public API
   window.convertTextToI = function(rawText, options){
     const opts = Object.assign({ bookingClass:'J', segmentStatus:'SS1', direction:'all' }, options||{});
-    const lines = sanitize(rawText);
-    const sections = splitIntoSections(lines);
+    const sections = parseSectionsWithSegments(rawText);
     const desired = (opts.direction || 'all').toLowerCase();
-    const filteredSections = desired === 'all'
-      ? sections
-      : sections.filter(sec => desired === 'inbound' ? sec.kind === 'inbound' : sec.kind !== 'inbound');
+    const filteredSections = filterSectionsByDirection(sections, desired);
 
     if(desired !== 'all' && filteredSections.length === 0){
       throw new Error(desired === 'inbound' ? 'No inbound segments found.' : 'No outbound segments found.');
@@ -388,21 +470,41 @@
 
     const outLines = [];
     for(const sec of filteredSections){
-      if(!sec.headerDate) continue;
-      const segLines = convertSection(sec.lines, sec.headerDate, opts);
+      if(!sec.headerDate || !sec.segments.length) continue;
+      const segLines = formatSegmentsToILines(sec.segments, opts);
       outLines.push(...segLines);
     }
-    if(outLines.length===0){
-      throw new Error("No segments parsed from itinerary.");
+    if(outLines.length === 0){
+      throw new Error('No segments parsed from itinerary.');
     }
-    // Renumber across whole journey
-    let n=1;
-    const numbered = outLines.map(l => l.replace(/^\s*\d+/, String(n++).padStart(2,' ')));
+
+    let n = 1;
+    const numbered = outLines.map(l => l.replace(/^\s*\d+/, String(n++).padStart(2, ' ')));
     return numbered.join('\n');
   };
 
+  window.convertTextToAvailability = function(rawText, options){
+    const opts = Object.assign({ direction:'outbound' }, options||{});
+    const sections = parseSectionsWithSegments(rawText);
+    if(sections.length === 0){
+      throw new Error('No segments parsed from itinerary.');
+    }
+    const desired = (opts.direction || 'outbound').toLowerCase();
+    const filteredSections = filterSectionsByDirection(sections, desired);
+    if(filteredSections.length === 0){
+      throw new Error(desired === 'inbound' ? 'No inbound segments found.' : 'No outbound segments found.');
+    }
+    const segments = [];
+    for(const sec of filteredSections){
+      segments.push(...sec.segments);
+    }
+    if(segments.length === 0){
+      throw new Error('No segments parsed from itinerary.');
+    }
+    return buildAvailabilityCommandFromSegments(segments);
+  };
+
   // Dead-stub helpers for later
-  window.generateAvailabilityCommand = function(type){ /* keep for future */ };
   window.copyPnrText = function(){ /* keep for future */ };
 
 })();
