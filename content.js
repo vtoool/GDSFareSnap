@@ -2,22 +2,42 @@
 (() => {
   'use strict';
 
-  const BTN_CLASS   = 'kayak-copy-btn';
-  const BTN_SEL     = '.' + BTN_CLASS;
-  const ROOT_CLASS  = 'kayak-copy-root';
+  const BTN_CLASS    = 'kayak-copy-btn';
+  const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
+  const BTN_GROUP_SEL   = '.' + BTN_GROUP_CLASS;
+  const ROOT_CLASS   = 'kayak-copy-root';
   const MAX_CLIMB   = 12;
   const SELECT_RX   = /\bSelect\b/i;
 
+  let buttonConfigVersion = 0;
+
   // settings cache
-  let SETTINGS = { bookingClass:'J', segmentStatus:'SS1' };
-  chrome.storage.sync.get(['bookingClass','segmentStatus'], (res)=>{
+  let SETTINGS = { bookingClass:'J', segmentStatus:'SS1', enableDirectionButtons:false };
+  chrome.storage.sync.get(['bookingClass','segmentStatus','enableDirectionButtons'], (res)=>{
     if (res && res.bookingClass)  SETTINGS.bookingClass  = String(res.bookingClass || 'J').toUpperCase();
     if (res && res.segmentStatus) SETTINGS.segmentStatus = String(res.segmentStatus || 'SS1').toUpperCase();
+    if (res) {
+      const storedDirections = typeof res.enableDirectionButtons === 'boolean'
+        ? !!res.enableDirectionButtons
+        : SETTINGS.enableDirectionButtons;
+      if(storedDirections !== SETTINGS.enableDirectionButtons){
+        SETTINGS.enableDirectionButtons = storedDirections;
+        buttonConfigVersion++;
+        refreshExistingGroups();
+      } else {
+        SETTINGS.enableDirectionButtons = storedDirections;
+      }
+    }
   });
   chrome.storage.onChanged.addListener((chg, area)=>{
     if(area!=='sync') return;
     if(chg.bookingClass)  SETTINGS.bookingClass  = String(chg.bookingClass.newValue  || 'J').toUpperCase();
     if(chg.segmentStatus) SETTINGS.segmentStatus = String(chg.segmentStatus.newValue || 'SS1').toUpperCase();
+    if(chg.enableDirectionButtons){
+      SETTINGS.enableDirectionButtons = !!chg.enableDirectionButtons.newValue;
+      buttonConfigVersion++;
+      refreshExistingGroups();
+    }
   });
 
   const isVisible = (el) => {
@@ -39,6 +59,130 @@
     t.classList.add('show');
     clearTimeout(toast._t);
     toast._t = setTimeout(() => t.classList.remove('show'), 1400);
+  }
+
+  function shouldIgnoreCard(card){
+    if(!card) return true;
+    if(card.closest('.CRPe-main-banner-content')) return true;
+    if(card.closest('.h_nb')) return true;
+    return false;
+  }
+
+  function cardHasFlightClues(card){
+    const txt = (card && typeof card.innerText === 'string') ? card.innerText : '';
+    if(!txt) return false;
+    const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
+    const airportMatches = txt.match(/\([A-Z]{3}\)/g) || [];
+    return timeMatches.length >= 2 && airportMatches.length >= 2;
+  }
+
+  function getButtonConfigs(){
+    const configs = [{
+      key: 'all',
+      label: '*I',
+      title: 'Copy itinerary option details',
+      ariaLabel: 'Copy itinerary option details to clipboard',
+      direction: 'all'
+    }];
+    if(SETTINGS.enableDirectionButtons){
+      configs.push({
+        key: 'ib',
+        label: '*IB',
+        title: 'Copy inbound segments',
+        ariaLabel: 'Copy inbound segments to clipboard',
+        direction: 'inbound'
+      });
+      configs.push({
+        key: 'ob',
+        label: '*OB',
+        title: 'Copy outbound segments',
+        ariaLabel: 'Copy outbound segments to clipboard',
+        direction: 'outbound'
+      });
+    }
+    return configs;
+  }
+
+  function markButtonCopied(btn){
+    if(!btn) return;
+    btn.classList.add('is-copied');
+    clearTimeout(btn._copyTimer);
+    btn._copyTimer = setTimeout(() => {
+      btn.classList.remove('is-copied');
+    }, 1400);
+  }
+
+  function createButton(card, config){
+    const btn = document.createElement('button');
+    btn.className = BTN_CLASS;
+    btn.type = 'button';
+    btn.title = config.title;
+    btn.setAttribute('aria-label', config.ariaLabel);
+    btn.dataset.direction = config.direction;
+    btn.innerHTML = '<span aria-hidden="true" class="pill pill-text">' + config.label + '</span>' +
+                    '<span aria-hidden="true" class="pill pill-check">✓</span>';
+
+    btn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if(btn.dataset.busy === '1') return;
+      btn.dataset.busy = '1';
+      try{
+        const raw = extractVisibleText(card);
+        if(!raw || !raw.trim()){
+          throw new Error('No itinerary details found');
+        }
+        const opts = {
+          bookingClass: SETTINGS.bookingClass,
+          segmentStatus: SETTINGS.segmentStatus
+        };
+        if(config.direction && config.direction !== 'all'){
+          opts.direction = config.direction;
+        }
+        let converted;
+        try {
+          converted = window.convertTextToI(raw, opts);
+        } catch (parseErr) {
+          console.error('Conversion failed:', parseErr);
+          throw new Error(parseErr?.message || 'Conversion failed');
+        }
+
+        await navigator.clipboard.writeText(converted);
+        markButtonCopied(btn);
+      }catch(err){
+        console.error('Copy option failed:', err);
+        toast(err?.message || 'Copy failed');
+      }finally{
+        delete btn.dataset.busy;
+      }
+    });
+
+    return btn;
+  }
+
+  function buildGroupForCard(card, group){
+    if(!group) return;
+    const configs = getButtonConfigs();
+    group.innerHTML = '';
+    configs.forEach(cfg => {
+      group.appendChild(createButton(card, cfg));
+    });
+    group.dataset.configVersion = String(buttonConfigVersion);
+  }
+
+  function refreshExistingGroups(){
+    document.querySelectorAll(BTN_GROUP_SEL).forEach(group => {
+      const card = group.closest('.' + ROOT_CLASS);
+      if(!card){
+        group.remove();
+        return;
+      }
+      if(shouldIgnoreCard(card)){
+        removeCardButton(card);
+        return;
+      }
+      buildGroupForCard(card, group);
+    });
   }
 
   /* ---------- Card + header detection ---------- */
@@ -114,14 +258,8 @@
 
   function removeCardButton(card){
     if (!card) return;
-    const btn = card.querySelector(BTN_SEL);
-    if (btn) {
-      const anchor = btn.parentElement;
-      if (anchor && btn.dataset.anchorReset === '1') {
-        anchor.style.position = '';
-      }
-      btn.remove();
-    }
+    const group = card.querySelector(BTN_GROUP_SEL);
+    if (group) group.remove();
     card.classList.remove(ROOT_CLASS);
   }
 
@@ -136,45 +274,43 @@
       return;
     }
 
-    if (card.querySelector(BTN_SEL)) return;
+    if(shouldIgnoreCard(card)){
+      removeCardButton(card);
+      return;
+    }
 
     const selectBtn = findSelectButton(card);
-    if (!selectBtn) return;
+    if (!selectBtn){
+      removeCardButton(card);
+      return;
+    }
 
-    const btn = document.createElement('button');
-    btn.className = BTN_CLASS;
-    btn.type = 'button';
-    btn.title = 'Copy option details';
-    btn.setAttribute('aria-label', 'Copy itinerary option details');
-    btn.innerHTML = '<span aria-hidden="true" class="pill">*I</span>';
+    const selectRect = selectBtn.getBoundingClientRect();
+    if (selectRect.width < 80 || selectRect.height < 28){
+      removeCardButton(card);
+      return;
+    }
+
+    if(!cardHasFlightClues(card)){
+      removeCardButton(card);
+      return;
+    }
+
+    let group = card.querySelector(BTN_GROUP_SEL);
+    if(!group){
+      group = document.createElement('div');
+      group.className = BTN_GROUP_CLASS;
+      group.setAttribute('role', 'group');
+      card.classList.add(ROOT_CLASS);
+      card.appendChild(group);
+      buildGroupForCard(card, group);
+      return;
+    }
 
     card.classList.add(ROOT_CLASS);
-    card.appendChild(btn);
-
-    btn.addEventListener('click', async (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      try{
-        const raw = extractVisibleText(card);
-        if(!raw || !raw.trim()){
-          throw new Error('No itinerary details found');
-        }
-
-        let converted;
-        try {
-          converted = window.convertTextToI(raw, SETTINGS);
-        } catch (parseErr) {
-          console.error('Conversion failed:', parseErr);
-          throw new Error(parseErr?.message || 'Conversion failed');
-        }
-
-        await navigator.clipboard.writeText(converted);
-        toast('*I copied to clipboard');
-      }catch(err){
-        console.error('Copy option failed:', err);
-        toast(err?.message || 'Copy failed');
-      }
-    });
+    if(group.dataset.configVersion !== String(buttonConfigVersion)){
+      buildGroupForCard(card, group);
+    }
   }
 
   /* ---------- Visible text extractor (kept from previous build) ---------- */

@@ -282,6 +282,12 @@
     return out;
   }
 
+  function determineSectionKind(headerLine){
+    const normalized = (headerLine || '').toLowerCase();
+    if(/\b(return|inbound)\b/.test(normalized)) return 'inbound';
+    return 'outbound';
+  }
+
   function splitIntoSections(lines){
     // return [{headerDate, lines: [...]}, ...] for Depart and Return
     const indices = [];
@@ -293,8 +299,10 @@
     for(let s=0; s<indices.length; s++){
       const start = indices[s];
       const end = (s+1<indices.length) ? indices[s+1] : lines.length;
-      const headerDate = parseHeaderDate(lines[start]);
-      sections.push({ headerDate, lines: lines.slice(start+1, end) });
+      const headerLine = lines[start];
+      const headerDate = parseHeaderDate(headerLine);
+      const kind = determineSectionKind(headerLine);
+      sections.push({ headerDate, lines: lines.slice(start+1, end), kind });
     }
     return sections;
   }
@@ -366,11 +374,20 @@
 
   // Public API
   window.convertTextToI = function(rawText, options){
-    const opts = Object.assign({ bookingClass:'J', segmentStatus:'SS1' }, options||{});
+    const opts = Object.assign({ bookingClass:'J', segmentStatus:'SS1', direction:'all' }, options||{});
     const lines = sanitize(rawText);
     const sections = splitIntoSections(lines);
+    const desired = (opts.direction || 'all').toLowerCase();
+    const filteredSections = desired === 'all'
+      ? sections
+      : sections.filter(sec => desired === 'inbound' ? sec.kind === 'inbound' : sec.kind !== 'inbound');
+
+    if(desired !== 'all' && filteredSections.length === 0){
+      throw new Error(desired === 'inbound' ? 'No inbound segments found.' : 'No outbound segments found.');
+    }
+
     const outLines = [];
-    for(const sec of sections){
+    for(const sec of filteredSections){
       if(!sec.headerDate) continue;
       const segLines = convertSection(sec.lines, sec.headerDate, opts);
       outLines.push(...segLines);
