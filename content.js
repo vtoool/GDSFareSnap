@@ -86,18 +86,18 @@
     }];
     if(SETTINGS.enableDirectionButtons){
       configs.push({
-        key: 'ib',
-        label: '*IB',
-        title: 'Copy inbound segments',
-        ariaLabel: 'Copy inbound segments to clipboard',
-        direction: 'inbound'
-      });
-      configs.push({
         key: 'ob',
-        label: '*OB',
+        label: 'OB',
         title: 'Copy outbound segments',
         ariaLabel: 'Copy outbound segments to clipboard',
         direction: 'outbound'
+      });
+      configs.push({
+        key: 'ib',
+        label: 'IB',
+        title: 'Copy inbound segments',
+        ariaLabel: 'Copy inbound segments to clipboard',
+        direction: 'inbound'
       });
     }
     return configs;
