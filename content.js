@@ -1024,38 +1024,149 @@
     return true;
   }
 
+  function scoreItaDetailContainer(el){
+    if (!IS_ITA || !el) return -Infinity;
+    if (!looksLikeItaDetailContainer(el)) return -Infinity;
+
+    const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+    if (!text) return -Infinity;
+
+    let score = 0;
+    const airportMatches = text.match(/\([A-Z]{3}\)/g) || [];
+    const timeMatches = text.match(/\d{1,2}:\d{2}\s*(?:AM|PM)?/gi) || [];
+    score += airportMatches.length * 6 + timeMatches.length * 3;
+
+    const segmentSelectors = [
+      '[data-testid*="segment" i]',
+      '[data-testid*="leg" i]',
+      '[class*="segment" i]',
+      'table tr',
+      'li'
+    ];
+    const segmentNodes = new Set();
+    segmentSelectors.forEach(sel => {
+      const list = el.querySelectorAll(sel);
+      for (const node of list){
+        if (segmentNodes.size >= 120) break;
+        if (node) segmentNodes.add(node);
+      }
+    });
+
+    let inspected = 0;
+    let segmentHits = 0;
+    for (const node of segmentNodes){
+      inspected++;
+      if (inspected > 80) break;
+      if (!isVisible(node)) continue;
+      const nodeText = (node.innerText || '').replace(/\s+/g, ' ').trim();
+      if (!nodeText) continue;
+      const nodeAirports = nodeText.match(/\([A-Z]{3}\)/g) || [];
+      const nodeTimes = nodeText.match(/\d{1,2}:\d{2}\s*(?:AM|PM)?/gi) || [];
+      if (nodeAirports.length && nodeTimes.length){
+        segmentHits += 1;
+      } else if (nodeAirports.length + nodeTimes.length >= 3){
+        segmentHits += 0.5;
+      }
+    }
+    score += segmentHits * 14;
+
+    if (el.closest){
+      if (el.closest('aside, [data-testid*="sidebar" i], [class*="sidebar" i]')){
+        score -= 160;
+      }
+      if (el.closest('[data-testid*="share" i], [data-testid*="export" i]')){
+        score -= 200;
+      }
+    }
+
+    if (typeof el.getBoundingClientRect === 'function'){
+      const rect = el.getBoundingClientRect();
+      if (rect){
+        score += Math.min(rect.width, 1400) / 4;
+        score += Math.min(rect.height, 2200) / 6;
+      }
+    }
+
+    return score;
+  }
+
   function getItaDetailsRoot(){
     if (!IS_ITA) return null;
     const selectors = 'h1, h2, h3, h4, [role="heading"]';
     const nodes = document.querySelectorAll(selectors);
-    const headings = [];
+    const headingCandidates = [];
     nodes.forEach(node => {
       const txt = (node.textContent || '').replace(/\s+/g,' ').trim();
       if (!txt) return;
-      if (!/Itinerary Details/i.test(txt)) return;
+      if (!/^(Itinerary Details|Itinerary)\b/i.test(txt)) return;
       if (!isVisible(node)) return;
-      headings.push(node);
+      headingCandidates.push(node);
     });
-    for (const heading of headings){
+
+    const seenContainers = new Set();
+    const scored = [];
+    const consider = (el) => {
+      if (!el || seenContainers.has(el)) return;
+      seenContainers.add(el);
+      const score = scoreItaDetailContainer(el);
+      if (score === -Infinity) return;
+      scored.push({ el, score });
+    };
+
+    headingCandidates.forEach(heading => {
       let current = heading;
       while (current && current !== document.body){
-        if (looksLikeItaDetailContainer(current)){
-          return current;
-        }
+        consider(current);
         current = current.parentElement;
       }
+
       const parent = heading.parentElement;
       if (parent && parent.querySelectorAll){
-        const candidates = parent.querySelectorAll('[data-testid*="itinerary" i], [class*="itinerary" i], section, article');
-        for (const candidate of candidates){
-          if (!candidate.contains(heading)) continue;
-          if (looksLikeItaDetailContainer(candidate)){
-            return candidate;
-          }
-        }
+        const localSet = new Set();
+        const siblingSelectors = [
+          '[data-testid*="itinerary" i]',
+          '[class*="itinerary" i]',
+          'section',
+          'article',
+          'div'
+        ];
+        siblingSelectors.forEach(sel => {
+          parent.querySelectorAll(sel).forEach(node => {
+            if (!node || !node.contains(heading)) return;
+            localSet.add(node);
+          });
+        });
+        localSet.forEach(node => consider(node));
       }
+    });
+
+    if (!scored.length){
+      const fallbackSelectors = [
+        '[data-testid*="itinerary" i]',
+        '[class*="itinerary" i]',
+        'main section',
+        'main article',
+        'main div'
+      ];
+      const fallbackSet = new Set();
+      fallbackSelectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(node => {
+          if (node) fallbackSet.add(node);
+        });
+      });
+      fallbackSet.forEach(node => {
+        if (!node || !isVisible(node)) return;
+        const heading = node.querySelector('h1, h2, h3, h4, [role="heading"]');
+        if (!heading) return;
+        const headingText = (heading.textContent || '').replace(/\s+/g,' ').trim();
+        if (!/^(Itinerary Details|Itinerary)\b/i.test(headingText)) return;
+        consider(node);
+      });
     }
-    return null;
+
+    if (!scored.length) return null;
+    scored.sort((a, b) => b.score - a.score);
+    return (scored[0] && scored[0].el) || null;
   }
 
   function getItaDetailsCopyTarget(root){
@@ -1510,6 +1621,22 @@
     window.addEventListener('popstate', rescheduleDetail);
     window.addEventListener('hashchange', rescheduleDetail);
     window.addEventListener('pageshow', () => scheduleItaDetailEnsure(true));
+    const wrap = (fnName) => {
+      const orig = history && history[fnName];
+      if (typeof orig !== 'function') return;
+      if (orig._kayakCopyWrapped) return;
+      const wrapped = function (...args){
+        const ret = orig.apply(this, args);
+        try {
+          rescheduleDetail();
+        } catch (e) {}
+        return ret;
+      };
+      wrapped._kayakCopyWrapped = true;
+      history[fnName] = wrapped;
+    };
+    wrap('pushState');
+    wrap('replaceState');
     scheduleItaDetailEnsure(true);
   }
 
