@@ -4,12 +4,23 @@
 
   const BTN_CLASS    = 'kayak-copy-btn';
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
-  const BTN_GROUP_SEL   = '.' + BTN_GROUP_CLASS;
-  const ROOT_CLASS   = 'kayak-copy-root';
+  const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MAX_CLIMB   = 12;
   const SELECT_RX   = /\bSelect\b/i;
 
   let buttonConfigVersion = 0;
+  let overlayRoot = null;
+  let syncScheduled = false;
+
+  const cardGroupMap = new WeakMap();
+  const activeGroups = new Set();
+
+  let cardResizeObserver = null;
+  if (typeof ResizeObserver !== 'undefined') {
+    cardResizeObserver = new ResizeObserver(() => {
+      schedulePositionSync();
+    });
+  }
 
   // settings cache
   let SETTINGS = { bookingClass:'J', segmentStatus:'SS1', enableDirectionButtons:false };
@@ -172,19 +183,146 @@
     group.dataset.configVersion = String(buttonConfigVersion);
   }
 
-  function refreshExistingGroups(){
-    document.querySelectorAll(BTN_GROUP_SEL).forEach(group => {
-      const card = group.closest('.' + ROOT_CLASS);
-      if(!card){
-        group.remove();
+  function ensureOverlayRoot(){
+    if (overlayRoot && overlayRoot.isConnected) return overlayRoot;
+    const existing = document.getElementById(OVERLAY_ROOT_ID);
+    if (existing) {
+      overlayRoot = existing;
+    }
+    if (!overlayRoot || !overlayRoot.isConnected) {
+      overlayRoot = document.createElement('div');
+      overlayRoot.id = OVERLAY_ROOT_ID;
+      overlayRoot.setAttribute('aria-hidden', 'true');
+      overlayRoot.style.position = 'fixed';
+      overlayRoot.style.inset = '0';
+      overlayRoot.style.pointerEvents = 'none';
+      overlayRoot.style.zIndex = '2147483000';
+    }
+    const host = document.body || document.documentElement;
+    if (host && overlayRoot.parentNode !== host) {
+      host.appendChild(overlayRoot);
+    }
+    return overlayRoot;
+  }
+
+  function registerGroup(card, group){
+    if (!group) return;
+    group.__kayakCard = card;
+    activeGroups.add(group);
+    if (cardResizeObserver && card) {
+      try {
+        cardResizeObserver.observe(card);
+      } catch (err) {
+        // ignore duplicate observe errors
+      }
+    }
+  }
+
+  function unregisterGroup(group){
+    if (!group) return;
+    const card = group.__kayakCard;
+    if (cardResizeObserver && card) {
+      try {
+        cardResizeObserver.unobserve(card);
+      } catch (err) {
+        // ignore
+      }
+    }
+    activeGroups.delete(group);
+    delete group.__kayakCard;
+  }
+
+  function clamp(value, min, max){
+    if (Number.isNaN(value)) return min;
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function positionGroup(card, group){
+    if (!card || !group) return;
+    const rect = card.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) {
+      group.style.display = 'none';
+      group.style.visibility = 'hidden';
+      return;
+    }
+
+    group.style.display = 'flex';
+    group.style.visibility = 'hidden';
+    group.style.top = '0px';
+    group.style.left = '0px';
+
+    const groupRect = group.getBoundingClientRect();
+    const viewWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const maxTop = Math.max(0, viewHeight - groupRect.height - 4);
+    const maxLeft = Math.max(0, viewWidth - groupRect.width - 4);
+    const top = clamp(rect.top + 10, 4, maxTop);
+    const left = clamp(rect.right - groupRect.width - 10, 4, maxLeft);
+
+    group.style.top = `${Math.round(top)}px`;
+    group.style.left = `${Math.round(left)}px`;
+    group.style.visibility = 'visible';
+  }
+
+  function syncPositions(){
+    if (activeGroups.size === 0) return;
+    const root = ensureOverlayRoot();
+    activeGroups.forEach(group => {
+      const card = group.__kayakCard;
+      if (!card) {
+        unregisterGroup(group);
+        if (group.parentNode) group.remove();
         return;
       }
-      if(shouldIgnoreCard(card)){
+      if (!card.isConnected) {
+        removeCardButton(card);
+        return;
+      }
+      if (shouldIgnoreCard(card)) {
+        removeCardButton(card);
+        return;
+      }
+      if (group.parentNode !== root) {
+        root.appendChild(group);
+      }
+      if (!isVisible(card)) {
+        group.style.display = 'none';
+        group.style.visibility = 'hidden';
+        return;
+      }
+      positionGroup(card, group);
+    });
+  }
+
+  function schedulePositionSync(){
+    if (syncScheduled) return;
+    syncScheduled = true;
+    requestAnimationFrame(() => {
+      syncScheduled = false;
+      syncPositions();
+    });
+  }
+
+  window.addEventListener('scroll', schedulePositionSync, true);
+  document.addEventListener('scroll', schedulePositionSync, true);
+  window.addEventListener('resize', schedulePositionSync, true);
+  window.addEventListener('orientationchange', schedulePositionSync);
+
+  function refreshExistingGroups(){
+    activeGroups.forEach(group => {
+      const card = group.__kayakCard;
+      if (!card) {
+        unregisterGroup(group);
+        if (group.parentNode) group.remove();
+        return;
+      }
+      if (!card.isConnected || shouldIgnoreCard(card)){
         removeCardButton(card);
         return;
       }
       buildGroupForCard(card, group);
     });
+    schedulePositionSync();
   }
 
   /* ---------- Card + header detection ---------- */
@@ -260,13 +398,27 @@
 
   function removeCardButton(card){
     if (!card) return;
-    const group = card.querySelector(BTN_GROUP_SEL);
-    if (group) group.remove();
-    card.classList.remove(ROOT_CLASS);
+    const group = cardGroupMap.get(card);
+    if (group){
+      unregisterGroup(group);
+      if (group.parentNode) group.remove();
+      cardGroupMap.delete(card);
+    }
+    schedulePositionSync();
   }
 
   function ensureCardButton(card){
-    if (!card || !isVisible(card)) return;
+    if (!card) return;
+
+    if (!card.isConnected) {
+      removeCardButton(card);
+      return;
+    }
+
+    if (!isVisible(card)) {
+      schedulePositionSync();
+      return;
+    }
 
     const expansionHost = card.getAttribute('aria-expanded') != null
       ? card
@@ -298,21 +450,32 @@
       return;
     }
 
-    let group = card.querySelector(BTN_GROUP_SEL);
+    const root = ensureOverlayRoot();
+    let group = cardGroupMap.get(card);
     if(!group){
       group = document.createElement('div');
       group.className = BTN_GROUP_CLASS;
       group.setAttribute('role', 'group');
-      card.classList.add(ROOT_CLASS);
-      card.appendChild(group);
+      group.style.position = 'fixed';
+      group.style.pointerEvents = 'auto';
+      group.style.visibility = 'hidden';
+      root.appendChild(group);
+      cardGroupMap.set(card, group);
+      registerGroup(card, group);
       buildGroupForCard(card, group);
-      return;
+    }else{
+      if (!activeGroups.has(group)){
+        registerGroup(card, group);
+      }
+      if (!group.isConnected){
+        root.appendChild(group);
+      }
+      if(group.dataset.configVersion !== String(buttonConfigVersion)){
+        buildGroupForCard(card, group);
+      }
     }
 
-    card.classList.add(ROOT_CLASS);
-    if(group.dataset.configVersion !== String(buttonConfigVersion)){
-      buildGroupForCard(card, group);
-    }
+    schedulePositionSync();
   }
 
   /* ---------- Visible text extractor (kept from previous build) ---------- */
@@ -428,6 +591,9 @@
     for (const m of muts){
       if (m.type === 'childList'){
         m.addedNodes && m.addedNodes.forEach(n => { if (n.nodeType === 1) processNode(n); });
+        if (m.removedNodes && m.removedNodes.length){
+          schedulePositionSync();
+        }
       } else if (m.type === 'attributes' && m.attributeName === 'aria-expanded'){
         if (m.target && m.target.getAttribute('aria-expanded') === 'true'){
           processNode(m.target);
@@ -437,6 +603,7 @@
         }
       }
     }
+    schedulePositionSync();
   });
   mo.observe(document.documentElement || document.body, {
     subtree:true, childList:true, attributes:true, attributeFilter:['aria-expanded']

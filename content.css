@@ -1,10 +1,21 @@
+#kayak-copy-overlay-root{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:2147483000;
+}
+
+#kayak-copy-overlay-root .kayak-copy-btn-group{
+  pointer-events:auto;
+}
+
 .kayak-copy-btn-group{
-  position:absolute;
-  top:10px;
-  right:10px;
+  position:fixed;
+  top:0;
+  left:0;
   display:flex;
   gap:8px;
-  z-index:2147483000;
+  z-index:2147483001;
 }
 
 .kayak-copy-btn{
@@ -89,4 +100,3 @@
 }
 .kayak-copy-toast.show{ opacity:1; transform:translateX(-50%) translateY(-4px); }
 
-.kayak-copy-root{ position:relative !important; }
