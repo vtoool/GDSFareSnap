@@ -132,16 +132,18 @@
         if(!raw || !raw.trim()){
           throw new Error('No itinerary details found');
         }
-        const opts = {
+        const baseOpts = {
           bookingClass: SETTINGS.bookingClass,
           segmentStatus: SETTINGS.segmentStatus
         };
-        if(config.direction && config.direction !== 'all'){
-          opts.direction = config.direction;
-        }
+        const direction = config.direction || 'all';
         let converted;
         try {
-          converted = window.convertTextToI(raw, opts);
+          if(direction === 'all'){
+            converted = window.convertTextToI(raw, baseOpts);
+          }else{
+            converted = window.convertTextToAvailability(raw, { direction });
+          }
         } catch (parseErr) {
           console.error('Conversion failed:', parseErr);
           throw new Error(parseErr?.message || 'Conversion failed');
