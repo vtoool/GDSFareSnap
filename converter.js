@@ -444,16 +444,12 @@
       command += `12A${transitAirports.join('/')}`;
     }
 
-    const seenAirlines = new Set();
-    let airlineSuffix = '';
     for(const seg of segments){
       const code = (seg.airlineCode || '').trim();
-      if(!code || seenAirlines.has(code)) continue;
-      seenAirlines.add(code);
-      airlineSuffix += `¥${code}`;
+      if(!code) continue;
+      command += `¥${code}`;
     }
 
-    command += airlineSuffix;
     return command;
   }
 
