@@ -212,6 +212,9 @@
   function createButton(card, config){
     const btn = document.createElement('button');
     btn.className = BTN_CLASS;
+    if (IS_ITA){
+      btn.classList.add('kayak-copy-btn--ita');
+    }
     btn.type = 'button';
     btn.title = config.title;
     btn.setAttribute('aria-label', config.ariaLabel);
@@ -267,6 +270,7 @@
       group.appendChild(createButton(card, cfg));
     });
     group.dataset.configVersion = String(buttonConfigVersion);
+    group.classList.toggle('kayak-copy-btn-group--ita', group.dataset.inline === '1');
   }
 
   function ensureOverlayRoot(){
@@ -359,7 +363,7 @@
 
   function syncPositions(){
     if (activeGroups.size === 0) return;
-    const root = ensureOverlayRoot();
+    let overlayRootRef = null;
     activeGroups.forEach(group => {
       const card = group.__kayakCard;
       if (!card) {
@@ -371,12 +375,37 @@
         removeCardButton(card);
         return;
       }
+
+      const inlineMode = group.dataset.inline === '1';
+      if (inlineMode){
+        if (shouldIgnoreCard(card)){
+          removeCardButton(card);
+          return;
+        }
+        if (!group.parentNode || !group.parentNode.isConnected){
+          removeCardButton(card);
+          return;
+        }
+        if (!isVisible(card)){
+          group.style.display = 'none';
+          group.style.visibility = 'hidden';
+          return;
+        }
+        group.style.display = 'flex';
+        group.style.visibility = 'visible';
+        return;
+      }
+
+      overlayRootRef = overlayRootRef || ensureOverlayRoot();
+      if (!overlayRootRef){
+        return;
+      }
       if (shouldIgnoreCard(card)) {
         removeCardButton(card);
         return;
       }
-      if (group.parentNode !== root) {
-        root.appendChild(group);
+      if (group.parentNode !== overlayRootRef) {
+        overlayRootRef.appendChild(group);
       }
       if (!isVisible(card)) {
         group.style.display = 'none';
@@ -420,20 +449,53 @@
 
   /* ---------- Card + header detection ---------- */
 
+  function looksLikeItaExpandedCard(el){
+    if(!el || el.nodeType !== 1) return false;
+    let target = el;
+    if(target.tagName === 'TR'){
+      const cell = target.querySelector('td');
+      if(cell) target = cell;
+    }
+    if(!target || target.nodeType !== 1 || !isVisible(target)) return false;
+    const rect = target.getBoundingClientRect();
+    if (!rect || rect.height < 80 || rect.width < 260) return false;
+    const txt = (target.innerText || '').trim();
+    if(!txt) return false;
+    if(!/\([A-Z]{3}\)/.test(txt)) return false;
+    if(!/\bto\b/i.test(txt)) return false;
+    const airportMatches = txt.match(/\([A-Z]{3}\)/g) || [];
+    if(airportMatches.length < 2) return false;
+    const flightMatches = txt.match(/\b[A-Z]{1,3}\s?\d{1,4}\b/g) || [];
+    if(flightMatches.length === 0) return false;
+    return true;
+  }
+
+  function normalizeItaCard(el){
+    if(!IS_ITA || !el) return el;
+    if(el.tagName === 'TD') return el;
+    if(el.tagName === 'TR'){
+      const cell = el.querySelector('td');
+      if(cell) return cell;
+    }
+    if(el.closest){
+      const closestCell = el.closest('td');
+      if(closestCell) return closestCell;
+    }
+    if(el.querySelector){
+      const nestedCell = el.querySelector('td');
+      if(nestedCell) return nestedCell;
+    }
+    return el;
+  }
+
   function looksLikeExpandedCard(el){
+    if(IS_ITA){
+      return looksLikeItaExpandedCard(el);
+    }
     if(!el || el.nodeType !== 1 || !isVisible(el)) return false;
     const r = el.getBoundingClientRect();
     if (r.height < 220 || r.width < 280) return false;
     const txt = (el.innerText || '');
-
-    if(IS_ITA){
-      const routeLike = /\([A-Z]{3}\)[^\n]+?\bto\b[^\n]+?\([A-Z]{3}\)/i.test(txt);
-      if(!routeLike) return false;
-      const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
-      if(timeMatches.length < 2) return false;
-      return true;
-    }
-
     const hasDepartLike = /\b(Depart|Departure|Outbound)\b/i.test(txt);
     const hasReturnLike = /\b(Return|Inbound|Arrival)\b/i.test(txt);
     if (!hasDepartLike && !hasReturnLike) return false;
@@ -446,7 +508,7 @@
     let el = node.nodeType === 1 ? node : node.parentElement;
     let hops = 0;
     while (el && hops++ < MAX_CLIMB) {
-      if (looksLikeExpandedCard(el)) return el;
+      if (looksLikeExpandedCard(el)) return normalizeItaCard(el);
       el = el.parentElement;
     }
     // shallow descendant fallback
@@ -455,7 +517,7 @@
       let count = 0;
       while (walker.nextNode() && count++ < 300) {
         const e = walker.currentNode;
-        if (looksLikeExpandedCard(e)) return e;
+        if (looksLikeExpandedCard(e)) return normalizeItaCard(e);
       }
     }
     return null;
@@ -500,17 +562,109 @@
 
   function removeCardButton(card){
     if (!card) return;
+    if (IS_ITA){
+      card = normalizeItaCard(card);
+    }
     const group = cardGroupMap.get(card);
     if (group){
+      const host = group.__inlineHost;
       unregisterGroup(group);
       if (group.parentNode) group.remove();
+      if (host && host.classList){
+        host.classList.remove('kayak-copy-inline-host');
+      }
       cardGroupMap.delete(card);
     }
     schedulePositionSync();
   }
 
+  function ensureItaButton(card){
+    if (!card) return;
+
+    card = normalizeItaCard(card);
+
+    if (!card.isConnected){
+      removeCardButton(card);
+      return;
+    }
+
+    if (!isVisible(card)){
+      schedulePositionSync();
+      return;
+    }
+
+    const expansionHost = card.getAttribute && card.getAttribute('aria-expanded') != null
+      ? card
+      : (card.closest ? card.closest('[aria-expanded]') : null);
+    if (expansionHost && expansionHost.getAttribute('aria-expanded') === 'false'){
+      removeCardButton(card);
+      return;
+    }
+
+    if (shouldIgnoreCard(card)){
+      removeCardButton(card);
+      return;
+    }
+
+    let host = card;
+    if (host.tagName === 'TR'){
+      const cell = host.querySelector('td');
+      if (cell) host = cell;
+    }
+    if (host && host.querySelector && !host.matches('td')){
+      const cell = host.querySelector('td');
+      if (cell) host = cell;
+    }
+    if (!host || !host.isConnected){
+      removeCardButton(card);
+      return;
+    }
+
+    host.classList && host.classList.add('kayak-copy-inline-host');
+
+    let group = cardGroupMap.get(card);
+    if (!group){
+      group = document.createElement('div');
+      group.className = BTN_GROUP_CLASS;
+      group.setAttribute('role', 'group');
+      group.dataset.inline = '1';
+      group.__inlineHost = host;
+      group.classList.add('kayak-copy-btn-group--ita');
+      cardGroupMap.set(card, group);
+      registerGroup(card, group);
+      buildGroupForCard(card, group);
+    }else{
+      const prevHost = group.__inlineHost;
+      if (prevHost && prevHost !== host && prevHost.classList){
+        prevHost.classList.remove('kayak-copy-inline-host');
+      }
+      group.dataset.inline = '1';
+      group.__inlineHost = host;
+      group.classList.add('kayak-copy-btn-group--ita');
+      if (!activeGroups.has(group)){
+        registerGroup(card, group);
+      }
+      if (group.dataset.configVersion !== String(buttonConfigVersion)){
+        buildGroupForCard(card, group);
+      }
+    }
+
+    if (group.parentNode !== host){
+      host.appendChild(group);
+    }
+
+    group.style.display = 'flex';
+    group.style.visibility = 'visible';
+  }
+
   function ensureCardButton(card){
     if (!card) return;
+
+    if (IS_ITA){
+      ensureItaButton(card);
+      schedulePositionSync();
+      return;
+    }
 
     if (!card.isConnected) {
       removeCardButton(card);
@@ -584,7 +738,141 @@
 
   /* ---------- Visible text extractor (kept from previous build) ---------- */
 
+  function looksLikeItaAirlineName(line){
+    const normalized = (line || '').replace(/\s+/g, ' ').trim().toUpperCase();
+    if(!normalized) return false;
+    if(/^[0-9]/.test(normalized)) return false;
+    if(typeof AIRLINE_CODES !== 'undefined' && AIRLINE_CODES[normalized]) return true;
+    const airlineKeywords = [
+      'AIR ', 'AIRLINES', 'AIRWAYS', 'AVIATION', 'FLY', 'JET ', 'JETBLUE', 'JET2', 'CONDOR', 'LUFTHANSA', 'UNITED', 'DELTA',
+      'AMERICAN', 'SWISS', 'AUSTRIAN', 'IBERIA', 'QANTAS', 'QATAR', 'EMIRATES', 'ETIHAD', 'TURKISH', 'SAS', 'FINNAIR', 'AER ',
+      'AERO', 'WING', 'SKY', 'PORTER', 'WESTJET', 'SPIRIT', 'FRONTIER', 'ICELAND', 'EUROWINGS', 'RYANAIR', 'EASYJET', 'VIRGIN',
+      'ALASKA', 'HAWAIIAN', 'KLM', 'AIR FRANCE', 'FRANCE AIR', 'TAP', 'ANA', 'JAPAN', 'COPA', 'LATAM', 'VUELING', 'LEVEL',
+      'TRANSAT', 'SUN COUNTRY', 'AER LINGUS', 'AEROMEXICO', 'AEROLINEAS', 'BRITISH', 'LOT', 'EVA', 'KOREAN', 'CHINA', 'HAINAN',
+      'PHILIPPINE'
+    ];
+    return airlineKeywords.some(keyword => normalized.includes(keyword));
+  }
+
+  function extractItaVisibleText(root){
+    if(!root) return '';
+    const rawText = (root.innerText || '').trim();
+    if(!rawText) return '';
+    const rawLines = rawText.split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const processed = [];
+
+    const rangeRx = /(\d{1,2}:\d{2}\s*(?:[AP]M)?)(?:\s*(?:to|–|—|-)\s*)(\d{1,2}:\d{2}\s*(?:[AP]M)?)/i;
+    const durationParenRx = /\(\s*\d+h(?:\s*\d*m)?\s*\)/ig;
+    const plusDaysRx = /\+\s?\d+\s*day(?:s)?/ig;
+    const layoverRx = /^LAYOVER IN\b/i;
+    const durationOnlyRx = /^\d+h(?:\s*\d+m)?$/i;
+    const equipmentRx = /\b(Airbus|Boeing|Embraer|Bombardier|CRJ|E-?Jet|Dreamliner|neo|MAX|ATR|Turboprop|Aircraft|Jetliner|Sukhoi)\b/i;
+    const operatedRx = /^Operated by/i;
+    const bookingRx = /\b(Economy|Business|First|Premium|Coach|Cabin|Class)[^()]*\(([A-Z0-9]{1,2})\)/i;
+    const cabinWordRx = /\b(Economy|Business|First|Premium|Coach|Cabin|Class)\b/i;
+    const flightDesignatorRx = /\b[A-Z]{1,3}\s?\d{1,4}\b/;
+    const routeMarkerRx = /\bto\b/i;
+    const airportRx = /\([A-Z]{3}\)/;
+    const pureFlightNumberRx = /^\d{1,4}[A-Z]?$/;
+    const timeTokenRx = /\b\d{1,2}:\d{2}\s*(?:[AP]M)?\b/g;
+
+    for(const original of rawLines){
+      let line = original.replace(/[•·]/g, ' ').replace(/[\u2013\u2014]/g, '-').replace(/\s+/g, ' ').trim();
+      if(!line || line === '•') continue;
+      if(layoverRx.test(line)) continue;
+
+      const hasRoute = routeMarkerRx.test(line) && airportRx.test(line);
+      const hasFlight = flightDesignatorRx.test(line);
+
+      const rangeMatch = line.match(rangeRx);
+      if(rangeMatch){
+        const dep = rangeMatch[1].replace(/\s+/g, ' ').trim();
+        const arr = rangeMatch[2].replace(/\s+/g, ' ').trim();
+        if(dep) processed.push(dep);
+        if(arr) processed.push(arr);
+        line = line.replace(rangeRx, '').trim();
+      }
+
+      if(!hasRoute && !hasFlight){
+        const tokens = line.match(timeTokenRx);
+        if(tokens && tokens.length >= 2 && /(\bto\b|[-–—])/.test(line)){
+          tokens.forEach(t => processed.push(t.trim()));
+          line = line.replace(timeTokenRx, '').replace(/(\bto\b|[-–—])/gi, ' ').trim();
+        }
+      }
+
+      line = line.replace(durationParenRx, ' ').replace(plusDaysRx, ' ').replace(/\s+/g, ' ').trim();
+      if(!line && !hasRoute && !hasFlight){
+        continue;
+      }
+
+      if(!hasRoute && !hasFlight){
+        const bookingMatch = line.match(bookingRx);
+        if(bookingMatch){
+          processed.push(`${bookingMatch[1]} (${bookingMatch[2].toUpperCase()})`);
+          continue;
+        }
+        if(equipmentRx.test(line) || operatedRx.test(line)){
+          continue;
+        }
+        if(durationOnlyRx.test(line)){
+          continue;
+        }
+        if(cabinWordRx.test(line) && !/\([A-Z0-9]{1,2}\)/.test(line)){
+          continue;
+        }
+      }
+
+      if(line){
+        processed.push(line.replace(/\s*,\s*$/, ''));
+      }
+    }
+
+    if(processed.length === 0) return '';
+
+    const deduped = [];
+    for(const line of processed){
+      const trimmed = line.trim();
+      if(!trimmed) continue;
+      if(deduped.length && deduped[deduped.length - 1] === trimmed) continue;
+      deduped.push(trimmed);
+    }
+
+    const combined = [];
+    for(let i = 0; i < deduped.length; i++){
+      const cur = deduped[i];
+      const next = deduped[i + 1] || '';
+      const routeNoOn = /\bto\b/i.test(cur) && /\([A-Z]{3}\)/.test(cur) && !/\bon\b/i.test(cur);
+      const dateLike = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)(?:day)?[,\s]/i.test(next) || /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(next);
+      if(routeNoOn && dateLike){
+        const routeBase = cur.replace(/[,:]\s*$/, '');
+        const datePart = next.replace(/^[,\s]+/, '');
+        combined.push(`${routeBase} on ${datePart}`);
+        i++;
+        continue;
+      }
+      combined.push(cur);
+    }
+
+    const merged = [];
+    for(let i = 0; i < combined.length; i++){
+      const cur = combined[i];
+      const next = combined[i + 1] || '';
+      if(looksLikeItaAirlineName(cur) && pureFlightNumberRx.test(next.trim())){
+        merged.push(`${cur} ${next.trim()}`);
+        i++;
+        continue;
+      }
+      merged.push(cur);
+    }
+
+    return merged.join('\n');
+  }
+
   function extractVisibleText(root){
+    if(IS_ITA){
+      return extractItaVisibleText(root);
+    }
     const tokens = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node){
