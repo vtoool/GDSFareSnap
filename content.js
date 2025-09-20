@@ -10,6 +10,7 @@
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MAX_CLIMB   = 12;
   const SELECT_RX   = /\bSelect\b/i;
+  const ITA_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 
   let buttonConfigVersion = 0;
   let overlayRoot = null;
@@ -995,7 +996,7 @@
       if (shareBlock && shareBlock !== el) return false;
     }
 
-    const heading = el.querySelector('h2, h3, h4, [role="heading"]');
+    const heading = el.querySelector(ITA_HEADING_SELECTOR);
     if (heading){
       const headingText = (heading.textContent || '').replace(/\s+/g,' ').trim();
       if (/Share\s*&\s*Export/i.test(headingText)) return false;
@@ -1092,10 +1093,9 @@
 
   function getItaDetailsRoot(){
     if (!IS_ITA) return null;
-    const selectors = 'h1, h2, h3, h4, [role="heading"]';
-    const nodes = document.querySelectorAll(selectors);
+
     const headingCandidates = [];
-    nodes.forEach(node => {
+    document.querySelectorAll(ITA_HEADING_SELECTOR).forEach(node => {
       const txt = (node.textContent || '').replace(/\s+/g,' ').trim();
       if (!txt) return;
       if (!/^(Itinerary Details|Itinerary)\b/i.test(txt)) return;
@@ -1113,6 +1113,31 @@
       scored.push({ el, score });
     };
 
+    const addMatches = (root, selectors, predicate) => {
+      if (!root || typeof root.querySelectorAll !== 'function') return;
+      for (const sel of selectors){
+        const list = root.querySelectorAll(sel);
+        for (const node of list){
+          if (!node) continue;
+          if (predicate && !predicate(node)) continue;
+          consider(node);
+          if (scored.length >= 32) return;
+        }
+      }
+    };
+
+    const nearHeadingSelectors = [
+      '[data-testid*="itinerary" i]',
+      '[data-testid*="itin" i]',
+      '[data-testid*="detail" i]',
+      '[class*="itinerary" i]',
+      '[class*="itin" i]',
+      '[class*="detail" i]',
+      'section',
+      'article',
+      'div'
+    ];
+
     headingCandidates.forEach(heading => {
       let current = heading;
       while (current && current !== document.body){
@@ -1121,52 +1146,37 @@
       }
 
       const parent = heading.parentElement;
-      if (parent && parent.querySelectorAll){
-        const localSet = new Set();
-        const siblingSelectors = [
-          '[data-testid*="itinerary" i]',
-          '[class*="itinerary" i]',
-          'section',
-          'article',
-          'div'
-        ];
-        siblingSelectors.forEach(sel => {
-          parent.querySelectorAll(sel).forEach(node => {
-            if (!node || !node.contains(heading)) return;
-            localSet.add(node);
-          });
-        });
-        localSet.forEach(node => consider(node));
+      if (parent){
+        addMatches(parent, nearHeadingSelectors, (node) => node.contains(heading));
       }
     });
 
     if (!scored.length){
       const fallbackSelectors = [
         '[data-testid*="itinerary" i]',
+        '[data-testid*="itin" i]',
+        '[data-testid*="detail" i]',
         '[class*="itinerary" i]',
+        '[class*="itin" i]',
+        '[class*="detail" i]',
+        'main',
         'main section',
         'main article',
-        'main div'
+        'main > div',
+        'section',
+        'article'
       ];
-      const fallbackSet = new Set();
-      fallbackSelectors.forEach(sel => {
-        document.querySelectorAll(sel).forEach(node => {
-          if (node) fallbackSet.add(node);
-        });
-      });
-      fallbackSet.forEach(node => {
-        if (!node || !isVisible(node)) return;
-        const heading = node.querySelector('h1, h2, h3, h4, [role="heading"]');
-        if (!heading) return;
-        const headingText = (heading.textContent || '').replace(/\s+/g,' ').trim();
-        if (!/^(Itinerary Details|Itinerary)\b/i.test(headingText)) return;
-        consider(node);
-      });
+      addMatches(document, fallbackSelectors);
+      const main = document.querySelector('main');
+      if (main){
+        consider(main);
+        Array.from(main.children || []).forEach(child => consider(child));
+      }
     }
 
     if (!scored.length) return null;
     scored.sort((a, b) => b.score - a.score);
-    return (scored[0] && scored[0].el) || null;
+    return scored[0].el;
   }
 
   function getItaDetailsCopyTarget(root){
