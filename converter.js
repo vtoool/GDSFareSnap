@@ -178,6 +178,7 @@
     // Build segments by scanning patterns: Airline [optional], "Airline NNNN", times and airports
     const segs = [];
     let i=0;
+    let currentDate = headerDate ? { ...headerDate } : null;
     while(i<lines.length){
       // Seek a flight number line
       let flightInfo=null, j=i;
@@ -221,17 +222,31 @@
       if(depTime && depAirport && arrTime && arrAirport){
         const airlineCode = flightInfo.airlineCode;
         const flightNumber = flightInfo.number;
+        const depDateString = currentDate ? `${currentDate.day}${currentDate.mon}` : '';
+        const depDow = currentDate ? currentDate.dow : '';
+        const arrDateString = arrivesDate
+          ? `${arrivesDate.day}${arrivesDate.mon}${arrivesDate.dow ? ` ${arrivesDate.dow}` : ''}`
+          : "";
         segs.push({
           airlineCode,
           number: flightNumber,
-          depDate: `${headerDate.day}${headerDate.mon}`,
-          depDOW: headerDate.dow,
+          depDate: depDateString,
+          depDOW: depDow,
           depAirport,
           arrAirport,
           depGDS: depTime.gds,
           arrGDS: arrTime.gds,
-          arrDate: arrivesDate ? `${arrivesDate.day}${arrivesDate.mon} ${arrivesDate.dow}` : ""
+          arrDate: arrDateString
         });
+        if(arrivesDate){
+          const prevDow = currentDate ? currentDate.dow : '';
+          const nextDow = prevDow || arrivesDate.dow || '';
+          currentDate = {
+            day: arrivesDate.day,
+            mon: arrivesDate.mon,
+            dow: nextDow
+          };
+        }
         i = k; // continue scan after what we consumed
       }else{
         i = flightInfo.index + 1;
