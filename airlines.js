@@ -4,6 +4,7 @@ const AIRLINE_CODES = {
     'DELTA AIR LINES': 'DL',
     'DELTA': 'DL',
     'UNITED AIRLINES': 'UA',
+    'UNITED': 'UA',
     'SOUTHWEST AIRLINES': 'WN',
     'AIR CANADA': 'AC',
     'ALASKA AIRLINES': 'AS',
