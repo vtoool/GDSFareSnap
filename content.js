@@ -11,6 +11,9 @@
   const MAX_CLIMB   = 12;
   const SELECT_RX   = /\b(?:Select|Choose|View\s+(?:Deal|Flight)|See\s+Deal|Book|Continue)\b/i;
   const ITA_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
+  const CARD_KEY_ATTR = 'data-kayak-copy-key';
+
+  let nextCardKey = 1;
 
   let buttonConfigVersion = 0;
   let overlayRoot = null;
@@ -18,6 +21,7 @@
 
   const cardGroupMap = new WeakMap();
   const activeGroups = new Set();
+  const cardGroupsByKey = new Map();
   const itaGroupsByKey = new Map();
 
   let itaResultsObserver = null;
@@ -121,6 +125,20 @@
     return false;
   }
 
+  function getCardKey(card){
+    if(!card || card.nodeType !== 1) return null;
+    let key = card.getAttribute(CARD_KEY_ATTR);
+    if(!key){
+      key = `k${nextCardKey++}`;
+      try {
+        card.setAttribute(CARD_KEY_ATTR, key);
+      } catch (err) {
+        // ignore inability to set attribute
+      }
+    }
+    return key;
+  }
+
   function cardHasFlightClues(card){
     const txt = (card && typeof card.innerText === 'string') ? card.innerText : '';
     if(!txt) return false;
@@ -194,15 +212,69 @@
     return cachedAvoidTop;
   }
 
-  function getButtonConfigs(){
-    const configs = [{
+  function computeButtonConfigsForCard(card){
+    const baseConfig = {
       key: 'all',
       label: '*I',
       title: 'Copy itinerary option details',
       ariaLabel: 'Copy itinerary option details to clipboard',
       direction: 'all'
-    }];
-    if(SETTINGS.enableDirectionButtons){
+    };
+
+    let rawText = '';
+    let preview = null;
+    if(card){
+      try {
+        rawText = extractVisibleText(card);
+      } catch (err) {
+        console.warn('Failed to extract itinerary text for preview:', err);
+      }
+      if(rawText && typeof window.peekSegments === 'function'){
+        try {
+          preview = window.peekSegments(rawText);
+        } catch (err) {
+          console.warn('peekSegments failed:', err);
+        }
+      }
+    }
+
+    const configs = [ Object.assign({}, baseConfig) ];
+    const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
+    const segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
+    const multiCity = !!(preview && preview.isMultiCity && journeys.length > 0);
+
+    const journeySignatureParts = [];
+    if(multiCity){
+      journeys.forEach((journey, idx) => {
+        const start = typeof journey.startIdx === 'number' ? journey.startIdx : 0;
+        const end = typeof journey.endIdx === 'number' ? journey.endIdx : start;
+        if(end < start || !segments[start] || !segments[Math.min(end, segments.length - 1)]){
+          return;
+        }
+        const origin = journey.origin || (segments[start] ? segments[start].depAirport : '');
+        const dest = journey.dest || (segments[end] ? segments[end].arrAirport : '');
+        const indexHint = journey.indexHint != null && Number.isFinite(journey.indexHint)
+          ? journey.indexHint
+          : (idx + 1);
+        const labelSuffix = (origin && dest)
+          ? `${origin}-${dest}`
+          : `Segments ${start + 1}-${end + 1}`;
+        const label = `${indexHint} ${labelSuffix}`.trim();
+        const ariaLabel = origin && dest
+          ? `Copy journey ${indexHint} from ${origin} to ${dest}`
+          : `Copy journey ${indexHint}`;
+        configs.push({
+          key: `journey-${indexHint}-${start}-${end}`,
+          label,
+          title: ariaLabel,
+          ariaLabel,
+          direction: 'all',
+          segmentRange: [start, end],
+          journeyIndex: idx
+        });
+        journeySignatureParts.push(`${start}-${end}-${origin || ''}-${dest || ''}-${indexHint}`);
+      });
+    } else if(SETTINGS.enableDirectionButtons){
       configs.push({
         key: 'ob',
         label: 'OB',
@@ -218,7 +290,18 @@
         direction: 'inbound'
       });
     }
-    return configs;
+
+    const signaturePieces = [
+      multiCity ? 'multi' : 'simple',
+      journeySignatureParts.join('|'),
+      String(configs.length)
+    ];
+
+    return {
+      configs,
+      signature: signaturePieces.join('::'),
+      preview
+    };
   }
 
   function markButtonCopied(btn){
@@ -261,7 +344,17 @@
         let converted;
         try {
           if(direction === 'all'){
-            converted = window.convertTextToI(raw, baseOpts);
+            const convertOpts = Object.assign({}, baseOpts);
+            if(Array.isArray(config.segmentRange) && config.segmentRange.length === 2){
+              convertOpts.segmentRange = [
+                Number(config.segmentRange[0]),
+                Number(config.segmentRange[1])
+              ];
+            }
+            if(typeof config.journeyIndex === 'number'){
+              convertOpts.journeyIndex = config.journeyIndex;
+            }
+            converted = window.convertTextToI(raw, convertOpts);
           }else{
             converted = window.convertTextToAvailability(raw, { direction });
           }
@@ -295,14 +388,21 @@
     return btn;
   }
 
-  function buildGroupForCard(card, group){
+  function buildGroupForCard(card, group, configData){
     if(!group) return;
-    const configs = getButtonConfigs();
+    const data = configData || computeButtonConfigsForCard(card);
+    if(!data || !Array.isArray(data.configs) || data.configs.length === 0){
+      return;
+    }
+    const versionKey = `${buttonConfigVersion}:${data.signature || 'default'}`;
+    if(group.dataset.configVersion === versionKey && group.childElementCount === data.configs.length){
+      return;
+    }
     group.innerHTML = '';
-    configs.forEach(cfg => {
+    data.configs.forEach(cfg => {
       group.appendChild(createButton(card, cfg));
     });
-    group.dataset.configVersion = String(buttonConfigVersion);
+    group.dataset.configVersion = versionKey;
     group.classList.toggle('kayak-copy-btn-group--ita', group.dataset.inline === '1');
   }
 
@@ -331,6 +431,22 @@
   function registerGroup(card, group){
     if (!group) return;
     group.__kayakCard = card;
+    const key = getCardKey(card);
+    if(key){
+      group.__kayakCardKey = key;
+      const existing = cardGroupsByKey.get(key);
+      if(existing && existing !== group){
+        if(existing.__kayakCard && existing.__kayakCard !== card){
+          removeCardButton(existing.__kayakCard);
+        } else {
+          unregisterGroup(existing);
+          if (existing.parentNode) existing.remove();
+        }
+      }
+      cardGroupsByKey.set(key, group);
+    } else {
+      delete group.__kayakCardKey;
+    }
     activeGroups.add(group);
     if (cardResizeObserver && card) {
       try {
@@ -352,7 +468,12 @@
       }
     }
     activeGroups.delete(group);
+    const key = group.__kayakCardKey;
+    if(key && cardGroupsByKey.get(key) === group){
+      cardGroupsByKey.delete(key);
+    }
     delete group.__kayakCard;
+    delete group.__kayakCardKey;
   }
 
   function clamp(value, min, max){
@@ -802,10 +923,14 @@
       card = normalizeItaCard(card, { allowCollapsed: true });
     }
     const group = cardGroupMap.get(card);
+    const cardKey = card && card.getAttribute ? card.getAttribute(CARD_KEY_ATTR) : null;
     if (group){
       const key = group.dataset && group.dataset.itaKey;
       if (key && itaGroupsByKey.get(key) === group) {
         itaGroupsByKey.delete(key);
+      }
+      if(cardKey && cardGroupsByKey.get(cardKey) === group){
+        cardGroupsByKey.delete(cardKey);
       }
       const host = group.__inlineHost;
       unregisterGroup(group);
@@ -814,6 +939,13 @@
         host.classList.remove('kayak-copy-inline-host');
       }
       cardGroupMap.delete(card);
+    } else if (cardKey){
+      const stray = cardGroupsByKey.get(cardKey);
+      if(stray){
+        unregisterGroup(stray);
+        if(stray.parentNode) stray.remove();
+        cardGroupsByKey.delete(cardKey);
+      }
     }
     schedulePositionSync();
   }
@@ -844,6 +976,18 @@
     if (shouldIgnoreCard(card) || shouldIgnoreCard(summaryRow)){
       removeCardButton(card);
       return;
+    }
+
+    const cardKey = getCardKey(card);
+    if(cardKey){
+      const existingGroup = cardGroupsByKey.get(cardKey);
+      if(existingGroup && existingGroup.__kayakCard && existingGroup.__kayakCard !== card){
+        removeCardButton(existingGroup.__kayakCard);
+      } else if(existingGroup && !existingGroup.__kayakCard){
+        unregisterGroup(existingGroup);
+        if(existingGroup.parentNode) existingGroup.remove();
+        cardGroupsByKey.delete(cardKey);
+      }
     }
 
     ensureItaResultsObserver(card);
@@ -888,7 +1032,6 @@
       }
       cardGroupMap.set(card, group);
       registerGroup(card, group);
-      buildGroupForCard(card, group);
     }else{
       const prevHost = group.__inlineHost;
       if (prevHost && prevHost !== host && prevHost.classList){
@@ -902,9 +1045,6 @@
       if (!activeGroups.has(group)){
         registerGroup(card, group);
       }
-      if (group.dataset.configVersion !== String(buttonConfigVersion)){
-        buildGroupForCard(card, group);
-      }
       const prevKey = group.dataset && group.dataset.itaKey;
       if (prevKey && prevKey !== key && itaGroupsByKey.get(prevKey) === group) {
         itaGroupsByKey.delete(prevKey);
@@ -915,6 +1055,16 @@
       } else {
         delete group.dataset.itaKey;
       }
+    }
+
+    const configData = computeButtonConfigsForCard(card);
+    buildGroupForCard(card, group, configData);
+
+    if(cardKey){
+      group.__kayakCardKey = cardKey;
+      cardGroupsByKey.set(cardKey, group);
+    } else {
+      delete group.__kayakCardKey;
     }
 
     if (group.parentNode !== host){
@@ -957,6 +1107,18 @@
       return;
     }
 
+    const cardKey = getCardKey(card);
+    if(cardKey){
+      const existingGroup = cardGroupsByKey.get(cardKey);
+      if(existingGroup && existingGroup.__kayakCard && existingGroup.__kayakCard !== card){
+        removeCardButton(existingGroup.__kayakCard);
+      } else if(existingGroup && !existingGroup.__kayakCard){
+        unregisterGroup(existingGroup);
+        if(existingGroup.parentNode) existingGroup.remove();
+        cardGroupsByKey.delete(cardKey);
+      }
+    }
+
     const selectBtn = findSelectButton(card);
     let inlineFallback = false;
     if(selectBtn){
@@ -983,14 +1145,20 @@
     if (!activeGroups.has(group)){
       registerGroup(card, group);
     }
+    if(cardKey){
+      group.__kayakCardKey = cardKey;
+      cardGroupsByKey.set(cardKey, group);
+    } else {
+      delete group.__kayakCardKey;
+    }
     if(inlineFallback){
       group.dataset.inline = '1';
     } else {
       delete group.dataset.inline;
     }
-    if(group.dataset.configVersion !== String(buttonConfigVersion)){
-      buildGroupForCard(card, group);
-    }
+
+    const configData = computeButtonConfigsForCard(card);
+    buildGroupForCard(card, group, configData);
 
     const previousHost = group.__inlineHost;
     if(inlineFallback){
@@ -1329,15 +1497,17 @@
       itaDetailGroup.__kayakCard = detailTarget;
     }
 
-    if (targetChanged || currentVersion !== String(buttonConfigVersion)){
+    const configData = computeButtonConfigsForCard(detailTarget);
+    const desiredVersion = `${buttonConfigVersion}:${configData && configData.signature ? configData.signature : 'default'}`;
+    if (targetChanged || currentVersion !== desiredVersion){
       itaDetailGroup.innerHTML = '';
-      const configs = getButtonConfigs();
+      const configs = configData && Array.isArray(configData.configs) ? configData.configs : [];
       configs.forEach(cfg => {
         const btn = createButton(detailTarget, cfg);
         btn.dataset.itaDetail = '1';
         itaDetailGroup.appendChild(btn);
       });
-      itaDetailGroup.dataset.configVersion = String(buttonConfigVersion);
+      itaDetailGroup.dataset.configVersion = desiredVersion;
     }
   }
 

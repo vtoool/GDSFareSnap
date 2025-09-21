@@ -57,6 +57,29 @@
     return { dow, mon, day };
   }
 
+  function parseJourneyHeader(line){
+    const normalized = (line || '')
+      .replace(/[•·]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if(!/^Flight\s+\d+/i.test(normalized)) return null;
+
+    const indexMatch = normalized.match(/^Flight\s+(\d+)/i);
+    const index = indexMatch ? parseInt(indexMatch[1], 10) : null;
+
+    const dateMatch = normalized.match(/^Flight\s+\d+\s+(?:((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat))[\s,]+)?([A-Za-z]{3,})\s*(\d{1,2})/i);
+    let headerDate = null;
+    if(dateMatch){
+      const dowKey = dateMatch[1] ? dateMatch[1].toUpperCase().slice(0,3) : '';
+      const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
+      const mon = dateMatch[2].toUpperCase().slice(0,3);
+      const day = pad2(dateMatch[3]);
+      headerDate = { dow, mon, day };
+    }
+
+    return { index: Number.isFinite(index) ? index : null, headerDate };
+  }
+
   function parseArrivesDate(line){
     // "Arrives Fri, Oct 24"
     const cleaned = line.replace(/\(.*?\)/g, ' ').replace(/\s*\+\s?\d+(?:\s*day(?:s)?)?/ig,' ').replace(/\s+/g,' ').trim();
@@ -276,13 +299,79 @@
     return null;
   }
 
-  function collectSegments(lines, headerDate){
+  function collectSegments(lines, headerDate, collector){
     const segs = [];
     let i = 0;
     let currentDate = headerDate ? { ...headerDate } : null;
     let lastRouteInfo = null;
     let homeAirport = null;
     let inboundActive = false;
+
+    const tracking = collector && typeof collector === 'object' ? collector : null;
+    const journeys = tracking ? [] : null;
+    let currentJourney = null;
+
+    const finalizeJourney = () => {
+      if(!currentJourney) return;
+      const startIdx = currentJourney.startIdx;
+      const endIdx = segs.length - 1;
+      if(endIdx < startIdx){
+        currentJourney = null;
+        return;
+      }
+      const firstSeg = segs[startIdx];
+      const lastSeg = segs[endIdx];
+      currentJourney.origin = currentJourney.origin || (firstSeg ? firstSeg.depAirport : null);
+      currentJourney.dest = currentJourney.dest || (lastSeg ? lastSeg.arrAirport : null);
+      currentJourney.startIdx = startIdx;
+      currentJourney.endIdx = endIdx;
+      if(journeys){
+        journeys.push(currentJourney);
+      }
+      currentJourney = null;
+    };
+
+    const startJourney = (meta) => {
+      if(!journeys) return;
+      if(currentJourney){
+        const startIdx = currentJourney.startIdx;
+        if(segs.length > startIdx){
+          finalizeJourney();
+        }else{
+          currentJourney = null;
+        }
+      }
+      const info = meta || {};
+      let headerRef = null;
+      if(info.headerDate){
+        headerRef = { ...info.headerDate };
+      }else if(currentDate){
+        headerRef = { ...currentDate };
+      }
+      let indexHint = null;
+      if(typeof info.indexHint === 'number' && Number.isFinite(info.indexHint)){
+        indexHint = info.indexHint;
+      }
+      currentJourney = {
+        startIdx: segs.length,
+        origin: info.origin || null,
+        dest: info.dest || null,
+        explicit: !!info.explicit,
+        indexHint,
+        headerDate: headerRef
+      };
+    };
+
+    const ensureJourneyActive = () => {
+      if(!journeys) return;
+      if(!currentJourney){
+        startJourney({ explicit: false });
+      }
+    };
+
+    if(journeys && headerDate){
+      startJourney({ explicit: false, headerDate });
+    }
 
     const applyDepartsOverride = (line) => {
       const depInfo = parseDepartsDate(line || '');
@@ -306,6 +395,17 @@
       let flightInfo = null;
       let j = i;
       for(; j < lines.length; j++){
+        const journeyInfo = parseJourneyHeader(lines[j]);
+        if(journeyInfo){
+          const headerRef = journeyInfo.headerDate ? { ...journeyInfo.headerDate } : null;
+          if(headerRef){
+            const prevDow = currentDate ? currentDate.dow : '';
+            const nextDow = headerRef.dow || prevDow || '';
+            currentDate = { day: headerRef.day, mon: headerRef.mon, dow: nextDow };
+          }
+          startJourney({ explicit: true, indexHint: journeyInfo.index != null ? Number(journeyInfo.index) : null, headerDate: headerRef || currentDate });
+          continue;
+        }
         if(applyDepartsOverride(lines[j])) continue;
         const maybe = getFlightInfo(lines, j);
         if(maybe){ flightInfo = maybe; break; }
@@ -345,6 +445,8 @@
       }
 
       for(; k < lines.length; k++){
+        const headerCheck = parseJourneyHeader(lines[k]);
+        if(headerCheck) break;
         if(applyDepartsOverride(lines[k])) continue;
         if(parseRouteHeaderLine(lines[k])) break;
         const t = toAmPmMinutes(lines[k]);
@@ -352,6 +454,8 @@
       }
       if(!routeInfo){
         for(; k < lines.length; k++){
+          const headerCheck = parseJourneyHeader(lines[k]);
+          if(headerCheck) break;
           if(applyDepartsOverride(lines[k])) continue;
           if(parseRouteHeaderLine(lines[k])) break;
           const code = extractAirportCode(lines[k]);
@@ -359,6 +463,8 @@
         }
       }
       for(; k < lines.length; k++){
+        const headerCheck = parseJourneyHeader(lines[k]);
+        if(headerCheck) break;
         if(applyDepartsOverride(lines[k])) continue;
         if(parseRouteHeaderLine(lines[k])) break;
         const t = toAmPmMinutes(lines[k]);
@@ -366,6 +472,8 @@
       }
       if(!routeInfo){
         for(; k < lines.length; k++){
+          const headerCheck = parseJourneyHeader(lines[k]);
+          if(headerCheck) break;
           if(applyDepartsOverride(lines[k])) continue;
           if(parseRouteHeaderLine(lines[k])) break;
           const code = extractAirportCode(lines[k]);
@@ -401,6 +509,8 @@
 
       let bookingClass = null;
       for(let z = k; z < Math.min(k + 6, lines.length); z++){
+        const headerCheck = parseJourneyHeader(lines[z]);
+        if(headerCheck) break;
         if(applyDepartsOverride(lines[z])) continue;
         if(!bookingClass){
           const bc = extractBookingClass(lines[z]);
@@ -445,6 +555,16 @@
           arrDate: arrDateString,
           direction: inboundActive ? 'inbound' : 'outbound'
         });
+        if(currentJourney){
+          if(!currentJourney.origin) currentJourney.origin = depAirport || currentJourney.origin || null;
+          currentJourney.dest = arrAirport || currentJourney.dest || null;
+        } else {
+          ensureJourneyActive();
+          if(currentJourney){
+            if(!currentJourney.origin) currentJourney.origin = depAirport || currentJourney.origin || null;
+            currentJourney.dest = arrAirport || currentJourney.dest || null;
+          }
+        }
         if(arrivesDate){
           const prevDow = currentDate ? currentDate.dow : '';
           const nextDow = arrivesDate.dow || prevDow || '';
@@ -458,6 +578,12 @@
       }else{
         i = flightInfo.index + 1;
       }
+    }
+
+    finalizeJourney();
+    if(journeys){
+      tracking.journeys = journeys;
+      tracking.segments = segs;
     }
 
     return segs;
@@ -529,6 +655,11 @@
     for(const line of base){
       if(/^(Depart|Departure|Return|Outbound|Inbound)\b/i.test(line)){
         expanded.push(line);
+        continue;
+      }
+
+      if(/^\s*Flight\s+\d+\s*[•·]/i.test(line)){
+        expanded.push(line.replace(/[•·]/g, ' '));
         continue;
       }
 
@@ -664,6 +795,66 @@
     return command;
   }
 
+  window.peekSegments = function(rawText){
+    const lines = sanitize(rawText || '');
+    const sections = splitIntoSections(lines);
+    const allSegments = [];
+    const journeys = [];
+    let offset = 0;
+
+    const appendSection = (sectionLines, headerDate, sectionKind) => {
+      const collector = {};
+      collectSegments(sectionLines, headerDate, collector);
+      const segs = collector.segments || [];
+      const localJourneys = collector.journeys || [];
+      segs.forEach(seg => allSegments.push(seg));
+      localJourneys.forEach(j => {
+        const localStart = typeof j.startIdx === 'number' ? j.startIdx : 0;
+        const localEnd = typeof j.endIdx === 'number' ? j.endIdx : (segs.length ? segs.length - 1 : 0);
+        const startIdx = localStart + offset;
+        const endIdx = localEnd + offset;
+        const firstSeg = segs[localStart] || null;
+        const lastSeg = segs[localEnd] || null;
+        journeys.push({
+          startIdx,
+          endIdx,
+          origin: j.origin || (firstSeg ? firstSeg.depAirport : null),
+          dest: j.dest || (lastSeg ? lastSeg.arrAirport : null),
+          explicit: !!j.explicit,
+          indexHint: typeof j.indexHint === 'number' && Number.isFinite(j.indexHint) ? j.indexHint : null,
+          headerDate: j.headerDate || null,
+          sectionKind: sectionKind || null
+        });
+      });
+      offset += segs.length;
+    };
+
+    if(sections.length === 0){
+      appendSection(lines, null, null);
+    }else{
+      sections.forEach(sec => appendSection(sec.lines, sec.headerDate, sec.kind));
+    }
+
+    const explicitJourneyCount = journeys.filter(j => j.explicit).length;
+    let isMultiCity = explicitJourneyCount > 1;
+    if(!isMultiCity){
+      if(journeys.length > 2){
+        isMultiCity = true;
+      }else if(journeys.length === 2){
+        const first = journeys[0];
+        const second = journeys[1];
+        if(first && second){
+          const hasOutAndBack = first.origin && second.dest && first.origin === second.dest && first.dest && second.origin && first.dest === second.origin;
+          if(!hasOutAndBack){
+            isMultiCity = true;
+          }
+        }
+      }
+    }
+
+    return { segments: allSegments, journeys, isMultiCity };
+  };
+
   // Public API
   window.convertTextToI = function(rawText, options){
     const opts = Object.assign({ bookingClass:'J', segmentStatus:'SS1', direction:'all' }, options||{});
@@ -675,11 +866,52 @@
       throw new Error(desired === 'inbound' ? 'No inbound segments found.' : 'No outbound segments found.');
     }
 
+    let effectiveRange = null;
+    if(typeof opts.journeyIndex === 'number' && opts.journeyIndex >= 0){
+      try {
+        const preview = window.peekSegments ? window.peekSegments(rawText) : null;
+        if(preview && Array.isArray(preview.journeys) && preview.journeys[opts.journeyIndex]){
+          const journey = preview.journeys[opts.journeyIndex];
+          if(journey && typeof journey.startIdx === 'number' && typeof journey.endIdx === 'number'){
+            effectiveRange = [journey.startIdx, journey.endIdx];
+          }
+        }
+      } catch (err) {
+        console.warn('peekSegments failed during conversion:', err);
+      }
+    }
+    if(!effectiveRange && Array.isArray(opts.segmentRange) && opts.segmentRange.length === 2){
+      effectiveRange = opts.segmentRange.slice(0, 2);
+    }
+
     const outLines = [];
-    for(const sec of filteredSections){
-      if(!sec.headerDate || !sec.segments.length) continue;
-      const segLines = formatSegmentsToILines(sec.segments, opts);
+    if(effectiveRange){
+      const flattened = [];
+      for(const sec of filteredSections){
+        if(!sec || !Array.isArray(sec.segments)) continue;
+        flattened.push(...sec.segments);
+      }
+      if(flattened.length === 0){
+        throw new Error('No segments parsed from itinerary.');
+      }
+      const start = Math.max(0, parseInt(effectiveRange[0], 10));
+      const endRaw = parseInt(effectiveRange[1], 10);
+      const end = Math.min(flattened.length - 1, Number.isFinite(endRaw) ? endRaw : start);
+      if(!Number.isFinite(start) || !Number.isFinite(end) || end < start){
+        throw new Error('No segments parsed from itinerary.');
+      }
+      const selected = flattened.slice(start, end + 1);
+      if(selected.length === 0){
+        throw new Error('No segments parsed from itinerary.');
+      }
+      const segLines = formatSegmentsToILines(selected, opts);
       outLines.push(...segLines);
+    }else{
+      for(const sec of filteredSections){
+        if(!sec.headerDate || !sec.segments.length) continue;
+        const segLines = formatSegmentsToILines(sec.segments, opts);
+        outLines.push(...segLines);
+      }
     }
     if(outLines.length === 0){
       throw new Error('No segments parsed from itinerary.');
