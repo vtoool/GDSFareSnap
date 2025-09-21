@@ -121,12 +121,18 @@
     if(!card) return true;
     if(card === overlayRoot) return true;
     if(hasDisqualifyingSignature(card)) return true;
+    const searchLikeSelector = 'form, [role="search"], [data-testid*="searchbox" i], [data-test*="searchbox" i], [data-testid*="search-form" i], [data-test*="search-form" i], [data-testid*="searchform" i], [data-test*="searchform" i], [data-testid*="searchpanel" i], [data-test*="searchpanel" i], [class*="searchbox" i], [class*="search-form" i], [aria-label*="search" i]';
+    if(card.matches){
+      if(card.matches(searchLikeSelector)) return true;
+    }
     if(card.closest){
       const structural = card.closest('header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"]');
       if(structural && structural !== card) return true;
       if(card.closest('[data-testid*="kayak+ai" i], [data-test*="kayak+ai" i], [data-testid*="kayak plus ai" i], [data-test*="kayak plus ai" i], [data-testid*="kayakplusai" i], [data-test*="kayakplusai" i], [data-testid*="k+ai" i], [data-test*="k+ai" i]')) return true;
       const bannerWrapper = card.closest('[data-testid*="banner" i], [data-test*="banner" i], [class*="banner" i]');
       if(bannerWrapper && bannerWrapper !== card) return true;
+      const searchWrapper = card.closest(searchLikeSelector);
+      if(searchWrapper && searchWrapper !== card) return true;
     }
     if(isWithinRightRail(card)) return true;
     if(card.closest('.CRPe-main-banner-content')) return true;
