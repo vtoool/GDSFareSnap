@@ -592,7 +592,6 @@
   function formatSegmentsToILines(segs, opts){
     const out = [];
     if(segs.length === 0) return out;
-    const connIndicator = (segs.length > 1) ? '*' : ' ';
 
     const formatFlightDesignator = (airlineCode, number, bookingClass) => {
       const base = number.length < 4
@@ -601,20 +600,49 @@
       return `${base}${bookingClass}`;
     };
 
+    const formatGdsTime = (value) => {
+      if(!value) return '';
+      const trimmed = String(value).trim();
+      return trimmed.replace(/^0+(\d)/, '$1');
+    };
+
+    const formatDateField = (depDate, depDow) => {
+      const date = (depDate || '').trim();
+      const dow = (depDow || '').trim();
+      if(date && dow){
+        return `${date} ${dow}`;
+      }
+      return date || dow;
+    };
+
     for(let idx = 0; idx < segs.length; idx++){
       const s = segs[idx];
-      const segNumber = String(idx + 1).padStart(2, '0');
+      const segNumber = String(idx + 1).padStart(2, ' ');
       const bookingClass = (s.bookingClass || opts.bookingClass || '').toUpperCase();
-      const flightField = formatFlightDesignator(s.airlineCode, s.number, bookingClass).padEnd(10, ' ');
-      const dateField = `${s.depDate} ${s.depDOW}`.trim().padEnd(11, ' ');
-      const cityField = `${s.depAirport}${s.arrAirport}${connIndicator}${opts.segmentStatus}`.padEnd(13, ' ');
-      const depTime = String(s.depGDS || '').padStart(6, ' ');
-      const arrTime = String(s.arrGDS || '').padStart(6, ' ');
+      const flightField = formatFlightDesignator(s.airlineCode, s.number, bookingClass);
+      const dateField = formatDateField(s.depDate, s.depDOW);
+      const indicator = idx < segs.length - 1 ? '*' : ' ';
+      const cityField = `${s.depAirport}${s.arrAirport}${indicator}${opts.segmentStatus}`.trim();
+      const depTime = formatGdsTime(s.depGDS);
+      const arrTime = formatGdsTime(s.arrGDS);
 
-      let line = `${segNumber} ${flightField}${dateField}${cityField}${depTime} ${arrTime}`.replace(/\s+$/, '');
-      if (s.arrDate) line += ` ${s.arrDate}`;
-      line += ` /DC${s.airlineCode} /E`;
-      out.push(line);
+      const parts = [
+        segNumber,
+        flightField,
+        dateField,
+        cityField,
+        depTime,
+        arrTime
+      ].filter(part => part && part.length);
+
+      if(s.arrDate){
+        parts.push(String(s.arrDate).trim());
+      }
+
+      parts.push(`/DC${s.airlineCode}`);
+      parts.push('/E');
+
+      out.push(parts.join(' '));
     }
 
     return out;
