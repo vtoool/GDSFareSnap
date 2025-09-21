@@ -487,6 +487,19 @@
             const nextDow = headerRef.dow || prevDow || '';
             currentDate = { day: headerRef.day, mon: headerRef.mon, dow: nextDow };
           }
+          if(journeys && currentJourney && currentJourney.explicit && journeyInfo.index != null){
+            const currentIndex = (typeof currentJourney.indexHint === 'number' && Number.isFinite(currentJourney.indexHint))
+              ? currentJourney.indexHint
+              : null;
+            if(currentIndex != null && currentIndex === journeyInfo.index){
+              if(headerRef){
+                currentJourney.headerDate = { ...headerRef };
+              } else if(!currentJourney.headerDate && currentDate){
+                currentJourney.headerDate = { ...currentDate };
+              }
+              continue;
+            }
+          }
           startJourney({ explicit: true, indexHint: journeyInfo.index != null ? Number(journeyInfo.index) : null, headerDate: headerRef || currentDate });
           continue;
         }
