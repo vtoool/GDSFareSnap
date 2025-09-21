@@ -9,7 +9,7 @@
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MAX_CLIMB   = 12;
-  const SELECT_RX   = /\bSelect\b/i;
+  const SELECT_RX   = /\b(?:Select|Choose|View\s+(?:Deal|Flight)|See\s+Deal|Book|Continue)\b/i;
   const ITA_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 
   let buttonConfigVersion = 0;
@@ -126,7 +126,6 @@
     if(!txt) return false;
     const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
     const airportMatches = txt.match(/\([A-Z]{3}\)/g) || [];
-    if(timeMatches.length < 2 || airportMatches.length < 2) return false;
     const durationMatches = txt.match(/\d+h(?:\s?\d+m)?/ig) || [];
     const flightNumberMatches = txt.match(/\b[A-Z]{1,3}\s?\d{1,4}\b/g) || [];
     const keywordMatches = txt.match(/\b(Depart|Departure|Return|Inbound|Outbound|Arrives|Operated by|Change planes)\b/ig) || [];
@@ -134,6 +133,12 @@
       const normalized = code.replace(/\s+/g, '');
       return /[A-Z]{2}\d{1,4}/i.test(normalized);
     });
+    if(!IS_ITA){
+      if ((timeMatches.length >= 2 && airportMatches.length >= 2) || hasFlightNumber) {
+        return true;
+      }
+    }
+    if(timeMatches.length < 2 || airportMatches.length < 2) return false;
     return hasFlightNumber || durationMatches.length > 0 || keywordMatches.length > 0;
   }
 
@@ -262,6 +267,9 @@
           }
         } catch (parseErr) {
           console.error('Conversion failed:', parseErr);
+          if (parseErr && /No segments parsed/i.test(parseErr.message || '') && raw) {
+            console.warn('Raw itinerary text (conversion debug):', raw);
+          }
           throw new Error(parseErr?.message || 'Conversion failed');
         }
 
@@ -701,13 +709,27 @@
       return looksLikeItaExpandedCard(el);
     }
     if(!el || el.nodeType !== 1 || !isVisible(el)) return false;
-    const r = el.getBoundingClientRect();
-    if (r.height < 220 || r.width < 280) return false;
     const txt = (el.innerText || '');
+    if(!txt) return false;
+
+    const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
+    const airportMatches = txt.match(/\([A-Z]{3}\)/g) || [];
+    const hasTimeAndAirports = timeMatches.length >= 2 && airportMatches.length >= 2;
+
+    if(hasTimeAndAirports){
+      const selectCandidate = findSelectButton(el);
+      if(selectCandidate){
+        return true;
+      }
+    }
+
+    const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+    if (r && (r.height < 140 || r.width < 220)) return false;
+
     const hasDepartLike = /\b(Depart|Departure|Outbound)\b/i.test(txt);
     const hasReturnLike = /\b(Return|Inbound|Arrival)\b/i.test(txt);
     if (!hasDepartLike && !hasReturnLike) return false;
-    const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
+
     return timeMatches.length >= 2;
   }
 
@@ -936,17 +958,14 @@
     }
 
     const selectBtn = findSelectButton(card);
-    if (!selectBtn && !IS_ITA){
-      removeCardButton(card);
-      return;
-    }
-
+    let inlineFallback = false;
     if(selectBtn){
       const selectRect = selectBtn.getBoundingClientRect();
-      if (selectRect.width < 80 || selectRect.height < 28){
-        removeCardButton(card);
-        return;
+      if (!selectRect || selectRect.width < 60 || selectRect.height < 24){
+        inlineFallback = true;
       }
+    } else {
+      inlineFallback = true;
     }
 
     if(!cardHasFlightClues(card)){
@@ -954,28 +973,60 @@
       return;
     }
 
-    const root = ensureOverlayRoot();
     let group = cardGroupMap.get(card);
     if(!group){
       group = document.createElement('div');
       group.className = BTN_GROUP_CLASS;
       group.setAttribute('role', 'group');
+      cardGroupMap.set(card, group);
+    }
+    if (!activeGroups.has(group)){
+      registerGroup(card, group);
+    }
+    if(inlineFallback){
+      group.dataset.inline = '1';
+    } else {
+      delete group.dataset.inline;
+    }
+    if(group.dataset.configVersion !== String(buttonConfigVersion)){
+      buildGroupForCard(card, group);
+    }
+
+    const previousHost = group.__inlineHost;
+    if(inlineFallback){
+      const host = card;
+      if(previousHost && previousHost !== host && previousHost.classList){
+        previousHost.classList.remove('kayak-copy-inline-host');
+      }
+      if(host && host.classList){
+        host.classList.add('kayak-copy-inline-host');
+      }
+      group.__inlineHost = host;
+      group.classList.add('kayak-copy-btn-group--ita');
+      group.style.position = '';
+      group.style.pointerEvents = '';
+      group.style.visibility = '';
+      group.style.top = '';
+      group.style.left = '';
+      group.style.right = '';
+      group.style.bottom = '';
+      if (group.parentNode !== host){
+        host.appendChild(group);
+      }
+      group.style.display = 'flex';
+      group.style.visibility = 'visible';
+    } else {
+      if(previousHost && previousHost.classList){
+        previousHost.classList.remove('kayak-copy-inline-host');
+      }
+      delete group.__inlineHost;
+      group.classList.remove('kayak-copy-btn-group--ita');
       group.style.position = 'fixed';
       group.style.pointerEvents = 'auto';
       group.style.visibility = 'hidden';
-      root.appendChild(group);
-      cardGroupMap.set(card, group);
-      registerGroup(card, group);
-      buildGroupForCard(card, group);
-    }else{
-      if (!activeGroups.has(group)){
-        registerGroup(card, group);
-      }
-      if (!group.isConnected){
+      const root = ensureOverlayRoot();
+      if (!group.isConnected || group.parentNode !== root){
         root.appendChild(group);
-      }
-      if(group.dataset.configVersion !== String(buttonConfigVersion)){
-        buildGroupForCard(card, group);
       }
     }
 

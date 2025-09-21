@@ -103,7 +103,7 @@
   function parseRouteHeaderLine(line){
     const cleaned = (line || '').replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
     if(!cleaned) return null;
-    if(!/\bto\b/i.test(cleaned) || !/\bon\s+/i.test(cleaned)) return null;
+    if(!/\bto\b/i.test(cleaned)) return null;
     const codeRx = /\(([A-Z]{3})\)/g;
     const codes = [];
     let match;
@@ -112,7 +112,17 @@
       if(codes.length === 2) break;
     }
     if(codes.length < 2) return null;
-    const headerDate = parseInlineOnDate(cleaned);
+    let headerDate = parseInlineOnDate(cleaned);
+    if(!headerDate){
+      const alt = cleaned.match(/((?:Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?))?[,\s]*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s\.]*(\d{1,2})$/i);
+      if(alt){
+        const dowKey = alt[1] ? alt[1].toUpperCase().slice(0,3) : '';
+        const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
+        const mon = alt[2].toUpperCase().slice(0,3);
+        const day = pad2(alt[3]);
+        headerDate = { dow, mon, day };
+      }
+    }
     if(!headerDate) return null;
     return { origin: codes[0], dest: codes[1], headerDate };
   }
