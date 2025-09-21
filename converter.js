@@ -652,18 +652,33 @@
     const expanded = [];
     const timeRe = /(\d{1,2}:\d{2}\s*(?:[ap]m)?)/ig;
 
-    for(const line of base){
-      if(/^(Depart|Departure|Return|Outbound|Inbound)\b/i.test(line)){
-        expanded.push(line);
+    for(const rawLine of base){
+      const normalizedForNoise = rawLine.replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
+      if(!normalizedForNoise) continue;
+      if(/^(Overnight flight|Long layover)$/i.test(normalizedForNoise)) continue;
+      if(/^Change planes in\b/i.test(normalizedForNoise)) continue;
+
+      if(/^(Depart|Departure|Return|Outbound|Inbound)\b/i.test(rawLine)){
+        expanded.push(rawLine);
         continue;
       }
 
-      if(/^\s*Flight\s+\d+\s*[•·]/i.test(line)){
-        expanded.push(line.replace(/[•·]/g, ' '));
+      if(/^\s*Flight\s+\d+\s*[•·]/i.test(rawLine)){
+        expanded.push(rawLine.replace(/[•·]/g, ' '));
         continue;
       }
 
-      const bulletParts = line.split(/\s*[•·]\s*/).map(p => p.trim()).filter(Boolean);
+      const bulletParts = rawLine
+        .split(/\s*[•·]\s*/)
+        .map(p => p.trim())
+        .filter(part => {
+          if(!part) return false;
+          const norm = part.replace(/\s+/g, ' ').trim();
+          if(!norm) return false;
+          if(/^(Overnight flight|Long layover)$/i.test(norm)) return false;
+          if(/^Change planes in\b/i.test(norm)) return false;
+          return true;
+        });
       if(bulletParts.length > 1){
         expanded.push(...bulletParts);
         continue;
@@ -672,12 +687,12 @@
       timeRe.lastIndex = 0;
       const timeMatches = [];
       let match;
-      while((match = timeRe.exec(line))){
+      while((match = timeRe.exec(rawLine))){
         timeMatches.push(match[0].trim());
       }
       if(timeMatches.length >= 1){
         expanded.push(...timeMatches);
-        const leftover = line.replace(timeRe, ' ')
+        const leftover = rawLine.replace(timeRe, ' ')
           .replace(/[-–—]/g,' ')
           .replace(/\s+/g,' ')
           .trim();
@@ -685,7 +700,7 @@
         continue;
       }
 
-      expanded.push(line);
+      expanded.push(rawLine);
     }
 
     const normalized = [];
