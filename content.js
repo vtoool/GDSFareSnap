@@ -9,9 +9,32 @@
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MAX_CLIMB   = 12;
-  const SELECT_RX   = /\b(?:Select|Choose|View\s+(?:Deal|Flight)|See\s+Deal|Book|Continue)\b/i;
+  const SELECT_RX   = /\b(?:Select(?:\s+Flight)?|Choose|View\s+(?:Deal|Flight)|See\s+Deal|Book|Continue)\b/i;
   const ITA_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
   const CARD_KEY_ATTR = 'data-kayak-copy-key';
+  const STABLE_CARD_ATTRS = [
+    'data-resultid',
+    'data-result-id',
+    'data-option-id',
+    'data-offer-id',
+    'data-offerid',
+    'data-optionid',
+    'data-resultkey',
+    'data-offer-key',
+    'data-product-id'
+  ];
+  const STABLE_LINK_SELECTOR = [
+    'a[data-resultid]',
+    'a[data-result-id]',
+    'a[data-option-id]',
+    'a[data-offer-id]',
+    'a[href*="/book" i]',
+    'a[href*="/booking" i]',
+    'a[href*="/itinerary" i]',
+    'a[href*="/deal" i]',
+    'a[href*="/offer" i]',
+    'a[href*="/flight" i]'
+  ].join(', ');
 
   let nextCardKey = 1;
 
@@ -145,6 +168,16 @@
 
   function getCardKey(card){
     if(!card || card.nodeType !== 1) return null;
+    const stable = getStableAnchorIdentifier(card);
+    if(stable){
+      const stableKey = `stable:${stable}`;
+      try {
+        card.setAttribute(CARD_KEY_ATTR, stableKey);
+      } catch (err) {
+        // ignore read-only attributes
+      }
+      return stableKey;
+    }
     let key = card.getAttribute(CARD_KEY_ATTR);
     if(!key){
       key = `k${nextCardKey++}`;
@@ -196,6 +229,73 @@
       tokens.push(typeof el.className === 'string' ? el.className : String(el.className));
     }
     return tokens;
+  }
+
+  function normalizeStableHref(href){
+    if(!href) return '';
+    try {
+      const base = (typeof document !== 'undefined' && document.baseURI)
+        ? document.baseURI
+        : ((typeof location !== 'undefined' && location.href) ? location.href : 'https://www.kayak.com/');
+      const url = new URL(href, base);
+      return `${url.origin}${url.pathname}${url.search}`;
+    } catch (err) {
+      return String(href);
+    }
+  }
+
+  function getStableAnchorIdentifier(node){
+    if(!node || node.nodeType !== 1) return null;
+    for(const attr of STABLE_CARD_ATTRS){
+      const val = node.getAttribute ? node.getAttribute(attr) : null;
+      if(val){
+        return `${attr}:${val}`;
+      }
+    }
+    if(node.id && /^result/i.test(node.id)){ // Kayak commonly sets id="resultXXXX"
+      return `id:${node.id}`;
+    }
+    if(node.dataset){
+      const datasetKeys = ['resultid','resultId','optionId','offerId','offerKey','resultkey'];
+      for(const key of datasetKeys){
+        const val = node.dataset[key];
+        if(val){
+          return `data-${key}:${val}`;
+        }
+      }
+    }
+    if(node.querySelector){
+      const anchor = node.querySelector(STABLE_LINK_SELECTOR);
+      if(anchor){
+        const href = anchor.getAttribute('href');
+        if(href){
+          return `href:${normalizeStableHref(href)}`;
+        }
+      }
+    }
+    return null;
+  }
+
+  function findStableCardAnchor(node, selectBtn){
+    if(!node || node.nodeType !== 1) return node;
+    const seen = new Set();
+    let current = node;
+    let anchor = node;
+    while(current && current.nodeType === 1 && !seen.has(current)){
+      seen.add(current);
+      if(selectBtn && !current.contains(selectBtn)){
+        break;
+      }
+      if(current !== overlayRoot && !hasDisqualifyingSignature(current) && !isWithinRightRail(current) && !shouldIgnoreCard(current)){
+        const identifier = getStableAnchorIdentifier(current);
+        if(identifier){
+          anchor = current;
+          break;
+        }
+      }
+      current = current.parentElement;
+    }
+    return anchor;
   }
 
   function hasDisqualifyingSignature(el){
@@ -300,9 +400,10 @@
     const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
     const segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
     const multiCity = !!(preview && preview.isMultiCity && journeys.length > 0);
+    const showJourneyButtons = multiCity && !IS_ITA;
 
     const journeySignatureParts = [];
-    if(multiCity){
+    if(showJourneyButtons){
       journeys.forEach((journey, idx) => {
         const start = typeof journey.startIdx === 'number' ? journey.startIdx : 0;
         const end = typeof journey.endIdx === 'number' ? journey.endIdx : start;
@@ -334,7 +435,7 @@
         });
         journeySignatureParts.push(`${start}-${end}-${origin || ''}-${dest || ''}-${indexHint}`);
       });
-    } else if(SETTINGS.enableDirectionButtons){
+    } else if(SETTINGS.enableDirectionButtons && (!multiCity || IS_ITA)){
       configs.push({
         key: 'ob',
         label: 'OB',
@@ -354,7 +455,7 @@
     }
 
     const signaturePieces = [
-      multiCity ? 'multi' : 'simple',
+      showJourneyButtons ? 'multi' : 'simple',
       journeySignatureParts.join('|'),
       String(configs.length)
     ];
@@ -450,6 +551,16 @@
           console.error('Conversion failed:', parseErr);
           if (parseErr && /No segments parsed/i.test(parseErr.message || '') && raw) {
             console.warn('Raw itinerary text (conversion debug):', raw);
+            try {
+              const times = (raw.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || []).slice(0, 10);
+              const airports = (raw.match(/\([A-Z]{3}\)/g) || []).slice(0, 10);
+              const previewTokens = times.concat(airports).slice(0, 20);
+              if(previewTokens.length){
+                console.warn('Token preview:', previewTokens.join(' | '));
+              }
+            } catch (previewErr) {
+              console.warn('Token preview generation failed:', previewErr);
+            }
           }
           throw new Error(parseErr?.message || 'Conversion failed');
         }
@@ -480,10 +591,11 @@
     if(!group) return;
     const data = configData || computeButtonConfigsForCard(card);
     const inlineMode = group.dataset.inline === '1';
-    const isMulti = !!(data && data.preview && data.preview.isMultiCity);
+    const previewMulti = !!(data && data.preview && data.preview.isMultiCity);
+    const showMulti = previewMulti && !IS_ITA;
     group.classList.toggle('kayak-copy-btn-group--ita', inlineMode);
-    group.classList.toggle('kayak-copy-btn-group--multi', isMulti);
-    if(isMulti){
+    group.classList.toggle('kayak-copy-btn-group--multi', showMulti);
+    if(showMulti){
       group.dataset.multi = '1';
     } else {
       delete group.dataset.multi;
@@ -598,13 +710,15 @@
       return;
     }
     const maxTop = Math.max(avoidTop + 4, viewHeight - groupRect.height - 4);
-    const maxLeft = Math.max(0, viewWidth - groupRect.width - 4);
     const desiredTop = rect.top + 10;
     const top = clamp(Math.max(desiredTop, avoidTop + 8), avoidTop + 4, maxTop);
-    const left = clamp(rect.right - groupRect.width - 10, 4, maxLeft);
+    const rawRight = Math.max(4, viewWidth - rect.right + 10);
+    const maxRight = Math.max(4, viewWidth - groupRect.width - 4);
+    const right = clamp(rawRight, 4, maxRight);
 
     group.style.top = `${Math.round(top)}px`;
-    group.style.left = `${Math.round(left)}px`;
+    group.style.left = 'auto';
+    group.style.right = `${Math.round(right)}px`;
     group.style.visibility = 'visible';
   }
 
@@ -965,11 +1079,10 @@
       const width = rect.width || 0;
       const height = rect.height || 0;
       if(width < 220 || height < 140){
-        score -= 80;
-      } else {
-        score += Math.min(width, 1200) * 0.12;
-        score += Math.min(height, 900) * 0.1;
+        return -Infinity;
       }
+      score += Math.min(width, 1200) * 0.12;
+      score += Math.min(height, 900) * 0.1;
     } else {
       score -= 20;
     }
@@ -1024,28 +1137,28 @@
 
   function normalizeKayakCard(el){
     if(IS_ITA || !el || el.nodeType !== 1) return el;
-    const base = el.closest && el.closest(`#${OVERLAY_ROOT_ID}`) ? null : el;
-    if(!base) return el;
+    if(el.closest && el.closest(`#${OVERLAY_ROOT_ID}`)) return null;
 
-    const selectBtn = findSelectButton(base);
+    const selectBtn = findSelectButton(el);
+    if(!selectBtn) return null;
+
     const candidates = [];
-    let current = base;
+    let current = el;
     let depth = 0;
     while(current && depth <= MAX_CLIMB){
-      if(current.nodeType === 1 && current.contains(base)){
-        if(!selectBtn || current.contains(selectBtn)){
-          candidates.push({ node: current, depth });
-        }
+      if(current.nodeType === 1 && current.contains(selectBtn)){
+        candidates.push({ node: current, depth });
       }
       current = current.parentElement;
       depth++;
     }
 
-    let best = null;
+    let bestEntry = null;
     let bestScore = -Infinity;
     for(const entry of candidates){
       const node = entry.node;
       if(node === document.body || node === document.documentElement) continue;
+      if(node.id === OVERLAY_ROOT_ID) continue;
       if(hasDisqualifyingSignature(node)) continue;
       if(isWithinRightRail(node)) continue;
       if(shouldIgnoreCard(node)) continue;
@@ -1053,11 +1166,30 @@
       const score = scoreKayakCardNode(node, selectBtn, entry.depth);
       if(score > bestScore){
         bestScore = score;
-        best = node;
+        bestEntry = entry;
       }
     }
 
-    return best || el;
+    if(!bestEntry){
+      return null;
+    }
+
+    const anchor = findStableCardAnchor(bestEntry.node, selectBtn);
+    if(anchor && anchor !== bestEntry.node){
+      if(!cardHasFlightClues(anchor, selectBtn, true)){
+        return bestEntry.node;
+      }
+      if(!isVisible(anchor)){
+        return bestEntry.node;
+      }
+      const rect = typeof anchor.getBoundingClientRect === 'function' ? anchor.getBoundingClientRect() : null;
+      if(rect && (rect.width < 220 || rect.height < 140)){
+        return bestEntry.node;
+      }
+      return anchor;
+    }
+
+    return bestEntry.node;
   }
 
   function normalizeCard(el, opts){
@@ -1090,7 +1222,10 @@
     let hops = 0;
     while (el && hops++ < MAX_CLIMB) {
       if (looksLikeExpandedCard(el)) {
-        return IS_ITA ? normalizeItaCard(el) : normalizeKayakCard(el);
+        const normalized = IS_ITA ? normalizeItaCard(el) : normalizeKayakCard(el);
+        if(normalized){
+          return normalized;
+        }
       }
       el = el.parentElement;
     }
@@ -1101,7 +1236,10 @@
       while (walker.nextNode() && count++ < 300) {
         const e = walker.currentNode;
         if (looksLikeExpandedCard(e)) {
-          return IS_ITA ? normalizeItaCard(e) : normalizeKayakCard(e);
+          const normalized = IS_ITA ? normalizeItaCard(e) : normalizeKayakCard(e);
+          if(normalized){
+            return normalized;
+          }
         }
       }
     }
@@ -1147,7 +1285,25 @@
 
   function removeCardButton(card){
     if (!card) return;
-    card = normalizeCard(card, { allowCollapsed: true });
+    if(card && typeof card === 'object' && cardGroupMap.has(card)){
+      const direct = cardGroupMap.get(card);
+      if(direct){
+        hardRemoveGroup(direct);
+      }
+    }
+    const normalized = normalizeCard(card, { allowCollapsed: true });
+    if(!normalized){
+      const fallbackKey = card && card.getAttribute ? card.getAttribute(CARD_KEY_ATTR) : null;
+      if(fallbackKey){
+        const stray = cardGroupsByKey.get(fallbackKey);
+        if(stray){
+          hardRemoveGroup(stray);
+        }
+      }
+      schedulePositionSync();
+      return;
+    }
+    card = normalized;
     const group = cardGroupMap.get(card);
     const cardKey = card && card.getAttribute ? card.getAttribute(CARD_KEY_ATTR) : null;
     if (group){
@@ -1294,7 +1450,14 @@
       return;
     }
 
-    card = normalizeCard(card);
+    const rawCard = card;
+    const normalized = normalizeCard(card);
+    if(!normalized){
+      removeCardButton(rawCard);
+      schedulePositionSync();
+      return;
+    }
+    card = normalized;
 
     if (!card.isConnected) {
       removeCardButton(card);
