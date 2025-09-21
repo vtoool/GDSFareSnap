@@ -939,6 +939,213 @@
     return command;
   }
 
+  const MONTH_DAY_OFFSETS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  const ORDINAL_YEAR_SPAN = 365;
+  const JOURNEY_DATE_GAP_THRESHOLD = 1;
+
+  function parseMonthDayFromString(value){
+    if(!value) return null;
+    const text = String(value).toUpperCase();
+    const monthMatch = text.match(/(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)/);
+    if(!monthMatch) return null;
+    const monthKey = monthMatch[1];
+    if(!Object.prototype.hasOwnProperty.call(MONTHS, monthKey)) return null;
+    const monthIndex = MONTHS[monthKey];
+    let dayValue = null;
+    if(monthMatch.index != null && monthMatch.index > 0){
+      const before = text.slice(0, monthMatch.index);
+      const beforeMatch = before.match(/(\d{1,2})\s*$/);
+      if(beforeMatch){
+        dayValue = parseInt(beforeMatch[1], 10);
+      }
+    }
+    if(!Number.isFinite(dayValue)){
+      const after = text.slice(monthMatch.index + 3);
+      const afterMatch = after.match(/^\s*(\d{1,2})/);
+      if(afterMatch){
+        dayValue = parseInt(afterMatch[1], 10);
+      }
+    }
+    if(!Number.isFinite(dayValue) || dayValue <= 0 || dayValue > 31){
+      return null;
+    }
+    return { month: monthIndex, day: dayValue };
+  }
+
+  function adjustOrdinal(monthIndex, dayValue, prevOrdinal){
+    if(monthIndex == null || !Number.isFinite(dayValue)) return prevOrdinal;
+    const monthOffset = MONTH_DAY_OFFSETS[monthIndex] != null ? MONTH_DAY_OFFSETS[monthIndex] : (monthIndex * 31);
+    let ordinal = monthOffset + dayValue;
+    if(prevOrdinal != null){
+      while(ordinal <= prevOrdinal){
+        ordinal += ORDINAL_YEAR_SPAN;
+      }
+    }
+    return ordinal;
+  }
+
+  function approximateSegmentOrdinal(seg, prevOrdinal){
+    if(seg){
+      if(seg.depDate){
+        const depInfo = parseMonthDayFromString(seg.depDate);
+        if(depInfo){
+          return adjustOrdinal(depInfo.month, depInfo.day, prevOrdinal);
+        }
+      }
+      if(seg.headerRef && seg.headerRef.day && seg.headerRef.mon){
+        const dayVal = parseInt(seg.headerRef.day, 10);
+        const monKey = String(seg.headerRef.mon || '').toUpperCase().slice(0, 3);
+        if(Number.isFinite(dayVal) && Object.prototype.hasOwnProperty.call(MONTHS, monKey)){
+          return adjustOrdinal(MONTHS[monKey], dayVal, prevOrdinal);
+        }
+      }
+      if(seg.arrDate){
+        const arrInfo = parseMonthDayFromString(seg.arrDate);
+        if(arrInfo){
+          return adjustOrdinal(arrInfo.month, arrInfo.day, prevOrdinal);
+        }
+      }
+    }
+    return prevOrdinal;
+  }
+
+  function deriveJourneysByDateGaps(segments){
+    if(!Array.isArray(segments) || segments.length === 0) return [];
+    const ranges = [];
+    let groupStart = 0;
+    let lastOrdinal = null;
+
+    for(let idx = 0; idx < segments.length; idx++){
+      const seg = segments[idx];
+      const ordinal = approximateSegmentOrdinal(seg, lastOrdinal);
+      if(lastOrdinal != null && ordinal != null && (ordinal - lastOrdinal) > JOURNEY_DATE_GAP_THRESHOLD){
+        const prevEnd = idx - 1;
+        if(prevEnd >= groupStart){
+          ranges.push({ startIdx: groupStart, endIdx: prevEnd });
+        }
+        groupStart = idx;
+      }
+      if(ordinal != null){
+        lastOrdinal = ordinal;
+      }
+    }
+
+    if(groupStart < segments.length){
+      ranges.push({ startIdx: groupStart, endIdx: segments.length - 1 });
+    }
+
+    return ranges
+      .filter(range => range.startIdx <= range.endIdx)
+      .map((range, idx) => {
+        const firstSeg = segments[range.startIdx] || null;
+        const lastSeg = segments[range.endIdx] || null;
+        let headerDate = null;
+        if(firstSeg && firstSeg.headerRef){
+          headerDate = { ...firstSeg.headerRef };
+        }else if(lastSeg && lastSeg.headerRef){
+          headerDate = { ...lastSeg.headerRef };
+        }
+        return {
+          startIdx: range.startIdx,
+          endIdx: range.endIdx,
+          origin: firstSeg ? firstSeg.depAirport : null,
+          dest: lastSeg ? lastSeg.arrAirport : null,
+          explicit: false,
+          indexHint: idx + 1,
+          headerDate
+        };
+      });
+  }
+
+  function normalizeJourneyForMerge(journey, segments){
+    if(!journey || !Array.isArray(segments) || segments.length === 0) return null;
+    const total = segments.length;
+    const safeStart = Number.isFinite(journey.startIdx) ? Math.max(0, Math.min(journey.startIdx, total - 1)) : 0;
+    const safeEndRaw = Number.isFinite(journey.endIdx) ? journey.endIdx : safeStart;
+    const safeEnd = Math.max(safeStart, Math.min(safeEndRaw, total - 1));
+    const firstSeg = segments[safeStart] || null;
+    const lastSeg = segments[safeEnd] || null;
+    const headerDate = journey.headerDate
+      ? { ...journey.headerDate }
+      : (firstSeg && firstSeg.headerRef ? { ...firstSeg.headerRef } : null);
+    return {
+      startIdx: safeStart,
+      endIdx: safeEnd,
+      origin: journey.origin || (firstSeg ? firstSeg.depAirport : null),
+      dest: journey.dest || (lastSeg ? lastSeg.arrAirport : null),
+      explicit: !!journey.explicit,
+      headerDate,
+      sectionKind: journey.sectionKind || null
+    };
+  }
+
+  function mergeJourneysByDateProximity(segments, journeys, ordinals){
+    if(!Array.isArray(journeys) || journeys.length === 0 || !Array.isArray(segments) || segments.length === 0){
+      return [];
+    }
+    const normalized = journeys
+      .map(j => normalizeJourneyForMerge(j, segments))
+      .filter(Boolean)
+      .sort((a, b) => {
+        if(a.startIdx !== b.startIdx) return a.startIdx - b.startIdx;
+        return a.endIdx - b.endIdx;
+      });
+    if(normalized.length === 0) return [];
+
+    const merged = [];
+    const safeOrdinals = Array.isArray(ordinals) ? ordinals : [];
+
+    for(const entry of normalized){
+      if(!entry) continue;
+      if(merged.length === 0){
+        merged.push({ ...entry });
+        continue;
+      }
+      const prev = merged[merged.length - 1];
+      const prevOrdinal = (prev.endIdx != null && prev.endIdx < safeOrdinals.length)
+        ? safeOrdinals[prev.endIdx]
+        : null;
+      const nextOrdinal = (entry.startIdx != null && entry.startIdx < safeOrdinals.length)
+        ? safeOrdinals[entry.startIdx]
+        : prevOrdinal;
+      let gap = 0;
+      if(prevOrdinal != null && nextOrdinal != null){
+        gap = nextOrdinal - prevOrdinal;
+      }
+      if(gap <= JOURNEY_DATE_GAP_THRESHOLD){
+        if(entry.endIdx > prev.endIdx){
+          prev.endIdx = entry.endIdx;
+          prev.dest = segments[prev.endIdx] ? segments[prev.endIdx].arrAirport : prev.dest;
+        }
+        prev.explicit = prev.explicit && entry.explicit;
+        if(!prev.headerDate && entry.headerDate){
+          prev.headerDate = { ...entry.headerDate };
+        }
+        if(!prev.origin && entry.origin){
+          prev.origin = entry.origin;
+        }
+        continue;
+      }
+      merged.push({ ...entry });
+    }
+
+    for(let idx = 0; idx < merged.length; idx++){
+      merged[idx].indexHint = idx + 1;
+      const segStart = merged[idx].startIdx;
+      const segEnd = merged[idx].endIdx;
+      const firstSeg = segments[segStart] || null;
+      const lastSeg = segments[segEnd] || null;
+      if(firstSeg && !merged[idx].origin){
+        merged[idx].origin = firstSeg.depAirport || merged[idx].origin;
+      }
+      if(lastSeg && !merged[idx].dest){
+        merged[idx].dest = lastSeg.arrAirport || merged[idx].dest;
+      }
+    }
+
+    return merged;
+  }
+
   window.peekSegments = function(rawText){
     const lines = sanitize(rawText || '');
     const sections = splitIntoSections(lines);
@@ -977,6 +1184,30 @@
       appendSection(lines, null, null);
     }else{
       sections.forEach(sec => appendSection(sec.lines, sec.headerDate, sec.kind));
+    }
+
+    const segmentOrdinals = [];
+    let ordinalCursor = null;
+    for(let idx = 0; idx < allSegments.length; idx++){
+      ordinalCursor = approximateSegmentOrdinal(allSegments[idx], ordinalCursor);
+      segmentOrdinals[idx] = ordinalCursor;
+    }
+
+    const hasExplicitJourneys = journeys.some(j => j.explicit);
+    if(allSegments.length > 1 && (!hasExplicitJourneys || journeys.length <= 1)){
+      const derived = deriveJourneysByDateGaps(allSegments);
+      if(derived.length > 1){
+        journeys.length = 0;
+        derived.forEach(j => journeys.push(j));
+      }
+    }
+
+    if(allSegments.length > 1){
+      const merged = mergeJourneysByDateProximity(allSegments, journeys, segmentOrdinals);
+      if(merged.length){
+        journeys.length = 0;
+        merged.forEach(j => journeys.push(j));
+      }
     }
 
     const explicitJourneyCount = journeys.filter(j => j.explicit).length;
@@ -1075,17 +1306,54 @@
       throw new Error('No segments parsed from itinerary.');
     }
     const desired = (opts.direction || 'outbound').toLowerCase();
-    const filteredSections = filterSectionsByDirection(sections, desired);
-    if(filteredSections.length === 0){
-      throw new Error(desired === 'inbound' ? 'No inbound segments found.' : 'No outbound segments found.');
+    let filteredSections = sections;
+    if(desired !== 'all'){
+      filteredSections = filterSectionsByDirection(sections, desired);
+      if(filteredSections.length === 0){
+        throw new Error(desired === 'inbound' ? 'No inbound segments found.' : 'No outbound segments found.');
+      }
     }
     const segments = [];
     for(const sec of filteredSections){
+      if(!sec || !Array.isArray(sec.segments)) continue;
       segments.push(...sec.segments);
     }
     if(segments.length === 0){
       throw new Error('No segments parsed from itinerary.');
     }
+
+    let effectiveRange = null;
+    if(typeof opts.journeyIndex === 'number' && opts.journeyIndex >= 0){
+      try {
+        const preview = window.peekSegments ? window.peekSegments(rawText) : null;
+        if(preview && Array.isArray(preview.journeys) && preview.journeys[opts.journeyIndex]){
+          const journey = preview.journeys[opts.journeyIndex];
+          if(journey && typeof journey.startIdx === 'number' && typeof journey.endIdx === 'number'){
+            effectiveRange = [journey.startIdx, journey.endIdx];
+          }
+        }
+      } catch (err) {
+        console.warn('peekSegments failed during availability conversion:', err);
+      }
+    }
+    if(!effectiveRange && Array.isArray(opts.segmentRange) && opts.segmentRange.length === 2){
+      effectiveRange = opts.segmentRange.slice(0, 2);
+    }
+
+    if(effectiveRange){
+      const start = Math.max(0, parseInt(effectiveRange[0], 10));
+      const endRaw = parseInt(effectiveRange[1], 10);
+      const end = Math.min(segments.length - 1, Number.isFinite(endRaw) ? endRaw : start);
+      if(!Number.isFinite(start) || !Number.isFinite(end) || end < start){
+        throw new Error('No segments parsed from itinerary.');
+      }
+      const selected = segments.slice(start, end + 1);
+      if(selected.length === 0){
+        throw new Error('No segments parsed from itinerary.');
+      }
+      return buildAvailabilityCommandFromSegments(selected);
+    }
+
     return buildAvailabilityCommandFromSegments(segments);
   };
 

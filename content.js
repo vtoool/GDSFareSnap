@@ -427,7 +427,17 @@
             }
             converted = window.convertTextToI(raw, convertOpts);
           }else{
-            converted = window.convertTextToAvailability(raw, { direction });
+            const availOpts = { direction };
+            if(Array.isArray(config.segmentRange) && config.segmentRange.length === 2){
+              availOpts.segmentRange = [
+                Number(config.segmentRange[0]),
+                Number(config.segmentRange[1])
+              ];
+            }
+            if(typeof config.journeyIndex === 'number'){
+              availOpts.journeyIndex = config.journeyIndex;
+            }
+            converted = window.convertTextToAvailability(raw, availOpts);
           }
         } catch (parseErr) {
           console.error('Conversion failed:', parseErr);
