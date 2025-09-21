@@ -325,7 +325,8 @@
           ariaLabel,
           direction: 'all',
           segmentRange: [start, end],
-          journeyIndex: idx
+          journeyIndex: idx,
+          variant: 'journey'
         });
         journeySignatureParts.push(`${start}-${end}-${origin || ''}-${dest || ''}-${indexHint}`);
       });
@@ -385,6 +386,9 @@
     btn.className = BTN_CLASS;
     if (IS_ITA){
       btn.classList.add('kayak-copy-btn--ita');
+    }
+    if(config && config.variant === 'journey'){
+      btn.classList.add('kayak-copy-btn--journey');
     }
     btn.type = 'button';
     btn.title = config.title;
@@ -458,7 +462,18 @@
   function buildGroupForCard(card, group, configData){
     if(!group) return;
     const data = configData || computeButtonConfigsForCard(card);
+    const inlineMode = group.dataset.inline === '1';
+    const isMulti = !!(data && data.preview && data.preview.isMultiCity);
+    group.classList.toggle('kayak-copy-btn-group--ita', inlineMode);
+    group.classList.toggle('kayak-copy-btn-group--multi', isMulti);
+    if(isMulti){
+      group.dataset.multi = '1';
+    } else {
+      delete group.dataset.multi;
+    }
     if(!data || !Array.isArray(data.configs) || data.configs.length === 0){
+      group.innerHTML = '';
+      delete group.dataset.configVersion;
       return;
     }
     const versionKey = `${buttonConfigVersion}:${data.signature || 'default'}`;
@@ -470,7 +485,6 @@
       group.appendChild(createButton(card, cfg));
     });
     group.dataset.configVersion = versionKey;
-    group.classList.toggle('kayak-copy-btn-group--ita', group.dataset.inline === '1');
   }
 
   function ensureOverlayRoot(){
@@ -1271,7 +1285,14 @@
       }
     }
 
-    const configData = computeButtonConfigsForCard(card);
+    let configData = null;
+    try {
+      configData = computeButtonConfigsForCard(card);
+    } catch (err) {
+      console.warn('Failed to compute button configs:', err);
+      removeCardButton(card);
+      return;
+    }
     buildGroupForCard(card, group, configData);
 
     if(cardKey){
@@ -1351,6 +1372,23 @@
       return;
     }
 
+    let configData = null;
+    try {
+      configData = computeButtonConfigsForCard(card);
+    } catch (err) {
+      console.warn('Failed to compute button configs:', err);
+      removeCardButton(card);
+      return;
+    }
+    if(!configData || !Array.isArray(configData.configs) || configData.configs.length === 0){
+      removeCardButton(card);
+      return;
+    }
+    const hasMultiPreview = !!(configData.preview && configData.preview.isMultiCity);
+    if(hasMultiPreview){
+      inlineFallback = true;
+    }
+
     let group = cardGroupMap.get(card);
     if(!group){
       group = document.createElement('div');
@@ -1373,7 +1411,6 @@
       delete group.dataset.inline;
     }
 
-    const configData = computeButtonConfigsForCard(card);
     buildGroupForCard(card, group, configData);
 
     const previousHost = group.__inlineHost;
