@@ -311,6 +311,7 @@
 
   function getFlightInfo(lines, idx){
     const raw = (lines[idx] || '').replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
+    if(isSegmentNoiseLine(lines[idx])) return null;
     if(!raw) return null;
     if(isLikelyEquipmentLine(raw)) return null;
 
@@ -457,6 +458,7 @@
         const lookIdx = base - back;
         if(lookIdx < 0) break;
         const raw = lines[lookIdx] || '';
+        if(isSegmentNoiseLine(raw)) continue;
         if(/Arrives\b/i.test(raw)) continue;
         if(/Layover/i.test(raw)) continue;
         const depCandidate = parseDepartsDate(raw) || parseInlineOnDate(raw) || parseLooseDate(raw);
@@ -466,6 +468,7 @@
         const lookIdx = base + forward;
         if(lookIdx >= lines.length) break;
         const raw = lines[lookIdx] || '';
+        if(isSegmentNoiseLine(raw)) continue;
         if(/Arrives\b/i.test(raw)) continue;
         if(/^\d{1,2}:\d{2}/.test(raw)) break;
         if(/Layover/i.test(raw)) continue;
@@ -560,6 +563,7 @@
       for(; k < lines.length; k++){
         const headerCheck = parseJourneyHeader(lines[k]);
         if(headerCheck) break;
+        if(isSegmentNoiseLine(lines[k])) continue;
         if(applyDepartsOverride(lines[k])) continue;
         if(parseRouteHeaderLine(lines[k])) break;
         const t = toAmPmMinutes(lines[k]);
@@ -569,6 +573,7 @@
         for(; k < lines.length; k++){
           const headerCheck = parseJourneyHeader(lines[k]);
           if(headerCheck) break;
+          if(isSegmentNoiseLine(lines[k])) continue;
           if(applyDepartsOverride(lines[k])) continue;
           if(parseRouteHeaderLine(lines[k])) break;
           const code = extractAirportCode(lines[k]);
@@ -578,6 +583,7 @@
       for(; k < lines.length; k++){
         const headerCheck = parseJourneyHeader(lines[k]);
         if(headerCheck) break;
+        if(isSegmentNoiseLine(lines[k])) continue;
         if(applyDepartsOverride(lines[k])) continue;
         if(parseRouteHeaderLine(lines[k])) break;
         const t = toAmPmMinutes(lines[k]);
@@ -587,6 +593,7 @@
         for(; k < lines.length; k++){
           const headerCheck = parseJourneyHeader(lines[k]);
           if(headerCheck) break;
+          if(isSegmentNoiseLine(lines[k])) continue;
           if(applyDepartsOverride(lines[k])) continue;
           if(parseRouteHeaderLine(lines[k])) break;
           const code = extractAirportCode(lines[k]);
@@ -604,6 +611,7 @@
         for(let look = flightInfo.index - 1; look >= 0 && backTimes.length < 3; look--){
           const info = parseRouteHeaderLine(lines[look]);
           if(info) break;
+          if(isSegmentNoiseLine(lines[look])) continue;
           const t = toAmPmMinutes(lines[look]);
           if(t.mins != null){
             backTimes.push(t);
@@ -624,6 +632,7 @@
       for(let z = k; z < Math.min(k + 6, lines.length); z++){
         const headerCheck = parseJourneyHeader(lines[z]);
         if(headerCheck) break;
+        if(isSegmentNoiseLine(lines[z])) continue;
         if(applyDepartsOverride(lines[z])) continue;
         if(!bookingClass){
           const bc = extractBookingClass(lines[z]);
@@ -639,6 +648,7 @@
 
       if(!bookingClass){
         for(let look = flightInfo.index + 1; look < Math.min(flightInfo.index + 6, lines.length); look++){
+          if(isSegmentNoiseLine(lines[look])) continue;
           const bc = extractBookingClass(lines[look]);
           if(bc){ bookingClass = bc; break; }
         }
@@ -787,6 +797,19 @@
     return sections;
   }
 
+  function isSegmentNoiseLine(line){
+    const normalized = (line || '')
+      .replace(/[•·]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if(!normalized) return true;
+    if(/^Overnight flight\b/i.test(normalized)) return true;
+    if(/^Long layover\b/i.test(normalized)) return true;
+    if(/^Change planes in\b/i.test(normalized)) return true;
+    if(/^Operated by\b/i.test(normalized)) return true;
+    return false;
+  }
+
   function sanitize(raw){
     const base = raw.split(/\r?\n/)
       .map(s => s.replace(/\s+/g,' ').trim())
@@ -795,10 +818,9 @@
     const timeRe = /(\d{1,2}:\d{2}\s*(?:[ap]m)?)/ig;
 
     for(const rawLine of base){
+      if(isSegmentNoiseLine(rawLine)) continue;
       const normalizedForNoise = rawLine.replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
       if(!normalizedForNoise) continue;
-      if(/^(Overnight flight|Long layover)$/i.test(normalizedForNoise)) continue;
-      if(/^Change planes in\b/i.test(normalizedForNoise)) continue;
 
       if(/^(Depart|Departure|Return|Outbound|Inbound)\b/i.test(rawLine)){
         expanded.push(rawLine);
@@ -817,8 +839,7 @@
           if(!part) return false;
           const norm = part.replace(/\s+/g, ' ').trim();
           if(!norm) return false;
-          if(/^(Overnight flight|Long layover)$/i.test(norm)) return false;
-          if(/^Change planes in\b/i.test(norm)) return false;
+          if(isSegmentNoiseLine(norm)) return false;
           return true;
         });
       if(bulletParts.length > 1){

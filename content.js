@@ -121,7 +121,13 @@
     if(!card) return true;
     if(card === overlayRoot) return true;
     if(hasDisqualifyingSignature(card)) return true;
-    if(card.closest && card.closest('[data-testid*="kayak+ai" i], [data-test*="kayak+ai" i], [data-testid*="kayak plus ai" i], [data-test*="kayak plus ai" i], [data-testid*="kayakplusai" i], [data-test*="kayakplusai" i], [data-testid*="k+ai" i], [data-test*="k+ai" i]')) return true;
+    if(card.closest){
+      const structural = card.closest('header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"]');
+      if(structural && structural !== card) return true;
+      if(card.closest('[data-testid*="kayak+ai" i], [data-test*="kayak+ai" i], [data-testid*="kayak plus ai" i], [data-test*="kayak plus ai" i], [data-testid*="kayakplusai" i], [data-test*="kayakplusai" i], [data-testid*="k+ai" i], [data-test*="k+ai" i]')) return true;
+      const bannerWrapper = card.closest('[data-testid*="banner" i], [data-test*="banner" i], [class*="banner" i]');
+      if(bannerWrapper && bannerWrapper !== card) return true;
+    }
     if(isWithinRightRail(card)) return true;
     if(card.closest('.CRPe-main-banner-content')) return true;
     if(card.closest('.h_nb')) return true;
@@ -164,20 +170,10 @@
     if(!selectCandidate && !suppressSelectLookup){
       selectCandidate = findSelectButton(card);
     }
-    if(selectCandidate && card.contains(selectCandidate)){
-      return true;
-    }
-
-    const flightNumberMatches = txt.match(/\b[A-Z]{1,3}\s?\d{1,4}\b/g) || [];
-    if(flightNumberMatches.some(code => /[A-Z]{2}\d{1,4}/i.test(code.replace(/\s+/g, '')))){
-      return true;
-    }
-
-    const keywordMatches = txt.match(/\b(Depart|Departure|Return|Inbound|Outbound|Arrives|Operated by|Change planes)\b/ig) || [];
-    if(keywordMatches.length > 0) return true;
-
-    const durationMatches = txt.match(/\d+h(?:\s?\d+m)?/ig) || [];
-    return durationMatches.length > 0;
+    if(!selectCandidate) return false;
+    if(!card.contains(selectCandidate)) return false;
+    if(!isVisible(selectCandidate)) return false;
+    return true;
   }
 
   function nodeSignatureTokens(el){
@@ -532,12 +528,7 @@
       group.__kayakCardKey = key;
       const existing = cardGroupsByKey.get(key);
       if(existing && existing !== group){
-        if(existing.__kayakCard && existing.__kayakCard !== card){
-          removeCardButton(existing.__kayakCard);
-        } else {
-          unregisterGroup(existing);
-          if (existing.parentNode) existing.remove();
-        }
+        hardRemoveGroup(existing);
       }
       cardGroupsByKey.set(key, group);
     } else {
@@ -1074,27 +1065,11 @@
     if(IS_ITA){
       return looksLikeItaExpandedCard(el);
     }
-    if(!el || el.nodeType !== 1 || !isVisible(el)) return false;
+    if(!el || el.nodeType !== 1) return false;
     if(shouldIgnoreCard(el)) return false;
-    const txt = (el.innerText || '');
-    if(!txt) return false;
-
-    const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
-    const airportMatches = txt.match(/\([A-Z]{3}\)/g) || [];
-    const hasTimeAndAirports = timeMatches.length >= 2 && airportMatches.length >= 2;
-    if(!hasTimeAndAirports) return false;
-
     const selectCandidate = findSelectButton(el);
-    if(selectCandidate && el.contains(selectCandidate)){
-      return true;
-    }
-
-    const signature = nodeSignatureTokens(el).join(' ').toLowerCase();
-    if(!signature) return false;
-    if(/\b(result|option|card|flight|journey|trip|offer|itinerary|expanded)\b/.test(signature)){
-      return true;
-    }
-    return false;
+    if(!selectCandidate) return false;
+    return cardHasFlightClues(el, selectCandidate, true);
   }
 
   // Find the expanded “card” container
@@ -1108,7 +1083,9 @@
     let el = node.nodeType === 1 ? node : node.parentElement;
     let hops = 0;
     while (el && hops++ < MAX_CLIMB) {
-      if (looksLikeExpandedCard(el)) return normalizeCard(el);
+      if (looksLikeExpandedCard(el)) {
+        return IS_ITA ? normalizeItaCard(el) : normalizeKayakCard(el);
+      }
       el = el.parentElement;
     }
     // shallow descendant fallback
@@ -1117,7 +1094,9 @@
       let count = 0;
       while (walker.nextNode() && count++ < 300) {
         const e = walker.currentNode;
-        if (looksLikeExpandedCard(e)) return normalizeCard(e);
+        if (looksLikeExpandedCard(e)) {
+          return IS_ITA ? normalizeItaCard(e) : normalizeKayakCard(e);
+        }
       }
     }
     return null;
@@ -1166,26 +1145,11 @@
     const group = cardGroupMap.get(card);
     const cardKey = card && card.getAttribute ? card.getAttribute(CARD_KEY_ATTR) : null;
     if (group){
-      const key = group.dataset && group.dataset.itaKey;
-      if (key && itaGroupsByKey.get(key) === group) {
-        itaGroupsByKey.delete(key);
-      }
-      if(cardKey && cardGroupsByKey.get(cardKey) === group){
-        cardGroupsByKey.delete(cardKey);
-      }
-      const host = group.__inlineHost;
-      unregisterGroup(group);
-      if (group.parentNode) group.remove();
-      if (host && host.classList){
-        host.classList.remove('kayak-copy-inline-host');
-      }
-      cardGroupMap.delete(card);
+      hardRemoveGroup(group);
     } else if (cardKey){
       const stray = cardGroupsByKey.get(cardKey);
       if(stray){
-        unregisterGroup(stray);
-        if(stray.parentNode) stray.remove();
-        cardGroupsByKey.delete(cardKey);
+        hardRemoveGroup(stray);
       }
     }
     schedulePositionSync();
@@ -1222,14 +1186,11 @@
     }
 
     const cardKey = getCardKey(card);
+    let group = cardGroupMap.get(card);
     if(cardKey){
       const existingGroup = cardGroupsByKey.get(cardKey);
-      if(existingGroup && existingGroup.__kayakCard && existingGroup.__kayakCard !== card){
-        removeCardButton(existingGroup.__kayakCard);
-      } else if(existingGroup && !existingGroup.__kayakCard){
-        unregisterGroup(existingGroup);
-        if(existingGroup.parentNode) existingGroup.remove();
-        cardGroupsByKey.delete(cardKey);
+      if(existingGroup && existingGroup !== group){
+        hardRemoveGroup(existingGroup);
       }
     }
 
@@ -1246,18 +1207,11 @@
     const key = getItaItineraryKey(summaryRow, detailRow);
     if (key){
       const existing = itaGroupsByKey.get(key);
-      if (existing && existing.__kayakCard !== card){
-        if (existing.__kayakCard){
-          removeCardButton(existing.__kayakCard);
-        } else {
-          itaGroupsByKey.delete(key);
-          unregisterGroup(existing);
-          if (existing.parentNode) existing.remove();
-        }
+      if (existing && existing !== group && existing.__kayakCard !== card){
+        hardRemoveGroup(existing);
       }
     }
 
-    let group = cardGroupMap.get(card);
     if (!group){
       group = document.createElement('div');
       group.className = BTN_GROUP_CLASS;
@@ -1360,14 +1314,11 @@
     }
 
     const cardKey = getCardKey(card);
+    let group = cardGroupMap.get(card);
     if(cardKey){
       const existingGroup = cardGroupsByKey.get(cardKey);
-      if(existingGroup && existingGroup.__kayakCard && existingGroup.__kayakCard !== card){
-        removeCardButton(existingGroup.__kayakCard);
-      } else if(existingGroup && !existingGroup.__kayakCard){
-        unregisterGroup(existingGroup);
-        if(existingGroup.parentNode) existingGroup.remove();
-        cardGroupsByKey.delete(cardKey);
+      if(existingGroup && existingGroup !== group){
+        hardRemoveGroup(existingGroup);
       }
     }
 
@@ -1404,7 +1355,6 @@
       inlineFallback = true;
     }
 
-    let group = cardGroupMap.get(card);
     if(!group){
       group = document.createElement('div');
       group.className = BTN_GROUP_CLASS;
