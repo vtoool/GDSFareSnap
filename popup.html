@@ -6,7 +6,8 @@
   <style>
     body{ font: 14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin:16px; color:#111;}
     label{ display:block; margin:10px 0 4px; font-weight:600; }
-    input[type="text"]{ width:120px; padding:6px 8px; border:1px solid #c7c7c7; border-radius:8px; font-size:14px; }
+    input[type="text"],
+    input[type="number"]{ width:120px; padding:6px 8px; border:1px solid #c7c7c7; border-radius:8px; font-size:14px; box-sizing:border-box; }
     small{ color:#666; }
     .row{ display:flex; gap:12px; align-items:center; }
     button{ margin-top:12px; padding:8px 12px; border-radius:8px; border:1px solid #c7c7c7; background:#fff; cursor:pointer; font-weight:600; }
@@ -14,6 +15,17 @@
     .toggle{ display:flex; align-items:center; gap:8px; margin:18px 0 4px; font-weight:600; }
     .toggle input{ width:auto; margin:0; }
     .toggle-help{ display:block; margin-left:26px; margin-top:-2px; font-size:12px; color:#666; }
+    textarea{ width:100%; min-height:140px; padding:8px 10px; border:1px solid #c7c7c7; border-radius:8px; box-sizing:border-box; font: 13px/1.5 "SFMono-Regular","Consolas","Liberation Mono",monospace; resize:vertical; }
+    textarea[readonly]{ background:#f8f8f8; color:#222; }
+    .converter{ margin-top:22px; padding-top:16px; border-top:1px solid #e6e6e6; }
+    .converter .row{ margin-bottom:4px; }
+    .converter-actions{ display:flex; gap:10px; align-items:center; margin:12px 0; }
+    .converter-actions button{ margin-top:0; }
+    .year-input{ width:110px; }
+    .convert-status{ font-size:12px; margin-bottom:8px; color:#0a7; display:none; }
+    .convert-error{ font-size:12px; margin-bottom:8px; color:#c0392b; display:none; }
+    .converter small{ display:block; margin-top:-6px; margin-bottom:10px; color:#888; }
+    #copyBtn:disabled{ opacity:0.5; cursor:default; }
   </style>
 </head>
 <body>
@@ -31,7 +43,27 @@
   </div>
   <label class="toggle"><input id="enableDirections" type="checkbox" /> Show OB / IB buttons</label>
   <small class="toggle-help">Adds inbound and outbound copy buttons next to *I.</small>
-  <button id="saveBtn">Save</button><span id="ok" class="ok">Saved</span>
+  <button id="saveBtn" type="button">Save</button><span id="ok" class="ok">Saved</span>
+
+  <div class="converter">
+    <label for="viInput">VI* itinerary</label>
+    <textarea id="viInput" placeholder="Paste Sabre VI* output here"></textarea>
+    <div class="row">
+      <div>
+        <label for="yearOverride">Start year (optional)</label>
+        <input id="yearOverride" class="year-input" type="number" min="1900" max="2100" placeholder="2025" />
+        <small>Used to compute day-of-week codes.</small>
+      </div>
+    </div>
+    <div class="converter-actions">
+      <button id="convertBtn" type="button">Convert to *I</button>
+      <button id="copyBtn" type="button" disabled>Copy</button>
+    </div>
+    <div id="convertStatus" class="convert-status"></div>
+    <div id="convertError" class="convert-error"></div>
+    <label for="iOutput">*I result</label>
+    <textarea id="iOutput" readonly placeholder="Converted *I output will appear here"></textarea>
+  </div>
 
   <script src="popup.js"></script>
 </body>
