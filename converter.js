@@ -519,6 +519,14 @@
       let arrivesDate = null;
       let k = flightInfo.index + 1;
 
+      const isNextFlightBoundary = (idx) => {
+        if(idx == null || idx <= flightInfo.index || idx >= lines.length) return false;
+        const boundaryInfo = getFlightInfo(lines, idx);
+        if(!boundaryInfo) return false;
+        if(boundaryInfo.index === flightInfo.index) return false;
+        return boundaryInfo.index >= idx;
+      };
+
       const routeLookup = findRouteHeaderBefore(flightInfo.index);
       const routeInfo = routeLookup ? routeLookup.info : null;
       let referenceDate = null;
@@ -566,6 +574,7 @@
         if(isSegmentNoiseLine(lines[k])) continue;
         if(applyDepartsOverride(lines[k])) continue;
         if(parseRouteHeaderLine(lines[k])) break;
+        if(isNextFlightBoundary(k)) break;
         const t = toAmPmMinutes(lines[k]);
         if(t.mins != null){ depTime = t; k++; break; }
       }
@@ -576,6 +585,7 @@
           if(isSegmentNoiseLine(lines[k])) continue;
           if(applyDepartsOverride(lines[k])) continue;
           if(parseRouteHeaderLine(lines[k])) break;
+          if(isNextFlightBoundary(k)) break;
           const code = extractAirportCode(lines[k]);
           if(code){ depAirport = code; k++; break; }
         }
@@ -586,6 +596,7 @@
         if(isSegmentNoiseLine(lines[k])) continue;
         if(applyDepartsOverride(lines[k])) continue;
         if(parseRouteHeaderLine(lines[k])) break;
+        if(isNextFlightBoundary(k)) break;
         const t = toAmPmMinutes(lines[k]);
         if(t.mins != null){ arrTime = t; k++; break; }
       }
@@ -596,6 +607,7 @@
           if(isSegmentNoiseLine(lines[k])) continue;
           if(applyDepartsOverride(lines[k])) continue;
           if(parseRouteHeaderLine(lines[k])) break;
+          if(isNextFlightBoundary(k)) break;
           const code = extractAirportCode(lines[k]);
           if(code){ arrAirport = code; k++; break; }
         }
@@ -807,32 +819,34 @@
     if(/^Long layover\b/i.test(normalized)) return true;
     if(/^Change planes in\b/i.test(normalized)) return true;
     if(/^Operated by\b/i.test(normalized)) return true;
+    if(!/\([A-Z]{3}\)/.test(normalized) && isLikelyEquipmentLine(normalized)) return true;
     return false;
   }
 
   function sanitize(raw){
     const base = raw.split(/\r?\n/)
-      .map(s => s.replace(/\s+/g,' ').trim())
+      .map(s => s.replace(/[•·]+/g, '•').replace(/\s+/g,' ').trim())
       .filter(Boolean);
     const expanded = [];
     const timeRe = /(\d{1,2}:\d{2}\s*(?:[ap]m)?)/ig;
 
     for(const rawLine of base){
-      if(isSegmentNoiseLine(rawLine)) continue;
-      const normalizedForNoise = rawLine.replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
+      const lineWithBullets = rawLine.replace(/[•·]+/g, '•');
+      if(isSegmentNoiseLine(lineWithBullets)) continue;
+      const normalizedForNoise = lineWithBullets.replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
       if(!normalizedForNoise) continue;
 
-      if(/^(Depart|Departure|Return|Outbound|Inbound)\b/i.test(rawLine)){
-        expanded.push(rawLine);
+      if(/^(Depart|Departure|Return|Outbound|Inbound)\b/i.test(lineWithBullets)){
+        expanded.push(lineWithBullets);
         continue;
       }
 
-      if(/^\s*Flight\s+\d+\s*[•·]/i.test(rawLine)){
-        expanded.push(rawLine.replace(/[•·]/g, ' '));
+      if(/^\s*Flight\s+\d+\s*[•·]/i.test(lineWithBullets)){
+        expanded.push(lineWithBullets.replace(/[•·]/g, ' '));
         continue;
       }
 
-      const bulletParts = rawLine
+      const bulletParts = lineWithBullets
         .split(/\s*[•·]\s*/)
         .map(p => p.trim())
         .filter(part => {
@@ -850,12 +864,12 @@
       timeRe.lastIndex = 0;
       const timeMatches = [];
       let match;
-      while((match = timeRe.exec(rawLine))){
+      while((match = timeRe.exec(lineWithBullets))){
         timeMatches.push(match[0].trim());
       }
       if(timeMatches.length >= 1){
         expanded.push(...timeMatches);
-        const leftover = rawLine.replace(timeRe, ' ')
+        const leftover = lineWithBullets.replace(timeRe, ' ')
           .replace(/[-–—]/g,' ')
           .replace(/\s+/g,' ')
           .trim();
@@ -863,7 +877,7 @@
         continue;
       }
 
-      expanded.push(rawLine);
+      expanded.push(lineWithBullets);
     }
 
     const normalized = [];
