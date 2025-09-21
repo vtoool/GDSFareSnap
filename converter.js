@@ -67,7 +67,7 @@
     const indexMatch = normalized.match(/^Flight\s+(\d+)/i);
     const index = indexMatch ? parseInt(indexMatch[1], 10) : null;
 
-    const dateMatch = normalized.match(/^Flight\s+\d+\s+(?:((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat))[\s,]+)?([A-Za-z]{3,})\s*(\d{1,2})/i);
+    const dateMatch = normalized.match(/^Flight\s+\d+(?:\s*(?:of|\/|-)\s*\d+)?\s+(?:((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat))[\s,]+)?([A-Za-z]{3,})\s*(\d{1,2})/i);
     let headerDate = null;
     if(dateMatch){
       const dowKey = dateMatch[1] ? dateMatch[1].toUpperCase().slice(0,3) : '';
@@ -75,6 +75,10 @@
       const mon = dateMatch[2].toUpperCase().slice(0,3);
       const day = pad2(dateMatch[3]);
       headerDate = { dow, mon, day };
+    }
+
+    if(!headerDate){
+      headerDate = parseLooseDate(normalized);
     }
 
     return { index: Number.isFinite(index) ? index : null, headerDate };
@@ -96,7 +100,7 @@
     const cleaned = line.replace(/\(.*?\)/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const m = cleaned.match(/Departs(?:\s+on)?\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
+    const m = cleaned.match(/Dep(?:arts|arture)(?:\s+on)?\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
     if(!m) return null;
     const dowKey = m[1] ? m[1].toUpperCase().slice(0,3) : '';
     const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
@@ -116,6 +120,57 @@
     const mon = m[2].toUpperCase().slice(0,3);
     const day = pad2(m[3]);
     return { dow, mon, day };
+  }
+
+  function parseLooseDate(line){
+    const cleaned = (line || '')
+      .replace(/\(.*?\)/g, ' ')
+      .replace(/[•·]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if(!cleaned) return null;
+
+    let candidate = cleaned
+      .replace(/\bFlight\s+\d+(?:\s*(?:of|\/|-)\s*\d+)?\b/ig, ' ')
+      .replace(/\b(?:Leg|Segment)\s+\d+\b/ig, ' ')
+      .replace(/\bof\s+\d+\b/ig, ' ')
+      .replace(/\b(?:Depart(?:s|ure)?|Return|Outbound|Inbound|Journey|Trip|Itinerary)\b/ig, ' ')
+      .replace(/\b20\d{2}\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if(!candidate) candidate = cleaned;
+
+    const patternDowFirst = /(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[,\s-]+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s-]*(\d{1,2})(?:st|nd|rd|th)?/i;
+    let match = candidate.match(patternDowFirst);
+    if(match){
+      const dowKey = match[1] ? match[1].toUpperCase().slice(0,3) : '';
+      const mon = match[2].toUpperCase().slice(0,3);
+      const day = pad2(match[3]);
+      const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
+      return { dow, mon, day };
+    }
+
+    const patternDowDayMonth = /(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[,\s-]+(\d{1,2})(?:st|nd|rd|th)?[,\s-]+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)/i;
+    match = candidate.match(patternDowDayMonth);
+    if(match){
+      const dowKey = match[1] ? match[1].toUpperCase().slice(0,3) : '';
+      const day = pad2(match[2]);
+      const mon = match[3].toUpperCase().slice(0,3);
+      const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
+      return { dow, mon, day };
+    }
+
+    const patternMonthFirst = /(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s-]*(\d{1,2})(?:st|nd|rd|th)?(?:[,\s-]+(Sun|Mon|Tue|Wed|Thu|Fri|Sat))?/i;
+    match = candidate.match(patternMonthFirst);
+    if(match){
+      const mon = match[1].toUpperCase().slice(0,3);
+      const day = pad2(match[2]);
+      const dowKey = match[3] ? match[3].toUpperCase().slice(0,3) : '';
+      const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
+      return { dow, mon, day };
+    }
+
+    return null;
   }
 
   function extractAirportCode(line){
@@ -145,6 +200,9 @@
         const day = pad2(alt[3]);
         headerDate = { dow, mon, day };
       }
+    }
+    if(!headerDate){
+      headerDate = parseLooseDate(cleaned);
     }
     if(!headerDate) return null;
     return { origin: codes[0], dest: codes[1], headerDate };
@@ -391,6 +449,32 @@
       return null;
     };
 
+    const findNearestDepartureDate = (idx) => {
+      const maxLook = 6;
+      if(!Array.isArray(lines) || !lines.length) return null;
+      const base = Number.isFinite(idx) ? idx : 0;
+      for(let back = 0; back <= maxLook; back++){
+        const lookIdx = base - back;
+        if(lookIdx < 0) break;
+        const raw = lines[lookIdx] || '';
+        if(/Arrives\b/i.test(raw)) continue;
+        if(/Layover/i.test(raw)) continue;
+        const depCandidate = parseDepartsDate(raw) || parseInlineOnDate(raw) || parseLooseDate(raw);
+        if(depCandidate) return depCandidate;
+      }
+      for(let forward = 1; forward <= maxLook; forward++){
+        const lookIdx = base + forward;
+        if(lookIdx >= lines.length) break;
+        const raw = lines[lookIdx] || '';
+        if(/Arrives\b/i.test(raw)) continue;
+        if(/^\d{1,2}:\d{2}/.test(raw)) break;
+        if(/Layover/i.test(raw)) continue;
+        const depCandidate = parseDepartsDate(raw) || parseInlineOnDate(raw) || parseLooseDate(raw);
+        if(depCandidate) return depCandidate;
+      }
+      return null;
+    };
+
     while(i < lines.length){
       let flightInfo = null;
       let j = i;
@@ -421,6 +505,7 @@
 
       const routeLookup = findRouteHeaderBefore(flightInfo.index);
       const routeInfo = routeLookup ? routeLookup.info : null;
+      let referenceDate = null;
       if(routeInfo){
         lastRouteInfo = routeInfo;
         if(!homeAirport && routeInfo.origin){
@@ -435,11 +520,26 @@
             inboundActive = true;
           }
         }
+        if(routeInfo.headerDate){
+          referenceDate = { ...routeInfo.headerDate };
+        }
+      }
+      if(!referenceDate){
+        const searchIdx = routeLookup ? routeLookup.index : flightInfo.index;
+        const derived = findNearestDepartureDate(searchIdx);
+        if(derived){
+          referenceDate = derived;
+          if(routeInfo && !routeInfo.headerDate){
+            routeInfo.headerDate = { ...derived };
+          }
+        }
+      }
+      if(referenceDate){
         const prevDow = currentDate ? currentDate.dow : '';
-        const nextDow = routeInfo.headerDate.dow || prevDow || '';
+        const nextDow = referenceDate.dow || prevDow || '';
         currentDate = {
-          day: routeInfo.headerDate.day,
-          mon: routeInfo.headerDate.mon,
+          day: referenceDate.day,
+          mon: referenceDate.mon,
           dow: nextDow
         };
       }
@@ -952,9 +1052,11 @@
       outLines.push(...segLines);
     }else{
       for(const sec of filteredSections){
-        if(!sec.headerDate || !sec.segments.length) continue;
+        if(!sec || !Array.isArray(sec.segments) || sec.segments.length === 0) continue;
         const segLines = formatSegmentsToILines(sec.segments, opts);
-        outLines.push(...segLines);
+        if(segLines.length){
+          outLines.push(...segLines);
+        }
       }
     }
     if(outLines.length === 0){

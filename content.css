@@ -32,6 +32,19 @@
   pointer-events:auto;
 }
 
+.kayak-copy-btn-group--multi{
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:6px;
+  align-items:flex-start;
+}
+
+.kayak-copy-btn-group--ita.kayak-copy-btn-group--multi{
+  right:16px;
+  left:auto;
+  max-width:calc(100% - 24px);
+}
+
 .kayak-copy-btn{
   position:relative;
   display:inline-flex;
@@ -77,9 +90,26 @@
   height:36px;
 }
 
+.kayak-copy-btn-group--ita.kayak-copy-btn-group--multi .kayak-copy-btn{
+  width:auto;
+  min-width:44px;
+  height:32px;
+  padding:0 12px;
+  border-radius:999px;
+}
+
+.kayak-copy-btn-group--multi .kayak-copy-btn{
+  flex-shrink:0;
+}
+
 .kayak-copy-btn-group--ita .kayak-copy-btn .pill-text{
   color:inherit;
   font-size:12px;
+}
+
+.kayak-copy-btn-group--multi .kayak-copy-btn .pill-text{
+  font-size:12px;
+  letter-spacing:0;
 }
 
 .kayak-copy-btn.kayak-copy-btn--ita .pill-check{
@@ -124,6 +154,26 @@
   border:2px solid rgba(45,211,111,.45);
   pointer-events:none;
   animation:kayak-copy-ping .45s ease-out forwards;
+}
+
+.kayak-copy-btn--journey{
+  width:auto;
+  min-width:54px;
+  height:32px;
+  padding:0 14px;
+  border-radius:999px;
+  font-size:12px;
+  letter-spacing:0;
+}
+
+.kayak-copy-btn--journey .pill-text{
+  font-size:12px;
+  letter-spacing:0;
+  white-space:nowrap;
+}
+
+.kayak-copy-btn--journey.is-copied::after{
+  border-radius:999px;
 }
 
 @keyframes kayak-copy-ping{
