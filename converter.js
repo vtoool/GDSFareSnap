@@ -301,7 +301,6 @@
 
   function collectSegments(lines, headerDate, collector){
     const segs = [];
-    let i = 0;
     let currentDate = headerDate ? { ...headerDate } : null;
     let lastRouteInfo = null;
     let homeAirport = null;
@@ -337,7 +336,7 @@
         const startIdx = currentJourney.startIdx;
         if(segs.length > startIdx){
           finalizeJourney();
-        }else{
+        } else {
           currentJourney = null;
         }
       }
@@ -345,7 +344,7 @@
       let headerRef = null;
       if(info.headerDate){
         headerRef = { ...info.headerDate };
-      }else if(currentDate){
+      } else if(currentDate){
         headerRef = { ...currentDate };
       }
       let indexHint = null;
@@ -383,162 +382,71 @@
       return false;
     };
 
-    const findRouteHeaderBefore = (idx) => {
-      for(let look = idx; look >= 0 && look >= idx - 8; look--){
-        const info = parseRouteHeaderLine(lines[look]);
-        if(info) return { info, index: look };
-      }
-      return null;
+    let pendingFlight = null;
+    let pendingSegment = null;
+
+    const resetPendingSegment = () => {
+      pendingSegment = null;
     };
 
-    while(i < lines.length){
-      let flightInfo = null;
-      let j = i;
-      for(; j < lines.length; j++){
-        const journeyInfo = parseJourneyHeader(lines[j]);
-        if(journeyInfo){
-          const headerRef = journeyInfo.headerDate ? { ...journeyInfo.headerDate } : null;
-          if(headerRef){
-            const prevDow = currentDate ? currentDate.dow : '';
-            const nextDow = headerRef.dow || prevDow || '';
-            currentDate = { day: headerRef.day, mon: headerRef.mon, dow: nextDow };
-          }
-          startJourney({ explicit: true, indexHint: journeyInfo.index != null ? Number(journeyInfo.index) : null, headerDate: headerRef || currentDate });
-          continue;
-        }
-        if(applyDepartsOverride(lines[j])) continue;
-        const maybe = getFlightInfo(lines, j);
-        if(maybe){ flightInfo = maybe; break; }
-      }
-      if(!flightInfo) break;
-
-      let depTime = null;
-      let depAirport = null;
-      let arrTime = null;
-      let arrAirport = null;
-      let arrivesDate = null;
-      let k = flightInfo.index + 1;
-
-      const routeLookup = findRouteHeaderBefore(flightInfo.index);
-      const routeInfo = routeLookup ? routeLookup.info : null;
-      if(routeInfo){
-        lastRouteInfo = routeInfo;
-        if(!homeAirport && routeInfo.origin){
-          homeAirport = routeInfo.origin;
-        }
-        if(homeAirport && routeInfo.dest === homeAirport){
-          inboundActive = true;
-        }
-        if(!inboundActive && homeAirport && routeLookup && routeLookup.index > 0){
-          const prevLookup = findRouteHeaderBefore(routeLookup.index - 1);
-          if(prevLookup && prevLookup.info.dest === homeAirport){
-            inboundActive = true;
-          }
-        }
-        const prevDow = currentDate ? currentDate.dow : '';
-        const nextDow = routeInfo.headerDate.dow || prevDow || '';
-        currentDate = {
-          day: routeInfo.headerDate.day,
-          mon: routeInfo.headerDate.mon,
-          dow: nextDow
+    const ensurePendingSegment = () => {
+      if(!pendingFlight) return null;
+      if(!pendingSegment){
+        pendingSegment = {
+          depTime: null,
+          depAirport: null,
+          arrTime: null,
+          arrAirport: null,
+          bookingClass: null,
+          arrivesDate: null,
+          headerRef: currentDate ? { ...currentDate } : null,
+          routeHint: lastRouteInfo ? { origin: lastRouteInfo.origin || null, dest: lastRouteInfo.dest || null } : null
         };
       }
+      return pendingSegment;
+    };
 
-      for(; k < lines.length; k++){
-        const headerCheck = parseJourneyHeader(lines[k]);
-        if(headerCheck) break;
-        if(applyDepartsOverride(lines[k])) continue;
-        if(parseRouteHeaderLine(lines[k])) break;
-        const t = toAmPmMinutes(lines[k]);
-        if(t.mins != null){ depTime = t; k++; break; }
+    const syncPendingDate = () => {
+      if(pendingSegment){
+        pendingSegment.headerRef = currentDate ? { ...currentDate } : pendingSegment.headerRef;
       }
-      if(!routeInfo){
-        for(; k < lines.length; k++){
-          const headerCheck = parseJourneyHeader(lines[k]);
-          if(headerCheck) break;
-          if(applyDepartsOverride(lines[k])) continue;
-          if(parseRouteHeaderLine(lines[k])) break;
-          const code = extractAirportCode(lines[k]);
-          if(code){ depAirport = code; k++; break; }
+    };
+
+    const flushPendingSegment = () => {
+      if(!pendingFlight || !pendingSegment){
+        pendingFlight = null;
+        resetPendingSegment();
+        return;
+      }
+      const segData = pendingSegment;
+      const depTime = segData.depTime;
+      const arrTime = segData.arrTime;
+      let depAirport = segData.depAirport;
+      let arrAirport = segData.arrAirport;
+      const routeHint = segData.routeHint || lastRouteInfo || null;
+      if(routeHint){
+        if(!depAirport && routeHint.origin){
+          depAirport = routeHint.origin;
         }
-      }
-      for(; k < lines.length; k++){
-        const headerCheck = parseJourneyHeader(lines[k]);
-        if(headerCheck) break;
-        if(applyDepartsOverride(lines[k])) continue;
-        if(parseRouteHeaderLine(lines[k])) break;
-        const t = toAmPmMinutes(lines[k]);
-        if(t.mins != null){ arrTime = t; k++; break; }
-      }
-      if(!routeInfo){
-        for(; k < lines.length; k++){
-          const headerCheck = parseJourneyHeader(lines[k]);
-          if(headerCheck) break;
-          if(applyDepartsOverride(lines[k])) continue;
-          if(parseRouteHeaderLine(lines[k])) break;
-          const code = extractAirportCode(lines[k]);
-          if(code){ arrAirport = code; k++; break; }
+        if(!arrAirport && routeHint.dest){
+          arrAirport = routeHint.dest;
         }
       }
 
-      if(routeInfo){
-        depAirport = depAirport || routeInfo.origin || depAirport;
-        arrAirport = arrAirport || routeInfo.dest || arrAirport;
-      }
+      if(depTime && depTime.mins != null && arrTime && arrTime.mins != null && depAirport && arrAirport){
+        const airlineCode = (pendingFlight.airlineCode || '').trim() || UNKNOWN_AIRLINE_CODE;
+        const flightNumber = pendingFlight.number || '';
+        const headerRef = segData.headerRef ? { ...segData.headerRef } : (currentDate ? { ...currentDate } : null);
+        const depSource = headerRef || currentDate;
+        const depDateString = depSource ? `${depSource.day}${depSource.mon}` : '';
+        const depDow = depSource ? (depSource.dow || '') : '';
+        const arrivesInfo = segData.arrivesDate ? {
+          day: segData.arrivesDate.day,
+          mon: segData.arrivesDate.mon,
+          dow: segData.arrivesDate.dow || ''
+        } : null;
+        const arrDateString = arrivesInfo ? `${arrivesInfo.day}${arrivesInfo.mon}${arrivesInfo.dow ? ` ${arrivesInfo.dow}` : ''}` : '';
 
-      if(flightInfo.index > 0){
-        const backTimes = [];
-        for(let look = flightInfo.index - 1; look >= 0 && backTimes.length < 3; look--){
-          const info = parseRouteHeaderLine(lines[look]);
-          if(info) break;
-          const t = toAmPmMinutes(lines[look]);
-          if(t.mins != null){
-            backTimes.push(t);
-          }
-        }
-        if(backTimes.length){
-          backTimes.reverse();
-          if((!depTime || depTime.mins == null) && backTimes[0] && backTimes[0].mins != null){
-            depTime = backTimes[0];
-          }
-          if((!arrTime || arrTime.mins == null) && backTimes.length > 1 && backTimes[1] && backTimes[1].mins != null){
-            arrTime = backTimes[1];
-          }
-        }
-      }
-
-      let bookingClass = null;
-      for(let z = k; z < Math.min(k + 6, lines.length); z++){
-        const headerCheck = parseJourneyHeader(lines[z]);
-        if(headerCheck) break;
-        if(applyDepartsOverride(lines[z])) continue;
-        if(!bookingClass){
-          const bc = extractBookingClass(lines[z]);
-          if(bc){
-            bookingClass = bc;
-            continue;
-          }
-        }
-        const ad = parseArrivesDate(lines[z]);
-        if(ad){ arrivesDate = ad; break; }
-        if(extractFlightNumberLine(lines[z])) break;
-      }
-
-      if(!bookingClass){
-        for(let look = flightInfo.index + 1; look < Math.min(flightInfo.index + 6, lines.length); look++){
-          const bc = extractBookingClass(lines[look]);
-          if(bc){ bookingClass = bc; break; }
-        }
-      }
-
-      if(depTime && depAirport && arrTime && arrAirport){
-        const airlineCode = flightInfo.airlineCode;
-        const flightNumber = flightInfo.number;
-        const depDateString = currentDate ? `${currentDate.day}${currentDate.mon}` : '';
-        const depDow = currentDate ? currentDate.dow : '';
-        const arrDateString = arrivesDate
-          ? `${arrivesDate.day}${arrivesDate.mon}${arrivesDate.dow ? ` ${arrivesDate.dow}` : ''}`
-          : "";
         segs.push({
           airlineCode,
           number: flightNumber,
@@ -548,39 +456,180 @@
           arrAirport,
           depGDS: depTime.gds,
           arrGDS: arrTime.gds,
-          routeOrigin: lastRouteInfo ? lastRouteInfo.origin : null,
-          routeDest: lastRouteInfo ? lastRouteInfo.dest : null,
-          headerRef: currentDate ? { ...currentDate } : null,
-          bookingClass,
+          routeOrigin: routeHint ? routeHint.origin || null : null,
+          routeDest: routeHint ? routeHint.dest || null : null,
+          headerRef,
+          bookingClass: segData.bookingClass || null,
           arrDate: arrDateString,
           direction: inboundActive ? 'inbound' : 'outbound'
         });
+
+        ensureJourneyActive();
         if(currentJourney){
-          if(!currentJourney.origin) currentJourney.origin = depAirport || currentJourney.origin || null;
-          currentJourney.dest = arrAirport || currentJourney.dest || null;
-        } else {
-          ensureJourneyActive();
-          if(currentJourney){
-            if(!currentJourney.origin) currentJourney.origin = depAirport || currentJourney.origin || null;
-            currentJourney.dest = arrAirport || currentJourney.dest || null;
+          if(!currentJourney.origin) currentJourney.origin = depAirport;
+          currentJourney.dest = arrAirport;
+        }
+
+        if(!homeAirport && depAirport){
+          homeAirport = depAirport;
+        }
+        if(homeAirport && arrAirport === homeAirport){
+          inboundActive = true;
+        }
+
+        if(arrivesInfo){
+          const prevDow = currentDate ? currentDate.dow : '';
+          const nextDow = arrivesInfo.dow || prevDow || '';
+          currentDate = { day: arrivesInfo.day, mon: arrivesInfo.mon, dow: nextDow };
+        }
+      }
+
+      pendingFlight = null;
+      resetPendingSegment();
+    };
+
+    const handleRouteHeader = (line) => {
+      const info = parseRouteHeaderLine(line);
+      if(!info) return false;
+      flushPendingSegment();
+      lastRouteInfo = {
+        origin: info.origin || null,
+        dest: info.dest || null,
+        headerDate: info.headerDate ? { ...info.headerDate } : null
+      };
+      if(lastRouteInfo.headerDate){
+        const prevDow = currentDate ? currentDate.dow : '';
+        const nextDow = lastRouteInfo.headerDate.dow || prevDow || '';
+        currentDate = { day: lastRouteInfo.headerDate.day, mon: lastRouteInfo.headerDate.mon, dow: nextDow };
+      }
+      if(!homeAirport && info.origin){
+        homeAirport = info.origin;
+      }
+      if(homeAirport && info.dest === homeAirport){
+        inboundActive = true;
+      }
+      if(currentJourney && lastRouteInfo.headerDate && !currentJourney.headerDate){
+        currentJourney.headerDate = { ...lastRouteInfo.headerDate };
+      }
+      return true;
+    };
+
+    for(let idx = 0; idx < lines.length; idx++){
+      const line = lines[idx] || '';
+      if(!line) continue;
+
+      const journeyInfo = parseJourneyHeader(line);
+      if(journeyInfo){
+        flushPendingSegment();
+        const headerRef = journeyInfo.headerDate ? { ...journeyInfo.headerDate } : null;
+        if(headerRef){
+          const prevDow = currentDate ? currentDate.dow : '';
+          const nextDow = headerRef.dow || prevDow || '';
+          currentDate = { day: headerRef.day, mon: headerRef.mon, dow: nextDow };
+        }
+        startJourney({ explicit: true, indexHint: journeyInfo.index != null ? Number(journeyInfo.index) : null, headerDate: headerRef || currentDate });
+        continue;
+      }
+
+      if(applyDepartsOverride(line)){
+        syncPendingDate();
+        continue;
+      }
+
+      if(handleRouteHeader(line)){
+        syncPendingDate();
+        continue;
+      }
+
+      const flightInfo = getFlightInfo(lines, idx);
+      if(flightInfo){
+        flushPendingSegment();
+        pendingFlight = {
+          airlineCode: flightInfo.airlineCode || UNKNOWN_AIRLINE_CODE,
+          number: flightInfo.number || ''
+        };
+        syncPendingDate();
+        idx = flightInfo.index;
+        continue;
+      }
+
+      if(!pendingFlight){
+        continue;
+      }
+
+      const normalized = line.replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
+      if(/^Operated by\b/i.test(normalized)){
+        continue;
+      }
+
+      const segData = ensurePendingSegment();
+      if(!segData){
+        continue;
+      }
+
+      let consumed = false;
+
+      const bookingClass = extractBookingClass(line);
+      if(bookingClass && !segData.bookingClass){
+        segData.bookingClass = bookingClass;
+        consumed = true;
+      }
+
+      if(!consumed){
+        const arrives = parseArrivesDate(line);
+        if(arrives){
+          const prevDow = currentDate ? currentDate.dow : '';
+          segData.arrivesDate = {
+            day: arrives.day,
+            mon: arrives.mon,
+            dow: arrives.dow || prevDow || ''
+          };
+          consumed = true;
+        }
+      }
+
+      if(!consumed){
+        const time = toAmPmMinutes(line);
+        if(time.mins != null){
+          if(!segData.depTime){
+            segData.depTime = time;
+            consumed = true;
+          } else if(!segData.arrTime){
+            segData.arrTime = time;
+            consumed = true;
+          } else {
+            consumed = true;
           }
         }
-        if(arrivesDate){
-          const prevDow = currentDate ? currentDate.dow : '';
-          const nextDow = arrivesDate.dow || prevDow || '';
-          currentDate = {
-            day: arrivesDate.day,
-            mon: arrivesDate.mon,
-            dow: nextDow
-          };
+      }
+
+      if(!consumed){
+        const airport = extractAirportCode(line);
+        if(airport){
+          if(!segData.depAirport){
+            segData.depAirport = airport;
+            consumed = true;
+          } else if(!segData.arrAirport){
+            segData.arrAirport = airport;
+            consumed = true;
+          } else {
+            consumed = true;
+          }
         }
-        i = k;
-      }else{
-        i = flightInfo.index + 1;
+      }
+
+      if(consumed){
+        continue;
+      }
+
+      if(isLikelyEquipmentLine(normalized)){
+        continue;
       }
     }
 
+    flushPendingSegment();
     finalizeJourney();
+
     if(journeys){
       tracking.journeys = journeys;
       tracking.segments = segs;
