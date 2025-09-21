@@ -54,6 +54,8 @@ const AIRLINE_CODES = {
     'AEROFLOT': 'SU',
     'AIR EUROPA': 'UX',
     'ALITALIA': 'AZ',
+    'ITA AIRWAYS': 'AZ',
+    'ITA AIRWAYS S.P.A.': 'AZ',
     'AUSTRIAN AIRLINES': 'OS',
     'BRUSSELS AIRLINES': 'SN',
     'FINNAIR': 'AY',
