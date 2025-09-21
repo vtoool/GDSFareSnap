@@ -128,6 +128,8 @@ UI logic:
 If isMultiCity or journeys.length > 1: replace OB/IB with per-journey buttons labeled
 # {origin}-{dest} (e.g., 1 MIA-VCE, 2 NAP-MIA).
 
+Journey and direction buttons (OB/IB) must copy availability commands, not *I strings.
+
 Clicking a journey pill copies only that journey’s output (availability or *I for that segment range).
 
 5) Parsing engine (tokenizer/state machine)

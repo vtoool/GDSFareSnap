@@ -273,7 +273,8 @@
       label: '*I',
       title: 'Copy itinerary option details',
       ariaLabel: 'Copy itinerary option details to clipboard',
-      direction: 'all'
+      direction: 'all',
+      copyKind: 'itinerary'
     };
 
     let rawText = '';
@@ -326,7 +327,8 @@
           direction: 'all',
           segmentRange: [start, end],
           journeyIndex: idx,
-          variant: 'journey'
+          variant: 'journey',
+          copyKind: 'availability'
         });
         journeySignatureParts.push(`${start}-${end}-${origin || ''}-${dest || ''}-${indexHint}`);
       });
@@ -336,14 +338,16 @@
         label: 'OB',
         title: 'Copy outbound segments',
         ariaLabel: 'Copy outbound segments to clipboard',
-        direction: 'outbound'
+        direction: 'outbound',
+        copyKind: 'availability'
       });
       configs.push({
         key: 'ib',
         label: 'IB',
         title: 'Copy inbound segments',
         ariaLabel: 'Copy inbound segments to clipboard',
-        direction: 'inbound'
+        direction: 'inbound',
+        copyKind: 'availability'
       });
     }
 
@@ -412,9 +416,10 @@
           segmentStatus: SETTINGS.segmentStatus
         };
         const direction = config.direction || 'all';
+        const copyKind = config.copyKind || (direction === 'all' ? 'itinerary' : 'availability');
         let converted;
         try {
-          if(direction === 'all'){
+          if(copyKind === 'itinerary'){
             const convertOpts = Object.assign({}, baseOpts);
             if(Array.isArray(config.segmentRange) && config.segmentRange.length === 2){
               convertOpts.segmentRange = [
