@@ -621,8 +621,9 @@
       const bookingClass = (s.bookingClass || opts.bookingClass || '').toUpperCase();
       const flightField = formatFlightDesignator(s.airlineCode, s.number, bookingClass);
       const dateField = formatDateField(s.depDate, s.depDOW);
-      const indicator = idx < segs.length - 1 ? '*' : ' ';
-      const cityField = `${s.depAirport}${s.arrAirport}${indicator}${opts.segmentStatus}`.trim();
+      const status = (opts.segmentStatus || '').trim();
+      const indicator = status ? '*' : '';
+      const cityField = `${s.depAirport}${s.arrAirport}${indicator}${status}`.trim();
       const depTime = formatGdsTime(s.depGDS);
       const arrTime = formatGdsTime(s.arrGDS);
 
