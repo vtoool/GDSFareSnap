@@ -400,7 +400,7 @@
     const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
     const segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
     const multiCity = !!(preview && preview.isMultiCity && journeys.length > 0);
-    const showJourneyButtons = multiCity && !IS_ITA;
+    const showJourneyButtons = multiCity && !IS_ITA && SETTINGS.enableDirectionButtons;
 
     const journeySignatureParts = [];
     if(showJourneyButtons){
