@@ -1488,13 +1488,28 @@
     return best;
   }
 
-  function resolveKayakInlineHost(card, selectBtn){
+  function resolveKayakInlineHost(card, selectBtn, detailOverride){
     if(!card || card.nodeType !== 1) return card;
     const cached = kayakInlineSlotMap.get(card);
     if(cached && cached.isConnected && card.contains(cached)){
       return cached;
     }
-    const detail = findKayakDetailContainer(card, selectBtn);
+
+    let detail = detailOverride || null;
+    if(detail){
+      if(detail.nodeType !== 1){
+        detail = detail.parentElement;
+      }
+      if(detail && (detail === card || !detail.isConnected || !card.contains(detail))){
+        detail = null;
+      }
+      if(detail && !isVisible(detail)){
+        detail = null;
+      }
+    }
+    if(!detail){
+      detail = findKayakDetailContainer(card, selectBtn);
+    }
     if(!detail){
       kayakInlineSlotMap.delete(card);
       return card;
@@ -2055,6 +2070,19 @@
       inlineFallback = true;
     }
 
+    let detailContainer = null;
+    try {
+      detailContainer = findKayakDetailContainer(card, selectBtn);
+    } catch (err) {
+      detailContainer = null;
+    }
+    if(detailContainer && (detailContainer === card || !card.contains(detailContainer) || !detailContainer.isConnected || !isVisible(detailContainer))){
+      detailContainer = null;
+    }
+    if(detailContainer){
+      inlineFallback = true;
+    }
+
     if(!group){
       group = document.createElement('div');
       group.className = BTN_GROUP_CLASS;
@@ -2080,7 +2108,7 @@
 
     const previousHost = group.__inlineHost;
     if(inlineFallback){
-      let host = resolveKayakInlineHost(card, selectBtn);
+      let host = resolveKayakInlineHost(card, selectBtn, detailContainer);
       if(!host){
         host = card;
       }
