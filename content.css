@@ -22,6 +22,19 @@
   position:relative;
 }
 
+.kayak-copy-inline-slot{
+  position:relative;
+  min-height:56px;
+  margin:4px 0 12px;
+  display:block;
+}
+
+.kayak-copy-inline-slot .kayak-copy-btn-group--ita{
+  top:8px;
+  right:12px;
+  left:auto;
+}
+
 .kayak-copy-btn-group.kayak-copy-btn-group--ita{
   position:absolute;
   top:12px;
