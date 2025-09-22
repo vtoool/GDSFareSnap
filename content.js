@@ -9,7 +9,11 @@
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MAX_CLIMB   = 12;
-  const SELECT_RX   = /\b(?:Select(?:\s+Flight)?|Choose|View\s+(?:Deal|Flight)|See\s+Deal|Book|Continue)\b/i;
+  const SELECT_RX   = /\b(?:Select(?:\s+Flight)?|Choose|View\s+(?:Deal|Flight|Offer)|See\s+(?:Deal|Offer)|Book|Continue(?:\s+to\s+Airline)?|Go\s+to\s+(?:Site|Airline)|Visit\s+(?:Airline|Site)|Check\s+Price|View\s+Offer)\b/i;
+  const CTA_ATTR_HINTS = ['select','book','booking','cta','result-select','provider','price-link','price','offer','deal'];
+  const CTA_MIN_WIDTH = 90;
+  const CTA_MIN_HEIGHT = 32;
+  const CTA_MIN_AREA = CTA_MIN_WIDTH * CTA_MIN_HEIGHT;
   const ITA_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
   const CARD_KEY_ATTR = 'data-kayak-copy-key';
   const STABLE_CARD_ATTRS = [
@@ -191,7 +195,7 @@
     return key;
   }
 
-  function cardHasFlightClues(card, selectHint, suppressSelectLookup){
+  function cardHasFlightClues(card, selectHint, opts){
     if(!card || card.nodeType !== 1) return false;
     if(!isVisible(card)) return false;
     const txt = typeof card.innerText === 'string' ? card.innerText : '';
@@ -203,16 +207,39 @@
 
     if(IS_ITA) return true;
 
-    let selectCandidate = typeof selectHint !== 'undefined' ? selectHint : null;
-    if(selectCandidate && selectCandidate.nodeType === 1 && !card.contains(selectCandidate)){
+    let options;
+    if(typeof opts === 'boolean'){
+      options = { suppressSelectLookup: opts };
+    } else {
+      options = opts || {};
+    }
+    const suppressSelectLookup = !!options.suppressSelectLookup;
+    const allowMissingSelect = !!options.allowMissingSelect;
+
+    let selectCandidate = (typeof selectHint !== 'undefined' && selectHint && selectHint.nodeType === 1)
+      ? selectHint
+      : null;
+    if(selectCandidate && !card.contains(selectCandidate)){
       selectCandidate = null;
     }
     if(!selectCandidate && !suppressSelectLookup){
       selectCandidate = findSelectButton(card);
+      if(selectCandidate && !card.contains(selectCandidate)){
+        selectCandidate = null;
+      }
     }
-    if(!selectCandidate) return false;
-    if(!card.contains(selectCandidate)) return false;
-    if(!isVisible(selectCandidate)) return false;
+    if(!selectCandidate){
+      return allowMissingSelect;
+    }
+    if(!isVisible(selectCandidate)){
+      return allowMissingSelect;
+    }
+    const rect = typeof selectCandidate.getBoundingClientRect === 'function'
+      ? selectCandidate.getBoundingClientRect()
+      : null;
+    if(rect && (rect.width <= 0 || rect.height <= 0)){
+      return allowMissingSelect;
+    }
     return true;
   }
 
@@ -1215,13 +1242,31 @@
     if(el.closest && el.closest(`#${OVERLAY_ROOT_ID}`)) return null;
 
     const selectBtn = findSelectButton(el);
-    if(!selectBtn) return null;
+    let allowMissingSelect = false;
+    if(selectBtn && !isVisible(selectBtn)){
+      allowMissingSelect = true;
+    }
+    if(!selectBtn){
+      let baseRect = null;
+      try {
+        baseRect = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+      } catch (err) {
+        baseRect = null;
+      }
+      if(!baseRect || baseRect.width < 160 || baseRect.height < 260){
+        return null;
+      }
+      if(!cardHasFlightClues(el, null, { suppressSelectLookup: true, allowMissingSelect: true })){
+        return null;
+      }
+      allowMissingSelect = true;
+    }
 
     const candidates = [];
     let current = el;
     let depth = 0;
     while(current && depth <= MAX_CLIMB){
-      if(current.nodeType === 1 && current.contains(selectBtn)){
+      if(current.nodeType === 1 && (!selectBtn || current.contains(selectBtn))){
         candidates.push({ node: current, depth });
       }
       current = current.parentElement;
@@ -1237,7 +1282,7 @@
       if(hasDisqualifyingSignature(node)) continue;
       if(isWithinRightRail(node)) continue;
       if(shouldIgnoreCard(node)) continue;
-      if(!cardHasFlightClues(node, selectBtn, true)) continue;
+      if(!cardHasFlightClues(node, selectBtn, { suppressSelectLookup: true, allowMissingSelect })) continue;
       const score = scoreKayakCardNode(node, selectBtn, entry.depth);
       if(score > bestScore){
         bestScore = score;
@@ -1251,19 +1296,24 @@
 
     const anchor = findStableCardAnchor(bestEntry.node, selectBtn);
     if(anchor && anchor !== bestEntry.node){
-      if(!cardHasFlightClues(anchor, selectBtn, true)){
+      if(!cardHasFlightClues(anchor, selectBtn, { suppressSelectLookup: true, allowMissingSelect })){
+        getCardKey(bestEntry.node);
         return bestEntry.node;
       }
       if(!isVisible(anchor)){
+        getCardKey(bestEntry.node);
         return bestEntry.node;
       }
       const rect = typeof anchor.getBoundingClientRect === 'function' ? anchor.getBoundingClientRect() : null;
       if(rect && (rect.width < 220 || rect.height < 140)){
+        getCardKey(bestEntry.node);
         return bestEntry.node;
       }
+      getCardKey(anchor);
       return anchor;
     }
 
+    getCardKey(bestEntry.node);
     return bestEntry.node;
   }
 
@@ -1505,6 +1555,92 @@
     return slot;
   }
 
+  function parseCssSize(value){
+    const num = parseFloat(value);
+    return Number.isFinite(num) ? num : 0;
+  }
+
+  function isAcceptableCtaCandidate(candidate, rect, computedStyles){
+    if(!candidate) return false;
+    let metrics = rect || null;
+    if(!metrics){
+      try {
+        metrics = candidate.getBoundingClientRect();
+      } catch (err) {
+        metrics = null;
+      }
+    }
+    if(!metrics) return false;
+    if(metrics.width < CTA_MIN_WIDTH || metrics.height < CTA_MIN_HEIGHT) return false;
+    if(metrics.width * metrics.height < CTA_MIN_AREA) return false;
+    let styles = computedStyles || null;
+    if(!styles){
+      try {
+        styles = getComputedStyle(candidate);
+      } catch (err) {
+        styles = null;
+      }
+    }
+    if(styles){
+      const radiusValues = [
+        styles.borderRadius,
+        styles.borderTopLeftRadius,
+        styles.borderTopRightRadius,
+        styles.borderBottomLeftRadius,
+        styles.borderBottomRightRadius
+      ];
+      let maxRadius = 0;
+      for(const val of radiusValues){
+        const parsed = parseCssSize(val);
+        if(parsed > maxRadius){
+          maxRadius = parsed;
+        }
+      }
+      const padX = parseCssSize(styles.paddingLeft) + parseCssSize(styles.paddingRight);
+      const padY = parseCssSize(styles.paddingTop) + parseCssSize(styles.paddingBottom);
+      if(maxRadius <= 1 && padX < 14 && padY < 8){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function getCtaLabel(candidate){
+    if(!candidate) return '';
+    const parts = [
+      candidate.textContent || '',
+      (candidate.getAttribute && candidate.getAttribute('aria-label')) || '',
+      (candidate.getAttribute && candidate.getAttribute('data-test')) || '',
+      (candidate.getAttribute && candidate.getAttribute('data-testid')) || '',
+      (candidate.getAttribute && candidate.getAttribute('title')) || ''
+    ];
+    return parts.join(' ');
+  }
+
+  function getCtaAttributeSignature(candidate){
+    if(!candidate || candidate.nodeType !== 1) return '';
+    const attrs = ['data-testid', 'data-test', 'id', 'name', 'data-resultid', 'data-result-id', 'data-option-id', 'data-offer-id'];
+    const parts = [];
+    for(const attr of attrs){
+      const val = candidate.getAttribute ? candidate.getAttribute(attr) : null;
+      if(val){
+        parts.push(String(val));
+      }
+    }
+    if(candidate.dataset){
+      for(const key of Object.keys(candidate.dataset)){
+        const val = candidate.dataset[key];
+        if(val){
+          parts.push(String(val));
+        }
+      }
+    }
+    if(candidate.className){
+      parts.push(typeof candidate.className === 'string' ? candidate.className : String(candidate.className));
+    }
+    return parts.join(' ').toLowerCase();
+  }
+
   function looksLikeExpandedCard(el){
     if(IS_ITA){
       return looksLikeItaExpandedCard(el);
@@ -1512,8 +1648,24 @@
     if(!el || el.nodeType !== 1) return false;
     if(shouldIgnoreCard(el)) return false;
     const selectCandidate = findSelectButton(el);
-    if(!selectCandidate) return false;
-    return cardHasFlightClues(el, selectCandidate, true);
+    let allowMissingSelect = false;
+    if(selectCandidate){
+      if(!isVisible(selectCandidate)){
+        allowMissingSelect = true;
+      }
+    } else {
+      let rect = null;
+      try {
+        rect = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+      } catch (err) {
+        rect = null;
+      }
+      if(!rect || rect.width < 160 || rect.height < 260){
+        return false;
+      }
+      allowMissingSelect = true;
+    }
+    return cardHasFlightClues(el, selectCandidate, { suppressSelectLookup: true, allowMissingSelect });
   }
 
   // Find the expanded “card” container
@@ -1553,38 +1705,92 @@
   }
 
   function findSelectButton(card){
-    if (!card) return null;
+    if (!card || card.nodeType !== 1) return null;
 
-    const preferredSelectors = [
-      'button[data-testid*="select"]',
-      'button[data-test*="select"]',
-      'button[aria-label*="Select"]'
-    ];
+    const seen = new Set();
+    const scored = [];
+    let order = 0;
+    let nodeList = [];
+    try {
+      nodeList = card.querySelectorAll('button, a[role="button"], div[role="button"], a[href]');
+    } catch (err) {
+      nodeList = [];
+    }
 
-    for (const sel of preferredSelectors){
-      const candidate = card.querySelector(sel);
-      if (candidate && isVisible(candidate) && SELECT_RX.test(
-        (candidate.textContent || '') + ' ' +
-        (candidate.getAttribute('aria-label') || '')
-      )) {
-        return candidate;
+    for (const candidate of nodeList){
+      if(!candidate || seen.has(candidate)) continue;
+      seen.add(candidate);
+      order++;
+      if(!isVisible(candidate)) continue;
+      let rect = null;
+      try {
+        rect = candidate.getBoundingClientRect();
+      } catch (err) {
+        rect = null;
       }
+      if(!rect) continue;
+      const label = getCtaLabel(candidate);
+      if(!label) continue;
+      if(!SELECT_RX.test(label)) continue;
+      let styles = null;
+      if(rect.width < CTA_MIN_WIDTH || rect.height < CTA_MIN_HEIGHT || rect.width * rect.height < CTA_MIN_AREA){
+        try {
+          styles = getComputedStyle(candidate);
+        } catch (err) {
+          styles = null;
+        }
+      }
+      if(!isAcceptableCtaCandidate(candidate, rect, styles)) continue;
+      const attrSignature = getCtaAttributeSignature(candidate);
+      const loweredLabel = label.toLowerCase();
+      let score = 0;
+      const tagName = candidate.tagName ? candidate.tagName.toLowerCase() : '';
+      if(tagName === 'button') score += 60;
+      if(tagName === 'a') score += 36;
+      score += Math.min(rect.width, 360) * 0.6;
+      score += Math.min(rect.height, 200) * 0.6;
+      const hintScores = {
+        'result-select': 160,
+        'select': 150,
+        'booking': 140,
+        'book': 140,
+        'cta': 120,
+        'price-link': 120,
+        'price': 90,
+        'provider': 80,
+        'offer': 70,
+        'deal': 60
+      };
+      let hasPreferredAttr = false;
+      for(const hint of CTA_ATTR_HINTS){
+        if(attrSignature.includes(hint)){
+          hasPreferredAttr = true;
+          score += hintScores[hint] || 40;
+        }
+      }
+      if(/\bselect\b/.test(loweredLabel)) score += 50;
+      if(/\bbook\b/.test(loweredLabel)) score += 40;
+      if(/\bgo\s+to\b/.test(loweredLabel)) score += 32;
+      if(/\bvisit\b/.test(loweredLabel)) score += 28;
+      if(/\bview\s+offer\b/.test(loweredLabel)) score += 32;
+      if(/\bcheck\s+price\b/.test(loweredLabel)) score += 24;
+      if(/\bdeal\b/.test(loweredLabel)) score += 20;
+      if(/\boffer\b/.test(loweredLabel)) score += 20;
+
+      scored.push({ element: candidate, score, order, hasPreferredAttr });
     }
 
-    const candidates = card.querySelectorAll('button, a[role="button"], div[role="button"]');
-    for (const candidate of candidates){
-      if (!isVisible(candidate)) continue;
-      const label = [
-        candidate.textContent || '',
-        candidate.getAttribute('aria-label') || '',
-        candidate.getAttribute('data-test') || '',
-        candidate.getAttribute('data-testid') || '',
-        candidate.getAttribute('title') || ''
-      ].join(' ');
-      if (SELECT_RX.test(label)) return candidate;
-    }
-
-    return null;
+    if(!scored.length) return null;
+    scored.sort((a, b) => {
+      if(a.hasPreferredAttr !== b.hasPreferredAttr){
+        return a.hasPreferredAttr ? -1 : 1;
+      }
+      if(b.score !== a.score){
+        return b.score - a.score;
+      }
+      return a.order - b.order;
+    });
+    return scored[0].element;
   }
 
   /* ---------- Button injection near the primary Select button ---------- */
@@ -1799,16 +2005,35 @@
 
     const selectBtn = findSelectButton(card);
     let inlineFallback = false;
+    let selectRect = null;
     if(selectBtn){
-      const selectRect = selectBtn.getBoundingClientRect();
-      if (!selectRect || selectRect.width < 60 || selectRect.height < 24){
+      if(!isVisible(selectBtn)){
         inlineFallback = true;
+      }
+      try {
+        selectRect = selectBtn.getBoundingClientRect();
+      } catch (err) {
+        selectRect = null;
+      }
+      if(!selectRect){
+        inlineFallback = true;
+      } else {
+        if(selectRect.width < CTA_MIN_WIDTH || selectRect.height < CTA_MIN_HEIGHT || (selectRect.width * selectRect.height) < CTA_MIN_AREA){
+          inlineFallback = true;
+        }
+        const avoidTop = measureAvoidTop();
+        if(selectRect.top <= avoidTop + 8 || selectRect.top < 56){
+          inlineFallback = true;
+        }
+        if(selectRect.width <= 0 || selectRect.height <= 0){
+          inlineFallback = true;
+        }
       }
     } else {
       inlineFallback = true;
     }
 
-    if(!cardHasFlightClues(card, selectBtn, true)){
+    if(!cardHasFlightClues(card, selectBtn, { suppressSelectLookup: true, allowMissingSelect: inlineFallback })){
       removeCardButton(card);
       return;
     }
