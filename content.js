@@ -327,8 +327,41 @@
       return cachedAvoidTop;
     }
     lastAvoidMeasure = now;
+
     const viewWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
     const candidates = new Set();
+
+    const addCandidate = (node) => {
+      let current = node;
+      let hops = 0;
+      while (current && hops < 8){
+        if(current === overlayRoot) return;
+        if(current.closest && current.closest(`#${OVERLAY_ROOT_ID}`)) return;
+        if(current === document.body || current === document.documentElement){
+          break;
+        }
+        let cs;
+        try {
+          cs = getComputedStyle(current);
+        } catch (err) {
+          current = current.parentElement;
+          hops++;
+          continue;
+        }
+        const pos = cs.position;
+        if(pos === 'fixed' || pos === 'sticky'){
+          if(cs.display === 'none' || cs.visibility === 'hidden') return;
+          if(parseFloat(cs.opacity || '1') === 0) return;
+          candidates.add(current);
+          return;
+        }
+        if(!current.parentElement) break;
+        current = current.parentElement;
+        hops++;
+      }
+    };
+
     const selectorList = [
       'header[role="banner"]',
       'header[data-testid]',
@@ -343,19 +376,48 @@
     ];
 
     selectorList.forEach(sel => {
-      document.querySelectorAll(sel).forEach(el => candidates.add(el));
+      document.querySelectorAll(sel).forEach(el => addCandidate(el));
     });
 
     if(document.body){
-      Array.from(document.body.children).forEach(el => candidates.add(el));
+      Array.from(document.body.children).forEach(el => addCandidate(el));
+    }
+
+    if(typeof document.elementsFromPoint === 'function'){
+      const sampleXs = [];
+      if(viewWidth > 0){
+        const mid = Math.round(viewWidth / 2);
+        const left = Math.round(Math.max(16, viewWidth * 0.22));
+        const right = Math.round(Math.max(16, viewWidth - viewWidth * 0.22));
+        sampleXs.push(mid, left, Math.min(right, viewWidth - 1));
+      } else {
+        sampleXs.push(0);
+      }
+      const sampleYs = [0, 24, 48, 72, 96, 128, 160];
+      sampleYs.forEach(y => {
+        sampleXs.forEach(x => {
+          const clampedX = Math.max(0, Math.min(x, Math.max(viewWidth - 1, 0)));
+          const clampedY = Math.max(0, Math.min(y, Math.max(viewHeight - 1, 0)));
+          const elements = document.elementsFromPoint(clampedX, clampedY) || [];
+          for(const el of elements){
+            if(!el) continue;
+            addCandidate(el);
+          }
+        });
+      });
     }
 
     let maxBottom = 0;
     candidates.forEach(el => {
-      if(!el || el === overlayRoot) return;
+      if(!el || !el.isConnected) return;
+      if(el === overlayRoot) return;
       if(el.closest && el.closest(`#${OVERLAY_ROOT_ID}`)) return;
-      const cs = getComputedStyle(el);
-      if(cs.position !== 'fixed' && cs.position !== 'sticky') return;
+      let cs;
+      try {
+        cs = getComputedStyle(el);
+      } catch (err) {
+        return;
+      }
       if(cs.display === 'none' || cs.visibility === 'hidden') return;
       if(parseFloat(cs.opacity || '1') === 0) return;
       const rect = el.getBoundingClientRect();
@@ -1392,10 +1454,34 @@
       kayakInlineSlotMap.delete(card);
       return card;
     }
+
+    let insertionParent = parent;
+    let insertionBefore = detail;
+    while (insertionParent && insertionParent !== card){
+      if(!card.contains(insertionParent)) break;
+      let elementCount = 0;
+      const parentChildren = insertionParent.children || [];
+      for(let i = 0; i < parentChildren.length; i++){
+        const child = parentChildren[i];
+        if(child && child.nodeType === 1){
+          elementCount++;
+          if(elementCount > 1) break;
+        }
+      }
+      if(elementCount !== 1) break;
+      insertionBefore = insertionParent;
+      insertionParent = insertionParent.parentElement;
+    }
+
+    if(!insertionParent || !insertionBefore || !card.contains(insertionBefore)){
+      kayakInlineSlotMap.delete(card);
+      return card;
+    }
+
     let slot = null;
-    const children = parent.children || [];
-    for(let i = 0; i < children.length; i++){
-      const child = children[i];
+    const targetChildren = insertionParent.children || [];
+    for(let i = 0; i < targetChildren.length; i++){
+      const child = targetChildren[i];
       if(child && child.classList && child.classList.contains('kayak-copy-inline-slot')){
         slot = child;
         break;
@@ -1404,7 +1490,12 @@
     if(!slot){
       slot = document.createElement('div');
       slot.className = 'kayak-copy-inline-slot';
-      parent.insertBefore(slot, detail);
+      try {
+        insertionParent.insertBefore(slot, insertionBefore);
+      } catch (err) {
+        kayakInlineSlotMap.delete(card);
+        return card;
+      }
     }
     if(!card.contains(slot)){
       kayakInlineSlotMap.delete(card);
