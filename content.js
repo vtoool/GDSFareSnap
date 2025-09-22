@@ -45,6 +45,7 @@
   const cardGroupMap = new WeakMap();
   const activeGroups = new Set();
   const cardGroupsByKey = new Map();
+  const kayakInlineSlotMap = new WeakMap();
   const itaGroupsByKey = new Map();
 
   let itaResultsObserver = null;
@@ -968,7 +969,11 @@
       }
     }
     const host = group.__inlineHost;
+    let ownedSlot = null;
     if (host && host.classList){
+      if(host.classList.contains('kayak-copy-inline-slot')){
+        ownedSlot = host;
+      }
       host.classList.remove('kayak-copy-inline-host');
     }
     delete group.__inlineHost;
@@ -979,6 +984,14 @@
     unregisterGroup(group);
     if (group.parentNode){
       group.remove();
+    }
+    if(ownedSlot){
+      if(card && kayakInlineSlotMap.get(card) === ownedSlot){
+        kayakInlineSlotMap.delete(card);
+      }
+      if(ownedSlot.isConnected && !ownedSlot.childElementCount){
+        ownedSlot.remove();
+      }
     }
     schedulePositionSync();
   }
@@ -1197,6 +1210,208 @@
       return normalizeItaCard(el, opts);
     }
     return normalizeKayakCard(el);
+  }
+
+  function scoreKayakDetailCandidate(node, card, selectBtn, cardRect){
+    if(!node || node === card || node.nodeType !== 1) return Number.NEGATIVE_INFINITY;
+    if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) return Number.NEGATIVE_INFINITY;
+    if(node.classList && node.classList.contains('kayak-copy-inline-slot')) return Number.NEGATIVE_INFINITY;
+    if(selectBtn && node.contains && node.contains(selectBtn)) return Number.NEGATIVE_INFINITY;
+    if(node.querySelector && node.querySelector(`.${BTN_CLASS}`)) return Number.NEGATIVE_INFINITY;
+    if(!isVisible(node)) return Number.NEGATIVE_INFINITY;
+
+    const rect = typeof node.getBoundingClientRect === 'function' ? node.getBoundingClientRect() : null;
+    if(rect){
+      if(rect.height < 60 || rect.width < 200) return Number.NEGATIVE_INFINITY;
+    }
+
+    let rawText = '';
+    try {
+      rawText = typeof node.innerText === 'string' ? node.innerText : '';
+    } catch (err) {
+      rawText = '';
+    }
+    if(!rawText) return Number.NEGATIVE_INFINITY;
+    const normalized = rawText.replace(/\s+/g, ' ').trim();
+    if(!normalized) return Number.NEGATIVE_INFINITY;
+    const text = normalized.length > 2400 ? normalized.slice(0, 2400) : normalized;
+
+    const timeMatches = text.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
+    const airportMatches = text.match(/\([A-Z]{3}\)/g) || [];
+    const keywordMatches = text.match(/\b(?:Depart|Departure|Return|Flight|Flights|Leg|Segment|Journey|Stop|Stops|Layover|Change|Duration|Overnight|Arrives)\b/gi) || [];
+
+    if(timeMatches.length < 2 && airportMatches.length < 2){
+      if(keywordMatches.length < 2) return Number.NEGATIVE_INFINITY;
+    }
+    if(timeMatches.length === 0 && airportMatches.length === 0) return Number.NEGATIVE_INFINITY;
+
+    let score = 0;
+    score += timeMatches.length * 5;
+    score += airportMatches.length * 6;
+    score += keywordMatches.length * 2;
+    if(/\bOvernight\s+flight\b/i.test(text)) score += 4;
+    if(/\bArrives\b/i.test(text)) score += 2;
+    if(/\bNonstop\b/i.test(text)) score += 2;
+    if(/\bLayover\b/i.test(text)) score += 2;
+
+    const attrParts = [];
+    if(node.getAttribute){
+      const dt = node.getAttribute('data-testid');
+      const dtest = node.getAttribute('data-test');
+      if(dt) attrParts.push(dt);
+      if(dtest) attrParts.push(dtest);
+    }
+    if(node.className){
+      attrParts.push(typeof node.className === 'string' ? node.className : String(node.className));
+    }
+    const attrSig = attrParts.join(' ').toLowerCase();
+    if(attrSig){
+      if(/detail|itiner|journey|segment|leg|schedule|timeline/.test(attrSig)) score += 36;
+      if(/summary|collapsed/.test(attrSig)) score -= 8;
+    }
+
+    if(rect){
+      const clampedHeight = Math.min(420, rect.height);
+      const clampedWidth = Math.min(720, rect.width);
+      score += clampedHeight * 0.4;
+      score += clampedWidth * 0.12;
+      if(cardRect){
+        const offsetTop = rect.top - cardRect.top;
+        if(Number.isFinite(offsetTop)){
+          if(offsetTop < 20){
+            score += 12;
+          } else if(offsetTop > 260){
+            score -= Math.min(80, (offsetTop - 260) * 0.25);
+          }
+        }
+      }
+    }
+
+    let depth = 0;
+    let current = node.parentElement;
+    while(current && current !== card && depth < 10){
+      depth++;
+      current = current.parentElement;
+    }
+    score -= depth * 4;
+
+    return score;
+  }
+
+  function findKayakDetailContainer(card, selectBtn){
+    if(!card || card.nodeType !== 1) return null;
+    let cardRect = null;
+    try {
+      cardRect = typeof card.getBoundingClientRect === 'function' ? card.getBoundingClientRect() : null;
+    } catch (err) {
+      cardRect = null;
+    }
+
+    let best = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    const scoreCache = new WeakMap();
+
+    const evaluate = (node, bonus = 0) => {
+      if(!node || node === card) return;
+      let baseScore;
+      if(scoreCache.has(node)){
+        baseScore = scoreCache.get(node);
+      } else {
+        baseScore = scoreKayakDetailCandidate(node, card, selectBtn, cardRect);
+        scoreCache.set(node, baseScore);
+      }
+      if(!Number.isFinite(baseScore)) return;
+      const total = baseScore + bonus;
+      if(total > bestScore){
+        bestScore = total;
+        best = node;
+      }
+    };
+
+    const selectors = [
+      '[data-testid*="itiner" i]',
+      '[data-test*="itiner" i]',
+      '[data-testid*="detail" i]',
+      '[data-test*="detail" i]',
+      '[data-testid*="journey" i]',
+      '[data-test*="journey" i]',
+      '[data-testid*="segment" i]',
+      '[data-test*="segment" i]',
+      '[class*="Itiner" i]',
+      '[class*="itiner" i]',
+      '[class*="detail" i]',
+      '[class*="journey" i]',
+      '[class*="segment" i]'
+    ];
+
+    selectors.forEach((sel, idx) => {
+      let nodes = [];
+      try {
+        nodes = card.querySelectorAll(sel);
+      } catch (err) {
+        nodes = [];
+      }
+      if(!nodes || !nodes.length) return;
+      const bonus = (selectors.length - idx) * 6;
+      nodes.forEach(node => evaluate(node, bonus));
+    });
+
+    if(!best){
+      let walker;
+      try {
+        walker = document.createTreeWalker(card, NodeFilter.SHOW_ELEMENT, null);
+      } catch (err) {
+        walker = null;
+      }
+      if(walker){
+        let count = 0;
+        while(count < 220 && walker.nextNode()){
+          const node = walker.currentNode;
+          count++;
+          evaluate(node, 0);
+        }
+      }
+    }
+
+    return best;
+  }
+
+  function resolveKayakInlineHost(card, selectBtn){
+    if(!card || card.nodeType !== 1) return card;
+    const cached = kayakInlineSlotMap.get(card);
+    if(cached && cached.isConnected && card.contains(cached)){
+      return cached;
+    }
+    const detail = findKayakDetailContainer(card, selectBtn);
+    if(!detail){
+      kayakInlineSlotMap.delete(card);
+      return card;
+    }
+    const parent = detail.parentElement;
+    if(!parent){
+      kayakInlineSlotMap.delete(card);
+      return card;
+    }
+    let slot = null;
+    const children = parent.children || [];
+    for(let i = 0; i < children.length; i++){
+      const child = children[i];
+      if(child && child.classList && child.classList.contains('kayak-copy-inline-slot')){
+        slot = child;
+        break;
+      }
+    }
+    if(!slot){
+      slot = document.createElement('div');
+      slot.className = 'kayak-copy-inline-slot';
+      parent.insertBefore(slot, detail);
+    }
+    if(!card.contains(slot)){
+      kayakInlineSlotMap.delete(card);
+      return card;
+    }
+    kayakInlineSlotMap.set(card, slot);
+    return slot;
   }
 
   function looksLikeExpandedCard(el){
@@ -1549,7 +1764,13 @@
 
     const previousHost = group.__inlineHost;
     if(inlineFallback){
-      const host = card;
+      let host = resolveKayakInlineHost(card, selectBtn);
+      if(!host){
+        host = card;
+      }
+      const prevSlot = (previousHost && previousHost !== host && previousHost.classList && previousHost.classList.contains('kayak-copy-inline-slot'))
+        ? previousHost
+        : null;
       if(previousHost && previousHost !== host && previousHost.classList){
         previousHost.classList.remove('kayak-copy-inline-host');
       }
@@ -1568,10 +1789,26 @@
       if (group.parentNode !== host){
         host.appendChild(group);
       }
+      if(prevSlot){
+        const cachedSlot = card ? kayakInlineSlotMap.get(card) : null;
+        if(cachedSlot === prevSlot){
+          kayakInlineSlotMap.delete(card);
+        }
+        if(prevSlot.isConnected && !prevSlot.childElementCount){
+          prevSlot.remove();
+        }
+      }
+      if(host === card){
+        kayakInlineSlotMap.delete(card);
+      }
       group.style.display = 'flex';
       group.style.visibility = 'visible';
     } else {
+      let removedSlot = null;
       if(previousHost && previousHost.classList){
+        if(previousHost.classList.contains('kayak-copy-inline-slot')){
+          removedSlot = previousHost;
+        }
         previousHost.classList.remove('kayak-copy-inline-host');
       }
       delete group.__inlineHost;
@@ -1582,6 +1819,14 @@
       const root = ensureOverlayRoot();
       if (!group.isConnected || group.parentNode !== root){
         root.appendChild(group);
+      }
+      if(removedSlot){
+        if(card && kayakInlineSlotMap.get(card) === removedSlot){
+          kayakInlineSlotMap.delete(card);
+        }
+        if(removedSlot.isConnected && !removedSlot.childElementCount){
+          removedSlot.remove();
+        }
       }
     }
 
