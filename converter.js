@@ -1159,6 +1159,12 @@
       let gap = 0;
       if(prevOrdinal != null && nextOrdinal != null){
         gap = nextOrdinal - prevOrdinal;
+        if(gap >= ORDINAL_YEAR_SPAN){
+          const normalizedGap = gap % ORDINAL_YEAR_SPAN;
+          if(normalizedGap <= JOURNEY_DATE_GAP_THRESHOLD){
+            gap = normalizedGap;
+          }
+        }
       }
       if(gap <= JOURNEY_DATE_GAP_THRESHOLD){
         if(entry.endIdx > prev.endIdx){
