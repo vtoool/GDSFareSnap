@@ -20,7 +20,8 @@
 
   const bookingStatusNote = document.getElementById('bookingStatusNote');
   const restoreAutoBtn = document.getElementById('restoreAutoBtn');
-  const autoCopyToggle = document.getElementById('autoCopyToggle');
+  const availabilityPreview = document.getElementById('availabilityPreview');
+  const availabilityList = document.getElementById('availabilityList');
 
   if (bookingStatusNote){
     bookingStatusNote.textContent = 'Checking auto cabin detection…';
@@ -28,8 +29,8 @@
   if (restoreAutoBtn){
     restoreAutoBtn.style.display = 'none';
   }
-  if (autoCopyToggle){
-    autoCopyToggle.checked = true;
+  if (availabilityPreview){
+    availabilityPreview.style.display = 'none';
   }
 
   const state = {
@@ -39,7 +40,10 @@
     autoCopy: true,
     lastInput: '',
     lastResult: '',
-    lastCopied: ''
+    lastCopied: '',
+    lastSegments: [],
+    availabilityCommands: [],
+    lastAvailabilityCopiedIndex: -1
   };
 
   const scheduleAutoConvert = debounce((reason) => runConversion(reason || 'auto'), 140);
@@ -48,8 +52,7 @@
     'bookingClass',
     'segmentStatus',
     'enableDirectionButtons',
-    'bookingClassLocked',
-    'autoCopyOnConvert'
+    'bookingClassLocked'
   ], (res) => {
     const bookingValue = sanitizeBookingClass(res && res.bookingClass);
     const segmentStatus = sanitizeSegmentStatus(res && res.segmentStatus);
@@ -65,12 +68,6 @@
     state.originalBookingClass = bookingValue;
     state.bookingClassLocked = !!(res && res.bookingClassLocked);
     state.bookingEdited = false;
-    state.autoCopy = (res && typeof res.autoCopyOnConvert === 'boolean')
-      ? !!res.autoCopyOnConvert
-      : true;
-    if (autoCopyToggle){
-      autoCopyToggle.checked = state.autoCopy;
-    }
     updateAutoDetectionNote();
   });
 
@@ -78,13 +75,6 @@
     bookingInput.addEventListener('input', () => {
       state.bookingEdited = true;
       updateAutoDetectionNote();
-    });
-  }
-
-  if (autoCopyToggle){
-    autoCopyToggle.addEventListener('change', () => {
-      state.autoCopy = !!autoCopyToggle.checked;
-      chrome.storage.sync.set({ autoCopyOnConvert: state.autoCopy }, () => {});
     });
   }
 
@@ -101,12 +91,6 @@
       }
       state.originalBookingClass = nextValue;
       updateAutoDetectionNote();
-    }
-    if (changes.autoCopyOnConvert){
-      state.autoCopy = !!changes.autoCopyOnConvert.newValue;
-      if (autoCopyToggle){
-        autoCopyToggle.checked = state.autoCopy;
-      }
     }
   });
 
@@ -181,6 +165,21 @@
     });
   }
 
+  if (availabilityList){
+    availabilityList.addEventListener('click', (event) => {
+      const button = event.target && event.target.closest ? event.target.closest('.availability-preview__copy') : null;
+      if (!button) return;
+      event.preventDefault();
+      const index = parseInt(button.getAttribute('data-index') || '', 10);
+      if (!Number.isFinite(index) || index < 0) return;
+      if (button.disabled) return;
+      button.disabled = true;
+      copyAvailabilityCommand(index, button).finally(() => {
+        button.disabled = false;
+      });
+    });
+  }
+
   async function runConversion(reason = 'auto'){
     if (!viInput || !outputEl) return;
     const raw = (viInput.value || '').trim();
@@ -205,27 +204,33 @@
       if (bookingInput) bookingInput.value = bookingClass;
       if (statusInput) statusInput.value = segmentStatus;
 
-      const result = convertViToI(raw, { bookingClass, segmentStatus });
+      const conversion = convertViToI(raw, { bookingClass, segmentStatus }) || {};
+      const itineraryText = typeof conversion.text === 'string' ? conversion.text : '';
+      const segments = Array.isArray(conversion.segments) ? conversion.segments : [];
       state.lastInput = raw;
-      outputEl.value = result;
+      state.lastSegments = segments;
+      outputEl.value = itineraryText;
 
-      if (!result){
+      if (!itineraryText){
         state.lastResult = '';
         state.lastCopied = '';
+        state.lastSegments = [];
         if (copyBtn) copyBtn.disabled = true;
+        updateAvailabilityPreview('');
         showError('No segments found in VI* text.');
         return;
       }
 
-      state.lastResult = result;
+      state.lastResult = itineraryText;
       if (copyBtn) copyBtn.disabled = false;
-      const segmentCount = result.split('\n').length;
-      const shouldAutoCopy = state.autoCopy && (!sameInput || result !== state.lastCopied);
+      const segmentCount = segments.length || itineraryText.split('\n').filter(line => line.trim()).length;
+      updateAvailabilityPreview(raw);
+      const shouldAutoCopy = state.autoCopy && (!sameInput || itineraryText !== state.lastCopied);
 
       if (shouldAutoCopy){
-        const outcome = await copyOutputText(result);
+        const outcome = await copyOutputText(itineraryText);
         if (outcome.ok){
-          state.lastCopied = result;
+          state.lastCopied = itineraryText;
           showStatus(`Copied ${segmentCount} segment${segmentCount === 1 ? '' : 's'} to clipboard.`);
           return;
         }
@@ -242,8 +247,10 @@
     } catch (err){
       state.lastResult = '';
       state.lastCopied = '';
+      state.lastSegments = [];
       outputEl.value = '';
       if (copyBtn) copyBtn.disabled = true;
+      updateAvailabilityPreview('');
       const message = err && err.message ? err.message : 'Could not convert itinerary.';
       showError(message);
     }
@@ -303,6 +310,156 @@
     return { ok: false, fallback: true };
   }
 
+  async function copyAvailabilityCommand(index, triggerButton){
+    if (!Array.isArray(state.availabilityCommands) || !state.availabilityCommands[index]){
+      showError('No availability command to copy yet.');
+      return;
+    }
+    const entry = state.availabilityCommands[index];
+    const commandText = (entry && entry.command ? String(entry.command) : '').trim();
+    if (!commandText){
+      showError('No availability command to copy yet.');
+      return;
+    }
+    resetFeedback();
+    const copied = await copyPlainText(commandText);
+    if (copied){
+      state.lastAvailabilityCopiedIndex = index;
+      const label = entry && entry.label ? entry.label : `Journey ${index + 1}`;
+      showStatus(`Copied availability (${label}).`);
+      return;
+    }
+    if (triggerButton && typeof triggerButton.focus === 'function'){
+      triggerButton.focus();
+    }
+    highlightAvailabilityCommand(index);
+    showError('Clipboard blocked. Command highlighted for manual copy.');
+  }
+
+  async function copyPlainText(text){
+    if (!text){
+      return false;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) {}
+    }
+    const temp = document.createElement('textarea');
+    temp.value = text;
+    temp.setAttribute('readonly', '');
+    temp.style.position = 'absolute';
+    temp.style.opacity = '0';
+    temp.style.left = '-9999px';
+    temp.style.top = '0';
+    temp.style.pointerEvents = 'none';
+    document.body.appendChild(temp);
+    let ok = false;
+    try {
+      temp.select();
+      ok = !!(document.execCommand && document.execCommand('copy'));
+    } catch (err) {
+      ok = false;
+    }
+    document.body.removeChild(temp);
+    return ok;
+  }
+
+  function highlightAvailabilityCommand(index){
+    if (!availabilityList) return;
+    try {
+      const commandEl = availabilityList.querySelector(`code[data-command-index="${index}"]`);
+      if (!commandEl) return;
+      const selection = window.getSelection ? window.getSelection() : null;
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(commandEl);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } catch (err) {}
+  }
+
+  function updateAvailabilityPreview(rawText){
+    if (!availabilityPreview || !availabilityList){
+      return;
+    }
+    const trimmed = (rawText || '').trim();
+    availabilityList.innerHTML = '';
+    state.availabilityCommands = [];
+    state.lastAvailabilityCopiedIndex = -1;
+    if (!trimmed || typeof window.convertTextToAvailability !== 'function'){
+      availabilityPreview.style.display = 'none';
+      return;
+    }
+    let preview = null;
+    try {
+      preview = typeof window.peekSegments === 'function' ? window.peekSegments(trimmed) : null;
+    } catch (err) {
+      console.warn('peekSegments preview failed:', err);
+      preview = null;
+    }
+    const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
+    const commands = [];
+    const labelFor = (idx) => {
+      if (preview && preview.isMultiCity){
+        return `Journey ${idx + 1}`;
+      }
+      if (idx === 0) return 'Outbound';
+      if (idx === 1) return 'Inbound';
+      return `Journey ${idx + 1}`;
+    };
+    if (journeys.length){
+      journeys.forEach((journey, idx) => {
+        if (!journey) return;
+        try {
+          const command = window.convertTextToAvailability(trimmed, { journeyIndex: idx, direction: 'all' });
+          if (command){
+            commands.push({ label: labelFor(idx), command });
+          }
+        } catch (err) {
+          console.warn('Availability command build failed:', err);
+        }
+      });
+    }
+    if (!commands.length){
+      try {
+        const fallback = window.convertTextToAvailability(trimmed, { direction: 'all' });
+        if (fallback){
+          commands.push({ label: 'All segments', command: fallback });
+        }
+      } catch (err) {
+        console.warn('Availability command build failed:', err);
+      }
+    }
+    if (!commands.length){
+      availabilityPreview.style.display = 'none';
+      return;
+    }
+    state.availabilityCommands = commands;
+    const html = commands.map((entry, idx) => {
+      const label = escapeHtml(entry && entry.label ? entry.label : `Journey ${idx + 1}`);
+      const command = escapeHtml(entry && entry.command ? entry.command : '');
+      return `<div class="availability-preview__item" role="listitem">`
+        + `<span class="availability-preview__label">${label}</span>`
+        + `<code class="availability-preview__command" data-command-index="${idx}" title="${command}">${command}</code>`
+        + `<button type="button" class="availability-preview__copy" data-index="${idx}">Copy</button>`
+        + `</div>`;
+    }).join('');
+    availabilityList.innerHTML = html;
+    availabilityPreview.style.display = 'block';
+  }
+
+  function escapeHtml(value){
+    if (value == null) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function sanitizeBookingClass(value){
     const clean = (value || 'J').toString().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1);
     return clean || 'J';
@@ -320,6 +477,10 @@
     state.lastResult = '';
     state.lastCopied = '';
     state.lastInput = '';
+    state.lastSegments = [];
+    state.availabilityCommands = [];
+    state.lastAvailabilityCopiedIndex = -1;
+    updateAvailabilityPreview('');
   }
 
   function resetFeedback(){
@@ -382,7 +543,8 @@
       throw new Error('No segments found in VI* text.');
     }
     assignSegmentDates(segments, opts.baseYear);
-    return formatSegments(segments, opts);
+    const formatted = formatSegments(segments, opts);
+    return { text: formatted, segments };
   }
 
   function extractSegments(rawText){

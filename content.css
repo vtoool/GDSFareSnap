@@ -48,7 +48,7 @@
 .kayak-copy-btn-group--multi{
   flex-wrap:wrap;
   justify-content:flex-end;
-  gap:6px;
+  gap:8px;
   align-items:center;
 }
 
@@ -112,7 +112,7 @@
 }
 
 .kayak-copy-btn-group--multi .kayak-copy-btn{
-  flex-shrink:0;
+  flex-shrink:1;
 }
 
 .kayak-copy-btn-group--ita .kayak-copy-btn .pill-text{
@@ -171,20 +171,30 @@
 
 .kayak-copy-btn--journey{
   width:auto;
-  min-width:0;
+  min-width:64px;
   height:32px;
-  padding:0 16px;
+  padding:0 18px;
   border-radius:999px;
   font-size:12px;
   letter-spacing:0;
   overflow:visible;
+  max-width:240px;
 }
 
 .kayak-copy-btn--journey .pill-text{
+  position:relative;
+  inset:auto;
+  width:auto;
+  height:auto;
   font-size:12px;
   letter-spacing:0;
   white-space:nowrap;
-  padding:0 2px;
+  padding:0 6px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 
 .kayak-copy-btn--journey.is-copied::after{
