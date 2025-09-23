@@ -17,9 +17,10 @@
   const ITA_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
   const REVIEW_BOOK_SIGNATURE_RX = /review(?:\s|&|and|-|_)*book|book(?:\s|&|and|-|_)*review/;
   const CARD_KEY_ATTR = 'data-kayak-copy-key';
-  const CABIN_BOOKING_MAP = { economy:'Y', premium:'N', business:'J', first:'F' };
   const CABIN_PRIORITY = ['first','business','premium','economy'];
   const CABIN_LABELS = { first:'First', business:'Business', premium:'Premium Economy', economy:'Economy' };
+  const CABIN_ENUM_MAP = { first: 'FIRST', business: 'BUSINESS', premium: 'PREMIUM', economy: 'ECONOMY' };
+  const CABIN_DEFAULT_BOOKING = { FIRST: 'F', BUSINESS: 'J', PREMIUM: 'N', ECONOMY: 'Y' };
   const DEFAULT_OVERLAY_BASE_Z = 1400;
   const STABLE_CARD_ATTRS = [
     'data-resultid',
@@ -661,6 +662,13 @@
     return { cabin, mixed, label };
   }
 
+  function toCabinEnum(value){
+    if(!value) return null;
+    const normalized = String(value).trim().toLowerCase();
+    if(!normalized) return null;
+    return CABIN_ENUM_MAP[normalized] || null;
+  }
+
   function detectCabinFromLocation(){
     try {
       const url = new URL(location.href);
@@ -747,11 +755,19 @@
     });
     const best = candidates[0];
     if(!best || !best.cabin) return null;
-    const bookingClass = CABIN_BOOKING_MAP[best.cabin];
+    const cabinEnum = toCabinEnum(best.cabin);
+    if(!cabinEnum) return null;
+    const getPreferred = (typeof window !== 'undefined' && typeof window.getPreferredRBD === 'function')
+      ? window.getPreferredRBD
+      : null;
+    let bookingClass = getPreferred ? getPreferred('', cabinEnum) : null;
+    if(!bookingClass){
+      bookingClass = CABIN_DEFAULT_BOOKING[cabinEnum] || null;
+    }
     if(!bookingClass) return null;
     return {
       cabin: best.cabin,
-      bookingClass,
+      bookingClass: String(bookingClass).toUpperCase(),
       mixed: !!best.mixed,
       label: best.label || CABIN_LABELS[best.cabin] || '',
       source: best.source || 'dom'
@@ -975,6 +991,12 @@
           bookingClass: SETTINGS.bookingClass,
           segmentStatus: SETTINGS.segmentStatus
         };
+        if(!SETTINGS.bookingClassLocked && cabinDetectionState && cabinDetectionState.cabin){
+          const detectedEnum = toCabinEnum(cabinDetectionState.cabin);
+          if(detectedEnum){
+            baseOpts.autoCabin = detectedEnum;
+          }
+        }
         const direction = config.direction || 'all';
         const copyKind = config.copyKind || (direction === 'all' ? 'itinerary' : 'availability');
         let converted;
