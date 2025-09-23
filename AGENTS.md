@@ -218,3 +218,9 @@ Multi-city text from Kayak (bottom-right → top-left copy order) parses consist
 No regressions in ITA Matrix placements, styling, or parsing.
 
 Tip: If DOM shapes drift, prefer resilient heuristics (times + airports + presence of Select) over brittle classnames, and keep ad/rail filters strict.
+
+11) Popup specifics
+
+- The popup auto-converts VI* text on input and attempts an automatic clipboard write (guarded by the `autoCopyOnConvert` flag). Respect the toggle stored in sync storage.
+- Manual booking class edits must set `bookingClassLocked` to `true`; the “Restore auto cabin detection” action clears that flag so content scripts can resume detection.
+- The legacy start-year field is gone; date logic infers years automatically. Do not reintroduce the field or depend on manual year entry.

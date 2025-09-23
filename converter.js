@@ -219,8 +219,12 @@
 
   function isAirlineLine(line){
     // We consider a line starting with airline name in AIRLINE_CODES
-    const name = line.trim().toUpperCase();
-    return !!AIRLINE_CODES[name];
+    const name = line.trim();
+    if(typeof lookupAirlineCodeByName === 'function'){
+      return !!lookupAirlineCodeByName(name);
+    }
+    const upper = name.toUpperCase();
+    return !!(typeof AIRLINE_CODES !== 'undefined' && AIRLINE_CODES[upper]);
   }
 
   function extractFlightNumberLine(line){
@@ -233,34 +237,55 @@
     if(isLikelyEquipmentLine(cleaned)) return null;
     const m = cleaned.match(/^([A-Za-z][A-Za-z\s'&.-]*?)\s+(\d{1,4})\b/);
     if(!m) return null;
-    const airlineName = m[1].trim().toUpperCase();
-    if(/\bOPERATED BY\b/.test(airlineName)) return null;
+    const airlineName = m[1].trim();
+    if(/\bOPERATED BY\b/i.test(airlineName)) return null;
     const num = m[2];
     return { airlineName, num };
   }
 
   function looksLikeAirlineName(name){
-    const normalized = (name || '')
+    const cleaned = (name || '')
       .replace(/[•·]/g, ' ')
       .replace(/\s+/g, ' ')
-      .trim()
-      .toUpperCase();
-    if(!normalized) return false;
+      .trim();
+    if(!cleaned) return false;
+    const normalized = cleaned.toUpperCase();
     if(/\bOPERATED BY\b/.test(normalized)) return false;
     if(/\b(AIRBUS|BOEING|EMBRAER|BOMBARDIER|CANADAIR|DE HAVILLAND|MCDONNELL|DOUGLAS|LOCKHEED|SUKHOI|SUPERJET|FOKKER|TUP|ANTONOV|IL-\d+|SAAB|ATR|TURBOPROP|JETLINER|AIRCRAFT|E-?JET|CRJ|MAX|NEO)\b/.test(normalized)) return false;
-    if(AIRLINE_CODES[normalized]) return true;
+    if(typeof lookupAirlineCodeByName === 'function'){
+      const code = lookupAirlineCodeByName(cleaned);
+      if(code) return true;
+    } else if(typeof AIRLINE_CODES !== 'undefined' && AIRLINE_CODES[normalized]){
+      return true;
+    }
     if(/\bAIR\s/.test(normalized)) return true;
     return /\b(AIRLINES?|AIRWAYS|AVIATION|FLY|JET |JETBLUE|JET2|CONDOR|ICELANDAIR|TRANSAT|PORTER|VIRGIN|SKY|AERO|WING)\b/.test(normalized);
   }
 
   function determineAirlineCodeFromName(name){
-    const normalized = (name || '').trim().toUpperCase();
-    if(!normalized) return { code: UNKNOWN_AIRLINE_CODE, isKnown: false };
-    if(AIRLINE_CODES[normalized]){
-      return { code: AIRLINE_CODES[normalized], isKnown: true };
+    const raw = (name || '').trim();
+    if(!raw){
+      return { code: UNKNOWN_AIRLINE_CODE, isKnown: false };
     }
-    if(/^[A-Z0-9]{2,3}$/.test(normalized)){
-      return { code: resolveAirlineCode(normalized, null), isKnown: false };
+    let resolved = null;
+    if(typeof lookupAirlineCodeByName === 'function'){
+      try {
+        resolved = lookupAirlineCodeByName(raw);
+      } catch (err) {
+        resolved = null;
+      }
+    } else {
+      const upper = raw.toUpperCase();
+      if(typeof AIRLINE_CODES !== 'undefined' && Object.prototype.hasOwnProperty.call(AIRLINE_CODES, upper)){
+        resolved = AIRLINE_CODES[upper];
+      }
+    }
+    if(resolved){
+      return { code: resolved, isKnown: true };
+    }
+    const designator = raw.toUpperCase();
+    if(/^[A-Z0-9]{2,3}$/.test(designator)){
+      return { code: resolveAirlineCode(designator, null), isKnown: false };
     }
     return { code: UNKNOWN_AIRLINE_CODE, isKnown: false };
   }
@@ -295,8 +320,15 @@
 
   function findAirlineCodeNearby(lines, idx){
     for(let look = idx; look >= 0 && look >= idx - 3; look--){
-      const name = (lines[look] || '').trim().toUpperCase();
-      if(name && AIRLINE_CODES[name]) return AIRLINE_CODES[name];
+      const rawName = (lines[look] || '').trim();
+      if(!rawName) continue;
+      if(typeof lookupAirlineCodeByName === 'function'){
+        const resolved = lookupAirlineCodeByName(rawName);
+        if(resolved) return resolved;
+      } else {
+        const upper = rawName.toUpperCase();
+        if(typeof AIRLINE_CODES !== 'undefined' && AIRLINE_CODES[upper]) return AIRLINE_CODES[upper];
+      }
     }
     return null;
   }
@@ -326,11 +358,12 @@
     }
 
     // Support airline name on one line and flight number on the next
-    const nameOnly = raw.trim().toUpperCase();
-    if(looksLikeAirlineName(nameOnly) && (idx + 1) < lines.length){
+    const nameOnlyRaw = raw.trim();
+    const nameOnly = nameOnlyRaw.toUpperCase();
+    if(looksLikeAirlineName(nameOnlyRaw) && (idx + 1) < lines.length){
       const next = (lines[idx + 1] || '').trim();
       if(/^\d{1,4}$/.test(next)){
-        const info = determineAirlineCodeFromName(nameOnly);
+        const info = determineAirlineCodeFromName(nameOnlyRaw);
         return {
           airlineCode: info.code,
           number: next,
@@ -667,7 +700,7 @@
       }
 
       if(depTime && depAirport && arrTime && arrAirport){
-        const airlineCode = flightInfo.airlineCode;
+        const airlineCode = flightInfo.airlineCode || UNKNOWN_AIRLINE_CODE; // ensure unknown carriers default to XX
         const flightNumber = flightInfo.number;
         const depDateString = currentDate ? `${currentDate.day}${currentDate.mon}` : '';
         const depDow = currentDate ? currentDate.dow : '';
@@ -1200,6 +1233,58 @@
     return merged;
   }
 
+  function buildJourneySlice(base, startIdx, endIdx, segments){
+    if(!Array.isArray(segments) || segments.length === 0){
+      return null;
+    }
+    const total = segments.length;
+    const safeStart = Math.max(0, Math.min(Number.isFinite(startIdx) ? startIdx : 0, total - 1));
+    const safeEnd = Math.max(safeStart, Math.min(Number.isFinite(endIdx) ? endIdx : safeStart, total - 1));
+    const firstSeg = segments[safeStart] || null;
+    const lastSeg = segments[safeEnd] || null;
+    const headerDate = base && base.headerDate
+      ? { ...base.headerDate }
+      : (firstSeg && firstSeg.headerRef ? { ...firstSeg.headerRef } : null);
+    return {
+      startIdx: safeStart,
+      endIdx: safeEnd,
+      origin: firstSeg ? (firstSeg.depAirport || (base ? base.origin : null)) : (base ? base.origin : null),
+      dest: lastSeg ? (lastSeg.arrAirport || (base ? base.dest : null)) : (base ? base.dest : null),
+      explicit: base ? !!base.explicit : false,
+      headerDate,
+      sectionKind: base && base.sectionKind ? base.sectionKind : null
+    };
+  }
+
+  function splitJourneysByContinuity(journeys, segments){
+    if(!Array.isArray(journeys) || journeys.length === 0 || !Array.isArray(segments) || segments.length === 0){
+      return [];
+    }
+    const result = [];
+    for(const journey of journeys){
+      if(!journey) continue;
+      const start = Number.isFinite(journey.startIdx) ? journey.startIdx : 0;
+      const end = Number.isFinite(journey.endIdx) ? journey.endIdx : start;
+      if(end < start){
+        continue;
+      }
+      let blockStart = start;
+      for(let idx = start + 1; idx <= end; idx++){
+        const prevSeg = segments[idx - 1];
+        const nextSeg = segments[idx];
+        const contiguous = prevSeg && nextSeg && prevSeg.arrAirport && nextSeg.depAirport && prevSeg.arrAirport === nextSeg.depAirport;
+        if(!contiguous){
+          const slice = buildJourneySlice(journey, blockStart, idx - 1, segments);
+          if(slice) result.push(slice);
+          blockStart = idx;
+        }
+      }
+      const finalSlice = buildJourneySlice(journey, blockStart, end, segments);
+      if(finalSlice) result.push(finalSlice);
+    }
+    return result;
+  }
+
   window.peekSegments = function(rawText){
     const lines = sanitize(rawText || '');
     const sections = splitIntoSections(lines);
@@ -1261,6 +1346,19 @@
       if(merged.length){
         journeys.length = 0;
         merged.forEach(j => journeys.push(j));
+      }
+    }
+
+    if(journeys.length > 0){
+      const continuitySplit = splitJourneysByContinuity(journeys, allSegments);
+      if(continuitySplit.length){
+        journeys.length = 0;
+        continuitySplit.forEach((entry, idx) => {
+          if(entry){
+            entry.indexHint = idx + 1;
+            journeys.push(entry);
+          }
+        });
       }
     }
 
@@ -1410,6 +1508,57 @@
 
     return buildAvailabilityCommandFromSegments(segments);
   };
+
+  if(false){
+    const sampleMultiCity = [
+      'Flight 1 Tue, Nov 10',
+      'Pegasus Airlines 746',
+      '12:30 am',
+      '(HKG)',
+      '4:50 am',
+      '(ICN)',
+      'Pegasus Airlines 222',
+      '9:00 am',
+      '(ICN)',
+      '9:15 am',
+      '(JFK)',
+      'Pegasus Airlines 485',
+      '2:30 pm',
+      '(JFK)',
+      '4:15 pm',
+      '(RDU)',
+      'Flight 2 Fri, Dec 18',
+      'Tarom 101',
+      '1:20 pm',
+      '(NRT)',
+      '3:55 pm',
+      '(ICN)',
+      'Tarom 745',
+      '7:35 pm',
+      '(ICN)',
+      '10:30 pm',
+      '(HKG)',
+      'Flight 3 Wed, Jan 22',
+      'FlyOne 3475',
+      '7:00 am',
+      '(LAX)',
+      '8:29 am',
+      '(SFO)',
+      'Flight 4 Thu, Mar 12',
+      'Aegean Airlines 211',
+      '11:30 pm',
+      '(SFO)',
+      '4:30 am',
+      '(ICN)',
+      'Aegean Airlines 102',
+      '9:00 am',
+      '(ICN)',
+      '11:20 am',
+      '(NRT)'
+    ].join('\n');
+    const preview = window.peekSegments(sampleMultiCity);
+    console.log('Sample journeys', preview && preview.journeys ? preview.journeys.map(j => `${j.origin}-${j.dest}`) : []);
+  }
 
   // Dead-stub helpers for later
   window.copyPnrText = function(){ /* keep for future */ };
