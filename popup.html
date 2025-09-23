@@ -29,10 +29,15 @@
     .auto-detect__note{ font-size:12px; color:#555; flex:1; }
     .link-btn{ border:none; background:none; padding:0; color:#0a7; font-size:12px; font-weight:600; cursor:pointer; text-decoration:underline; }
     .link-btn:disabled{ opacity:0.6; cursor:default; text-decoration:none; }
-    .converter-toggle{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; margin:12px 0 4px; font-weight:600; }
-    .converter-toggle label{ display:flex; align-items:center; gap:8px; margin:0; font-weight:600; }
-    .converter-toggle input{ width:auto; margin:0; }
-    .converter-toggle small{ font-weight:400; font-size:12px; color:#666; margin:0; }
+    .availability-preview{ margin-top:16px; padding:12px 12px 10px; border:1px solid #d8d8d8; border-radius:10px; background:#f8f9fb; display:none; }
+    .availability-preview__title{ font-weight:700; margin-bottom:6px; font-size:13px; color:#0a4069; }
+    .availability-preview__list{ display:flex; flex-direction:column; gap:6px; }
+    .availability-preview__item{ display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; padding:6px 8px; border-radius:8px; background:#fff; box-shadow:0 1px 2px rgba(9, 19, 33, .08); }
+    .availability-preview__label{ font-weight:600; color:#0a4069; font-size:12px; }
+    .availability-preview__command{ font:12px/1.4 "SFMono-Regular","Consolas","Liberation Mono",monospace; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .availability-preview__copy{ border:none; background:#0a7; color:#fff; font-weight:600; font-size:12px; padding:6px 10px; border-radius:6px; cursor:pointer; }
+    .availability-preview__copy:disabled{ opacity:.6; cursor:default; }
+    .availability-preview__hint{ display:block; margin-top:8px; font-size:11px; color:#5a6472; }
   </style>
 </head>
 <body>
@@ -52,16 +57,17 @@
     <span id="bookingStatusNote" class="auto-detect__note"></span>
     <button id="restoreAutoBtn" type="button" class="link-btn">Restore auto cabin detection</button>
   </div>
-  <label class="toggle"><input id="enableDirections" type="checkbox" /> Show OB / IB buttons</label>
-  <small class="toggle-help">Adds inbound and outbound copy buttons next to *I.</small>
+  <label class="toggle"><input id="enableDirections" type="checkbox" /> Show availability buttons</label>
+  <small class="toggle-help">Adds outbound / inbound (and multi-city journey) availability pills next to *I.</small>
   <button id="saveBtn" type="button">Save</button><span id="ok" class="ok">Saved</span>
 
   <div class="converter">
     <label for="viInput">VI* itinerary</label>
     <textarea id="viInput" placeholder="Paste Sabre VI* output here"></textarea>
-    <div class="converter-toggle">
-      <label for="autoCopyToggle"><input id="autoCopyToggle" type="checkbox" /> Auto-copy result</label>
-      <small>Automatically copies the converted *I after parsing.</small>
+    <div id="availabilityPreview" class="availability-preview">
+      <div class="availability-preview__title">Availability commands</div>
+      <div id="availabilityList" class="availability-preview__list" role="list"></div>
+      <small class="availability-preview__hint">Generated from the VI* text — tap any command to copy it instantly.</small>
     </div>
     <div class="converter-actions">
       <button id="convertBtn" type="button">Convert to *I</button>
@@ -72,7 +78,8 @@
     <label for="iOutput">*I result</label>
     <textarea id="iOutput" readonly placeholder="Converted *I output will appear here"></textarea>
   </div>
-
+  <script src="airlines.js"></script>
+  <script src="converter.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

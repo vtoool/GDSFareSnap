@@ -491,6 +491,17 @@
     });
 
     cachedAvoidTop = maxBottom || 0;
+    const fallbackAvoid = (() => {
+      if(!Number.isFinite(viewHeight) || viewHeight <= 0){
+        return 72;
+      }
+      const scaled = Math.max(viewHeight * 0.16, 72);
+      const capped = Math.min(scaled, Math.max(viewHeight - 160, 72));
+      return Math.max(72, Math.round(capped));
+    })();
+    if(cachedAvoidTop < fallbackAvoid){
+      cachedAvoidTop = fallbackAvoid;
+    }
     if(highestZ != null){
       lastKnownHeaderZ = highestZ;
       const targetBase = Math.max(0, Math.min(highestZ - 2, DEFAULT_OVERLAY_BASE_Z));
@@ -759,7 +770,7 @@
     const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
     const segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
     const multiCity = !!(preview && preview.isMultiCity && journeys.length > 0);
-    const showJourneyButtons = multiCity;
+    const showJourneyButtons = multiCity && SETTINGS.enableDirectionButtons;
 
     const journeySignatureParts = [];
     if(showJourneyButtons){
@@ -834,7 +845,8 @@
     return {
       configs,
       signature: signaturePieces.join('::'),
-      preview
+      preview,
+      showJourneyButtons
     };
   }
 
@@ -950,8 +962,7 @@
     if(!group) return;
     const data = configData || computeButtonConfigsForCard(card);
     const inlineMode = group.dataset.inline === '1';
-    const previewMulti = !!(data && data.preview && data.preview.isMultiCity);
-    const showMulti = previewMulti;
+    const showMulti = !!(data && data.showJourneyButtons);
     group.classList.toggle('kayak-copy-btn-group--ita', inlineMode);
     group.classList.toggle('kayak-copy-btn-group--multi', showMulti);
     if(showMulti){
