@@ -1004,6 +1004,106 @@
     group.dataset.configVersion = versionKey;
   }
 
+  function getInlineHostPaddingInfo(host){
+    if (!host || typeof host !== 'object') return null;
+    let info = host.__kayakCopyInlinePaddingInfo;
+    if (!info){
+      info = {
+        originalPaddingTop: host.style ? host.style.paddingTop || '' : '',
+        basePaddingTop: null,
+        appliedPaddingTop: null
+      };
+      host.__kayakCopyInlinePaddingInfo = info;
+    }
+    return info;
+  }
+
+  function ensureInlineHostPadding(host, group, needsExtraSpace){
+    if (!IS_ITA || !host || !group) return;
+    const info = getInlineHostPaddingInfo(host);
+    if (!info) return;
+
+    if (info.basePaddingTop == null){
+      try {
+        const computed = getComputedStyle(host);
+        if (computed){
+          const parsed = parseFloat(computed.paddingTop);
+          info.basePaddingTop = Number.isFinite(parsed) ? parsed : 0;
+        } else {
+          info.basePaddingTop = 0;
+        }
+      } catch (err) {
+        info.basePaddingTop = 0;
+      }
+    }
+
+    if (!needsExtraSpace){
+      if (info.appliedPaddingTop != null){
+        host.style.paddingTop = info.originalPaddingTop || '';
+        info.appliedPaddingTop = null;
+      }
+      return;
+    }
+
+    let topOffset = 12;
+    try {
+      const groupStyles = getComputedStyle(group);
+      if (groupStyles){
+        const parsedTop = parseFloat(groupStyles.top);
+        if (Number.isFinite(parsedTop)){
+          topOffset = parsedTop;
+        }
+      }
+    } catch (err) {
+      // ignore measurement errors
+    }
+
+    let groupHeight = 0;
+    try {
+      const rect = group.getBoundingClientRect();
+      if (rect && Number.isFinite(rect.height)){
+        groupHeight = rect.height;
+      }
+    } catch (err) {
+      groupHeight = 0;
+    }
+    if (!groupHeight){
+      groupHeight = group.offsetHeight || 0;
+    }
+
+    const basePadding = info.basePaddingTop || 0;
+    const desiredPadding = Math.max(basePadding, Math.ceil(topOffset + groupHeight + 8));
+    if (!Number.isFinite(desiredPadding)){
+      return;
+    }
+
+    if (desiredPadding <= basePadding + 0.5){
+      if (info.appliedPaddingTop != null){
+        host.style.paddingTop = info.originalPaddingTop || '';
+        info.appliedPaddingTop = null;
+      }
+      return;
+    }
+
+    if (info.appliedPaddingTop !== null && Math.abs(info.appliedPaddingTop - desiredPadding) < 0.5){
+      return;
+    }
+
+    host.style.paddingTop = `${desiredPadding}px`;
+    info.appliedPaddingTop = desiredPadding;
+  }
+
+  function resetInlineHostPadding(host){
+    if (!host) return;
+    const info = host.__kayakCopyInlinePaddingInfo;
+    if (!info) return;
+    if (info.appliedPaddingTop != null){
+      host.style.paddingTop = info.originalPaddingTop || '';
+      info.appliedPaddingTop = null;
+    }
+    delete host.__kayakCopyInlinePaddingInfo;
+  }
+
   function ensureOverlayRoot(){
     if (overlayRoot && overlayRoot.isConnected) return overlayRoot;
     const existing = document.getElementById(OVERLAY_ROOT_ID);
@@ -1363,6 +1463,7 @@
         ownedSlot = host;
       }
       host.classList.remove('kayak-copy-inline-host');
+      resetInlineHostPadding(host);
     }
     delete group.__inlineHost;
     const key = group.dataset && group.dataset.itaKey;
@@ -2221,6 +2322,7 @@
       const prevHost = group.__inlineHost;
       if (prevHost && prevHost !== host && prevHost.classList){
         prevHost.classList.remove('kayak-copy-inline-host');
+        resetInlineHostPadding(prevHost);
       }
       group.dataset.inline = '1';
       group.__inlineHost = host;
@@ -2250,6 +2352,8 @@
       removeCardButton(card);
       return;
     }
+    const buttonCount = configData && Array.isArray(configData.configs) ? configData.configs.length : 0;
+    const showMulti = !!(configData && configData.showJourneyButtons);
     buildGroupForCard(card, group, configData);
 
     if(cardKey){
@@ -2262,6 +2366,7 @@
     if (group.parentNode !== host){
       host.appendChild(group);
     }
+    ensureInlineHostPadding(host, group, showMulti || buttonCount > 1);
 
     group.style.display = 'flex';
     group.style.visibility = 'visible';
@@ -2433,6 +2538,7 @@
         : null;
       if(previousHost && previousHost !== host && previousHost.classList){
         previousHost.classList.remove('kayak-copy-inline-host');
+        resetInlineHostPadding(previousHost);
       }
       if(host && host.classList){
         host.classList.add('kayak-copy-inline-host');
@@ -2748,6 +2854,7 @@
       if (itaDetailHostNeedsReset && itaDetailHost.classList){
         itaDetailHost.classList.remove('kayak-copy-inline-host');
       }
+      resetInlineHostPadding(itaDetailHost);
       itaDetailHostNeedsReset = false;
     }
     itaDetailHost = host;
@@ -2792,10 +2899,17 @@
     }
 
     const configData = computeButtonConfigsForCard(detailTarget);
+    const configs = configData && Array.isArray(configData.configs) ? configData.configs : [];
+    const showMulti = !!(configData && configData.showJourneyButtons);
+    if (showMulti){
+      itaDetailGroup.dataset.multi = '1';
+    } else {
+      delete itaDetailGroup.dataset.multi;
+    }
+    itaDetailGroup.classList.toggle('kayak-copy-btn-group--multi', showMulti);
     const desiredVersion = `${buttonConfigVersion}:${configData && configData.signature ? configData.signature : 'default'}`;
     if (targetChanged || currentVersion !== desiredVersion){
       itaDetailGroup.innerHTML = '';
-      const configs = configData && Array.isArray(configData.configs) ? configData.configs : [];
       configs.forEach(cfg => {
         const btn = createButton(detailTarget, cfg);
         btn.dataset.itaDetail = '1';
@@ -2803,6 +2917,7 @@
       });
       itaDetailGroup.dataset.configVersion = desiredVersion;
     }
+    ensureInlineHostPadding(host, itaDetailGroup, showMulti || configs.length > 1);
   }
 
   function cleanupItaDetailButton(){
@@ -2816,6 +2931,9 @@
     itaDetailCopyTarget = null;
     if (itaDetailHost && itaDetailHostNeedsReset && itaDetailHost.classList){
       itaDetailHost.classList.remove('kayak-copy-inline-host');
+    }
+    if (itaDetailHost){
+      resetInlineHostPadding(itaDetailHost);
     }
     itaDetailHostNeedsReset = false;
     itaDetailHost = null;
