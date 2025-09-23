@@ -74,6 +74,8 @@ const AIRLINE_CODES = {
     'EASYJET AIRLINE COMPANY': 'U2',
     'TURKISH AIRLINES': 'TK',
     'TURKISH': 'TK',
+    'THY': 'TK',
+    'TURK HAVA YOLLARI': 'TK',
     'IBERIA': 'IB',
     'IBERIA AIRLINES': 'IB',
     'SWISS INTERNATIONAL AIR LINES': 'LX',
@@ -104,6 +106,9 @@ const AIRLINE_CODES = {
     'EURO WINGS': 'EW',
     'LOT POLISH AIRLINES': 'LO',
     'LOT POLISH': 'LO',
+    'LOT POLSKIE LINIE LOTNICZE': 'LO', // alias w/out dash
+    'LOT – POLSKIE LINIE LOTNICZE': 'LO', // en dash variant observed on EU locales
+    'LOT - POLSKIE LINIE LOTNICZE': 'LO',
     'NORWEGIAN AIR SHUTTLE': 'DY',
     'NORWEGIAN': 'DY',
     'NORWEGIAN AIR': 'DY',
@@ -119,6 +124,55 @@ const AIRLINE_CODES = {
     'VUELING AIRLINES': 'VY',
     'WIZZ AIR': 'W6',
     'WIZZ': 'W6',
+    'WIZZ AIR MALTA': 'W4',
+    'PEGASUS AIRLINES': 'PC',
+    'PEGASUS': 'PC',
+    'PEGASUS HAVA YOLLARI': 'PC',
+    'PEGASUS HAVA YOLLARI A S': 'PC',
+    'PEGASUS HAVA YOLLARI A.S.': 'PC',
+    'PEGASUS HAVA YOLLARI A.S': 'PC',
+    'PEGASUS HAVA TASIMACILIGI A S': 'PC',
+    'PEGASUS HAVA TASIMACILIGI A.S.': 'PC',
+    'PEGASUS HAVA TASIMACILIGI A.S': 'PC',
+    'PEGASUS HAVA TASIMACILIGI': 'PC',
+    'PEGASUS HAVA TASIMACILIGI ANONIM SIRKETI': 'PC',
+    'PEGASUS HAVA YOLLARI ANONIM SIRKETI': 'PC',
+    'PEGASUS ASIA': 'PC',
+    'PEGASUS ASIA AIRLINES': 'PC',
+    'PEGASUS HAVAYOLLARI': 'PC',
+    'PEGASUS HAVAYOLLARI A.S.': 'PC',
+    'PEGASUS HAVAYOLLARI A.S': 'PC',
+    'PEGASUS HAVAYOLLARI A S': 'PC',
+    'PEGASUS HAVAYOLLARI ANONIM SIRKETI': 'PC',
+    'PEGASUS AIRLINES AS': 'PC',
+    'PEGASUS AIRLINES A.S.': 'PC',
+    'TAROM': 'RO',
+    'TAROM ROMANIAN AIR TRANSPORT': 'RO',
+    'AEGEAN AIRLINES': 'A3',
+    'AEGEAN AIR': 'A3',
+    'AIR SERBIA': 'JU',
+    'AIRSERBIA': 'JU',
+    'AIR SERBIA A.D.': 'JU',
+    'AIR SERBIA JSC': 'JU',
+    'ANADOLUJET': 'TK',
+    'ANADOLU JET': 'TK',
+    'ANADOLUJET AIRLINES': 'TK',
+    'AJET': 'TK',
+    'A JET': 'TK',
+    'HISKY': 'H4',
+    'HI SKY': 'H4',
+    'HISKY EUROPE': 'H4',
+    'FLYONE': '5F',
+    'FLY ONE': '5F',
+    'AIR ASTANA': 'KC',
+    'AIR ASTANA JSC': 'KC',
+    'UZBEKISTAN AIRWAYS': 'HY',
+    'UZBEKISTAN AIR': 'HY',
+    'AZERBAIJAN AIRLINES': 'J2',
+    'AZERBAIJAN AIRLINES (AZAL)': 'J2',
+    'AZAL': 'J2',
+    'GEORGIAN AIRWAYS': 'A9',
+    'AIRZENA': 'A9',
     'TUI FLY': 'X3',
     'TUIFLY': 'X3',
     'TUI FLY DEUTSCHLAND': 'X3',
@@ -211,3 +265,41 @@ const AIRLINE_CODES = {
     'ROYAL AIR MAROC AIRLINES': 'AT',
     'RAM': 'AT'
 };
+
+// Normalized lookup helpers for airline aliases with punctuation/diacritics
+function normalizeAirlineNameKey(name){
+    if(!name && name !== 0) return '';
+    let value = String(name);
+    if(typeof value.normalize === 'function'){
+        value = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+    value = value.toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+    return value;
+}
+
+const AIRLINE_NORMALIZED_CODES = {};
+Object.keys(AIRLINE_CODES).forEach((key) => {
+    const normalized = normalizeAirlineNameKey(key);
+    if(normalized && !Object.prototype.hasOwnProperty.call(AIRLINE_NORMALIZED_CODES, normalized)){
+        AIRLINE_NORMALIZED_CODES[normalized] = AIRLINE_CODES[key];
+    }
+});
+
+function lookupAirlineCodeByName(name){
+    if(!name && name !== 0) return null;
+    const directKey = String(name).trim().toUpperCase();
+    if(directKey && Object.prototype.hasOwnProperty.call(AIRLINE_CODES, directKey)){
+        return AIRLINE_CODES[directKey];
+    }
+    const normalized = normalizeAirlineNameKey(name);
+    if(normalized && Object.prototype.hasOwnProperty.call(AIRLINE_NORMALIZED_CODES, normalized)){
+        return AIRLINE_NORMALIZED_CODES[normalized];
+    }
+    return null;
+}
+
+if(typeof window !== 'undefined'){
+    window.lookupAirlineCodeByName = lookupAirlineCodeByName;
+    window.normalizeAirlineNameKey = normalizeAirlineNameKey;
+    window.AIRLINE_NORMALIZED_CODES = AIRLINE_NORMALIZED_CODES;
+}

@@ -21,11 +21,18 @@
     .converter .row{ margin-bottom:4px; }
     .converter-actions{ display:flex; gap:10px; align-items:center; margin:12px 0; }
     .converter-actions button{ margin-top:0; }
-    .year-input{ width:110px; }
     .convert-status{ font-size:12px; margin-bottom:8px; color:#0a7; display:none; }
     .convert-error{ font-size:12px; margin-bottom:8px; color:#c0392b; display:none; }
     .converter small{ display:block; margin-top:-6px; margin-bottom:10px; color:#888; }
     #copyBtn:disabled{ opacity:0.5; cursor:default; }
+    .auto-detect{ display:flex; align-items:center; gap:12px; margin:6px 0 10px; }
+    .auto-detect__note{ font-size:12px; color:#555; flex:1; }
+    .link-btn{ border:none; background:none; padding:0; color:#0a7; font-size:12px; font-weight:600; cursor:pointer; text-decoration:underline; }
+    .link-btn:disabled{ opacity:0.6; cursor:default; text-decoration:none; }
+    .converter-toggle{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; margin:12px 0 4px; font-weight:600; }
+    .converter-toggle label{ display:flex; align-items:center; gap:8px; margin:0; font-weight:600; }
+    .converter-toggle input{ width:auto; margin:0; }
+    .converter-toggle small{ font-weight:400; font-size:12px; color:#666; margin:0; }
   </style>
 </head>
 <body>
@@ -41,6 +48,10 @@
       <small>3 chars</small>
     </div>
   </div>
+  <div class="auto-detect">
+    <span id="bookingStatusNote" class="auto-detect__note"></span>
+    <button id="restoreAutoBtn" type="button" class="link-btn">Restore auto cabin detection</button>
+  </div>
   <label class="toggle"><input id="enableDirections" type="checkbox" /> Show OB / IB buttons</label>
   <small class="toggle-help">Adds inbound and outbound copy buttons next to *I.</small>
   <button id="saveBtn" type="button">Save</button><span id="ok" class="ok">Saved</span>
@@ -48,12 +59,9 @@
   <div class="converter">
     <label for="viInput">VI* itinerary</label>
     <textarea id="viInput" placeholder="Paste Sabre VI* output here"></textarea>
-    <div class="row">
-      <div>
-        <label for="yearOverride">Start year (optional)</label>
-        <input id="yearOverride" class="year-input" type="number" min="1900" max="2100" placeholder="2025" />
-        <small>Used to compute day-of-week codes.</small>
-      </div>
+    <div class="converter-toggle">
+      <label for="autoCopyToggle"><input id="autoCopyToggle" type="checkbox" /> Auto-copy result</label>
+      <small>Automatically copies the converted *I after parsing.</small>
     </div>
     <div class="converter-actions">
       <button id="convertBtn" type="button">Convert to *I</button>

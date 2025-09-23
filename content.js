@@ -16,6 +16,10 @@
   const CTA_MIN_AREA = CTA_MIN_WIDTH * CTA_MIN_HEIGHT;
   const ITA_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
   const CARD_KEY_ATTR = 'data-kayak-copy-key';
+  const CABIN_BOOKING_MAP = { economy:'Y', premium:'N', business:'J', first:'F' };
+  const CABIN_PRIORITY = ['first','business','premium','economy'];
+  const CABIN_LABELS = { first:'First', business:'Business', premium:'Premium Economy', economy:'Economy' };
+  const DEFAULT_OVERLAY_BASE_Z = 1400;
   const STABLE_CARD_ATTRS = [
     'data-resultid',
     'data-result-id',
@@ -45,6 +49,11 @@
   let buttonConfigVersion = 0;
   let overlayRoot = null;
   let syncScheduled = false;
+  let overlayBaseZ = DEFAULT_OVERLAY_BASE_Z;
+  let lastKnownHeaderZ = null;
+  let lastStoredAutoBookingClass = null;
+  let cabinDetectionState = { cabin:null, bookingClass:null, mixed:false, label:'', source:'' };
+  let cabinDetectionScheduled = false;
 
   const cardGroupMap = new WeakMap();
   const activeGroups = new Set();
@@ -72,10 +81,13 @@
   }
 
   // settings cache
-  let SETTINGS = { bookingClass:'J', segmentStatus:'SS1', enableDirectionButtons:false };
-  chrome.storage.sync.get(['bookingClass','segmentStatus','enableDirectionButtons'], (res)=>{
+  let SETTINGS = { bookingClass:'J', segmentStatus:'SS1', enableDirectionButtons:false, bookingClassLocked:false };
+  chrome.storage.sync.get(['bookingClass','segmentStatus','enableDirectionButtons','bookingClassLocked'], (res)=>{
     if (res && res.bookingClass)  SETTINGS.bookingClass  = String(res.bookingClass || 'J').toUpperCase();
     if (res && res.segmentStatus) SETTINGS.segmentStatus = String(res.segmentStatus || 'SS1').toUpperCase();
+    if (res && typeof res.bookingClassLocked === 'boolean') {
+      SETTINGS.bookingClassLocked = !!res.bookingClassLocked;
+    }
     if (res) {
       const storedDirections = typeof res.enableDirectionButtons === 'boolean'
         ? !!res.enableDirectionButtons
@@ -89,16 +101,31 @@
         SETTINGS.enableDirectionButtons = storedDirections;
       }
     }
+    if(!SETTINGS.bookingClassLocked){
+      lastStoredAutoBookingClass = SETTINGS.bookingClass;
+    }
+    scheduleCabinDetection(true);
   });
   chrome.storage.onChanged.addListener((chg, area)=>{
     if(area!=='sync') return;
-    if(chg.bookingClass)  SETTINGS.bookingClass  = String(chg.bookingClass.newValue  || 'J').toUpperCase();
+    if(chg.bookingClass){
+      SETTINGS.bookingClass  = String(chg.bookingClass.newValue  || 'J').toUpperCase();
+      if(!SETTINGS.bookingClassLocked){
+        lastStoredAutoBookingClass = SETTINGS.bookingClass;
+      }
+    }
     if(chg.segmentStatus) SETTINGS.segmentStatus = String(chg.segmentStatus.newValue || 'SS1').toUpperCase();
     if(chg.enableDirectionButtons){
       SETTINGS.enableDirectionButtons = !!chg.enableDirectionButtons.newValue;
       buttonConfigVersion++;
       refreshExistingGroups();
       scheduleItaDetailEnsure(true);
+    }
+    if(chg.bookingClassLocked){
+      SETTINGS.bookingClassLocked = !!chg.bookingClassLocked.newValue;
+      if(!SETTINGS.bookingClassLocked){
+        scheduleCabinDetection(true);
+      }
     }
   });
 
@@ -358,6 +385,7 @@
     const viewWidth = window.innerWidth || document.documentElement.clientWidth || 0;
     const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
     const candidates = new Set();
+    let highestZ = null;
 
     const addCandidate = (node) => {
       let current = node;
@@ -447,6 +475,13 @@
       }
       if(cs.display === 'none' || cs.visibility === 'hidden') return;
       if(parseFloat(cs.opacity || '1') === 0) return;
+      const zIndexRaw = cs.zIndex;
+      if(zIndexRaw && zIndexRaw !== 'auto'){
+        const parsed = parseInt(zIndexRaw, 10);
+        if(Number.isFinite(parsed)){
+          highestZ = highestZ == null ? parsed : Math.max(highestZ, parsed);
+        }
+      }
       const rect = el.getBoundingClientRect();
       if(!rect || rect.bottom <= 0) return;
       if(rect.top > 180) return;
@@ -456,7 +491,241 @@
     });
 
     cachedAvoidTop = maxBottom || 0;
+    if(highestZ != null){
+      lastKnownHeaderZ = highestZ;
+      const targetBase = Math.max(0, Math.min(highestZ - 2, DEFAULT_OVERLAY_BASE_Z));
+      updateOverlayZIndex(targetBase);
+    } else {
+      lastKnownHeaderZ = null;
+      updateOverlayZIndex(DEFAULT_OVERLAY_BASE_Z);
+    }
     return cachedAvoidTop;
+  }
+
+  function computeGroupZIndex(cardZ){
+    let target = overlayBaseZ + 1;
+    if(Number.isFinite(cardZ)){
+      target = Math.max(target, cardZ + 2);
+    }
+    if(Number.isFinite(lastKnownHeaderZ)){
+      target = Math.min(target, lastKnownHeaderZ - 1);
+    }
+    if(!Number.isFinite(target)){
+      target = overlayBaseZ + 1;
+    }
+    return Math.max(target, 0);
+  }
+
+  function applyGroupZIndex(group){
+    if(!group || group.dataset && group.dataset.inline === '1'){
+      if(group) group.style.zIndex = '';
+      return;
+    }
+    const card = group.__kayakCard;
+    let cardZ = null;
+    if(card){
+      try {
+        const cs = getComputedStyle(card);
+        if(cs && cs.zIndex && cs.zIndex !== 'auto'){
+          const parsed = parseInt(cs.zIndex, 10);
+          if(Number.isFinite(parsed)){
+            cardZ = parsed;
+          }
+        }
+      } catch (err) {}
+    }
+    group.style.zIndex = String(computeGroupZIndex(cardZ));
+  }
+
+  function updateOverlayZIndex(baseZ){
+    const normalized = Number.isFinite(baseZ) ? baseZ : DEFAULT_OVERLAY_BASE_Z;
+    if(normalized === overlayBaseZ) return;
+    overlayBaseZ = normalized;
+    if(overlayRoot){
+      overlayRoot.style.zIndex = String(overlayBaseZ);
+    }
+    activeGroups.forEach(group => {
+      applyGroupZIndex(group);
+    });
+  }
+
+  function parseCabinTokens(text){
+    const cleaned = (text || '').replace(/\s+/g, ' ').trim();
+    if(!cleaned) return null;
+    const lower = cleaned.toLowerCase();
+    const matches = new Set();
+    const hasPremiumEconomy = /premium\s+economy/.test(lower);
+    if(/\bfirst\b/.test(lower)) matches.add('first');
+    if(/\bbusiness\b/.test(lower)) matches.add('business');
+    if(hasPremiumEconomy) matches.add('premium');
+    if(!hasPremiumEconomy && /\bpremium\b/.test(lower)) matches.add('premium');
+    if(!hasPremiumEconomy && (/\beconomy\b/.test(lower) || /\bcoach\b/.test(lower))) matches.add('economy');
+    if(!hasPremiumEconomy && /\bbasic\s+economy\b/.test(lower)) matches.add('economy');
+    if(matches.size === 0) return null;
+    let cabin = null;
+    for(const key of CABIN_PRIORITY){
+      if(matches.has(key)){
+        cabin = key;
+        break;
+      }
+    }
+    if(!cabin) return null;
+    const mixed = /\bmix/i.test(lower) || /multiple\s+cabin/.test(lower) || matches.size > 1;
+    const label = CABIN_LABELS[cabin] || cabin.charAt(0).toUpperCase() + cabin.slice(1);
+    return { cabin, mixed, label };
+  }
+
+  function detectCabinFromLocation(){
+    try {
+      const url = new URL(location.href);
+      const raw = (url.searchParams.get('cabin') || '').toLowerCase();
+      if(!raw) return null;
+      const cleaned = raw.replace(/[^a-z]/g, '');
+      const mapping = {
+        e:'economy', ec:'economy', eco:'economy', economy:'economy', coach:'economy',
+        y:'economy',
+        p:'premium', pe:'premium', prem:'premium', premium:'premium', premiumeconomy:'premium',
+        n:'premium',
+        b:'business', bus:'business', business:'business', j:'business',
+        f:'first', first:'first'
+      };
+      const cabin = mapping[cleaned];
+      if(!cabin) return null;
+      return { cabin, mixed:false, label: CABIN_LABELS[cabin], priority:1, source:'url' };
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function detectCabinFromDom(){
+    if(typeof document === 'undefined' || !document.querySelectorAll) return [];
+    const selectors = [
+      '[data-testid*="cabin" i]',
+      '[data-test*="cabin" i]',
+      '[class*="Cabin" i]',
+      '[class*="cabin" i]',
+      '[aria-label*="cabin" i]',
+      '[data-testid*="traveler" i]',
+      '[data-test*="traveler" i]'
+    ];
+    const seenNodes = new Set();
+    const seenTexts = new Set();
+    const results = [];
+    selectors.forEach(sel => {
+      try {
+        document.querySelectorAll(sel).forEach(el => {
+          if(!el || seenNodes.has(el)) return;
+          seenNodes.add(el);
+          let rect = null;
+          try { rect = el.getBoundingClientRect(); } catch (err) { rect = null; }
+          if(rect && rect.bottom > 520) return;
+          const texts = [];
+          const textContent = (el.innerText || el.textContent || '').replace(/\s+/g,' ').trim();
+          if(textContent) texts.push(textContent);
+          if(el.getAttribute){
+            const aria = (el.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim();
+            if(aria && aria !== textContent) texts.push(aria);
+          }
+          texts.forEach(txt => {
+            const key = txt.toLowerCase();
+            if(!txt || seenTexts.has(key)) return;
+            const parsed = parseCabinTokens(txt);
+            if(parsed){
+              seenTexts.add(key);
+              results.push({ cabin: parsed.cabin, mixed: parsed.mixed, label: parsed.label, priority:2, source:'dom' });
+            }
+          });
+        });
+      } catch (err) {}
+    });
+    return results;
+  }
+
+  function detectKayakCabinInfo(){
+    if(IS_ITA) return null;
+    const candidates = [];
+    const fromLocation = detectCabinFromLocation();
+    if(fromLocation) candidates.push(fromLocation);
+    const domHints = detectCabinFromDom();
+    if(domHints && domHints.length){
+      candidates.push(...domHints);
+    }
+    if(candidates.length === 0) return null;
+    candidates.sort((a, b) => {
+      if(a.priority !== b.priority) return a.priority - b.priority;
+      const idxA = CABIN_PRIORITY.indexOf(a.cabin);
+      const idxB = CABIN_PRIORITY.indexOf(b.cabin);
+      if(idxA !== idxB) return idxA - idxB;
+      if(a.mixed !== b.mixed) return a.mixed ? 1 : -1;
+      return (b.label || '').length - (a.label || '').length;
+    });
+    const best = candidates[0];
+    if(!best || !best.cabin) return null;
+    const bookingClass = CABIN_BOOKING_MAP[best.cabin];
+    if(!bookingClass) return null;
+    return {
+      cabin: best.cabin,
+      bookingClass,
+      mixed: !!best.mixed,
+      label: best.label || CABIN_LABELS[best.cabin] || '',
+      source: best.source || 'dom'
+    };
+  }
+
+  function applyDetectedCabin(info){
+    if(!info || SETTINGS.bookingClassLocked) return;
+    const changedBooking = info.bookingClass && info.bookingClass !== SETTINGS.bookingClass;
+    const changedMixed = info.mixed !== cabinDetectionState.mixed;
+    const changedCabin = info.cabin !== cabinDetectionState.cabin;
+    const changedLabel = (info.label || '') !== (cabinDetectionState.label || '');
+    if(!changedBooking && !changedMixed && !changedCabin && !changedLabel){
+      return;
+    }
+    cabinDetectionState = {
+      cabin: info.cabin,
+      bookingClass: info.bookingClass,
+      mixed: !!info.mixed,
+      label: info.label || '',
+      source: info.source || 'dom'
+    };
+    if(changedBooking){
+      SETTINGS.bookingClass = info.bookingClass;
+    }
+    if(changedBooking || changedMixed || changedCabin){
+      buttonConfigVersion++;
+      refreshExistingGroups();
+    } else if(changedLabel){
+      refreshExistingGroups();
+    }
+    if(changedBooking && info.bookingClass !== lastStoredAutoBookingClass){
+      lastStoredAutoBookingClass = info.bookingClass;
+      try {
+        chrome.storage.sync.set({ bookingClass: info.bookingClass, bookingClassLocked: false }, () => {});
+      } catch (err) {}
+    }
+  }
+
+  function runCabinDetection(){
+    if(IS_ITA || SETTINGS.bookingClassLocked) return;
+    const detected = detectKayakCabinInfo();
+    if(detected){
+      applyDetectedCabin(detected);
+    }
+  }
+
+  function scheduleCabinDetection(immediate){
+    if(IS_ITA || SETTINGS.bookingClassLocked) return;
+    if(immediate){
+      cabinDetectionScheduled = false;
+      runCabinDetection();
+      return;
+    }
+    if(cabinDetectionScheduled) return;
+    cabinDetectionScheduled = true;
+    requestAnimationFrame(() => {
+      cabinDetectionScheduled = false;
+      runCabinDetection();
+    });
   }
 
   function computeButtonConfigsForCard(card){
@@ -490,7 +759,7 @@
     const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
     const segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
     const multiCity = !!(preview && preview.isMultiCity && journeys.length > 0);
-    const showJourneyButtons = multiCity && !IS_ITA && SETTINGS.enableDirectionButtons;
+    const showJourneyButtons = multiCity;
 
     const journeySignatureParts = [];
     if(showJourneyButtons){
@@ -682,7 +951,7 @@
     const data = configData || computeButtonConfigsForCard(card);
     const inlineMode = group.dataset.inline === '1';
     const previewMulti = !!(data && data.preview && data.preview.isMultiCity);
-    const showMulti = previewMulti && !IS_ITA;
+    const showMulti = previewMulti;
     group.classList.toggle('kayak-copy-btn-group--ita', inlineMode);
     group.classList.toggle('kayak-copy-btn-group--multi', showMulti);
     if(showMulti){
@@ -700,6 +969,13 @@
       return;
     }
     group.innerHTML = '';
+    if(!IS_ITA && cabinDetectionState && cabinDetectionState.mixed){
+      const hint = document.createElement('span');
+      hint.className = 'kayak-copy-cabin-hint';
+      hint.textContent = 'Mixed cabin';
+      hint.title = cabinDetectionState.label ? `${cabinDetectionState.label} (mixed cabins)` : 'Mixed cabin detected';
+      group.appendChild(hint);
+    }
     data.configs.forEach(cfg => {
       group.appendChild(createButton(card, cfg));
     });
@@ -719,7 +995,7 @@
       overlayRoot.style.position = 'fixed';
       overlayRoot.style.inset = '0';
       overlayRoot.style.pointerEvents = 'none';
-      overlayRoot.style.zIndex = '2147483000';
+      overlayRoot.style.zIndex = String(overlayBaseZ);
     }
     const host = document.body || document.documentElement;
     if (host && overlayRoot.parentNode !== host) {
@@ -743,6 +1019,7 @@
       delete group.__kayakCardKey;
     }
     activeGroups.add(group);
+    applyGroupZIndex(group);
     if (cardResizeObserver && card) {
       try {
         cardResizeObserver.observe(card);
@@ -2130,6 +2407,7 @@
       group.style.left = '';
       group.style.right = '';
       group.style.bottom = '';
+      group.style.zIndex = '';
       if (group.parentNode !== host){
         host.appendChild(group);
       }
@@ -2164,6 +2442,7 @@
       if (!group.isConnected || group.parentNode !== root){
         root.appendChild(group);
       }
+      applyGroupZIndex(group);
       if(removedSlot){
         if(card && kayakInlineSlotMap.get(card) === removedSlot){
           kayakInlineSlotMap.delete(card);
@@ -2526,7 +2805,12 @@
     if(!normalized) return false;
     if(/^[0-9]/.test(normalized)) return false;
     if(/\b(AIRBUS|BOEING|EMBRAER|BOMBARDIER|CANADAIR|DE HAVILLAND|MCDONNELL|DOUGLAS|LOCKHEED|SUKHOI|SUPERJET|FOKKER|TUP|ANTONOV|IL-?\d*|SAAB|ATR|TURBOPROP|JETLINER|AIRCRAFT|E-?JET|CRJ|MAX|NEO)\b/.test(normalized)) return false;
-    if(typeof AIRLINE_CODES !== 'undefined' && AIRLINE_CODES[normalized]) return true;
+    if(typeof lookupAirlineCodeByName === 'function'){
+      const code = lookupAirlineCodeByName(line);
+      if(code) return true;
+    } else if(typeof AIRLINE_CODES !== 'undefined' && AIRLINE_CODES[normalized]){
+      return true;
+    }
     const airlineKeywords = [
       'AIR ', 'AIRLINES', 'AIRWAYS', 'AVIATION', 'FLY', 'JET ', 'JETBLUE', 'JET2', 'CONDOR', 'LUFTHANSA', 'UNITED', 'DELTA',
       'AMERICAN', 'SWISS', 'AUSTRIAN', 'IBERIA', 'QANTAS', 'QATAR', 'EMIRATES', 'ETIHAD', 'TURKISH', 'SAS', 'FINNAIR', 'AER ',
@@ -2747,10 +3031,11 @@
       }
 
       // Case 2: "<Airline Name>" + "<pure flight number>"
-      const nameUpper = t.trim().toUpperCase();
-      if (typeof AIRLINE_CODES !== 'undefined' &&
-          AIRLINE_CODES[nameUpper] &&
-          /^\d{1,4}$/.test(next)){
+      const nameClean = t.trim();
+      const mergedCode = (typeof lookupAirlineCodeByName === 'function')
+        ? lookupAirlineCodeByName(nameClean)
+        : (typeof AIRLINE_CODES !== 'undefined' ? AIRLINE_CODES[nameClean.toUpperCase()] : null);
+      if (mergedCode && /^\d{1,4}$/.test(next)){
         merged.push(t + ' ' + next);
         i++;
         continue;
@@ -2823,6 +3108,7 @@
       scheduleItaDetailEnsure();
     }
     schedulePositionSync();
+    scheduleCabinDetection();
   });
   mo.observe(document.documentElement || document.body, {
     subtree:true,
@@ -2830,6 +3116,10 @@
     attributes:true,
     attributeFilter: IS_ITA ? ['aria-expanded','class'] : ['aria-expanded']
   });
+
+  window.addEventListener('popstate', () => scheduleCabinDetection());
+  window.addEventListener('hashchange', () => scheduleCabinDetection());
+  window.addEventListener('pageshow', () => scheduleCabinDetection());
 
   if (IS_ITA){
     const rescheduleDetail = () => scheduleItaDetailEnsure();

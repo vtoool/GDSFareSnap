@@ -5,109 +5,336 @@
   const MONTH_NAMES = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   const DOW_CHARS = ['S','M','T','W','Q','F','J'];
 
-  const booking = document.getElementById('bookingClass');
-  const status = document.getElementById('segmentStatus');
+  const bookingInput = document.getElementById('bookingClass');
+  const statusInput = document.getElementById('segmentStatus');
   const enableDirections = document.getElementById('enableDirections');
   const okEl = document.getElementById('ok');
   const saveBtn = document.getElementById('saveBtn');
 
   const viInput = document.getElementById('viInput');
-  const yearInput = document.getElementById('yearOverride');
   const convertBtn = document.getElementById('convertBtn');
   const copyBtn = document.getElementById('copyBtn');
   const outputEl = document.getElementById('iOutput');
   const convertErrorEl = document.getElementById('convertError');
   const convertStatusEl = document.getElementById('convertStatus');
 
-  chrome.storage.sync.get(['bookingClass','segmentStatus','enableDirectionButtons'], (res) => {
-    booking.value = sanitizeBookingClass(res.bookingClass);
-    status.value = sanitizeSegmentStatus(res.segmentStatus);
-    enableDirections.checked = !!res.enableDirectionButtons;
-  });
+  const bookingStatusNote = document.getElementById('bookingStatusNote');
+  const restoreAutoBtn = document.getElementById('restoreAutoBtn');
+  const autoCopyToggle = document.getElementById('autoCopyToggle');
 
-  saveBtn.addEventListener('click', () => {
-    const bc = sanitizeBookingClass(booking.value);
-    const ss = sanitizeSegmentStatus(status.value);
-    const enableDir = !!enableDirections.checked;
-    chrome.storage.sync.set({ bookingClass: bc, segmentStatus: ss, enableDirectionButtons: enableDir }, () => {
-      okEl.textContent = 'Saved';
-      okEl.style.display = 'inline-block';
-      setTimeout(() => { window.close(); }, 600);
-    });
-  });
+  if (bookingStatusNote){
+    bookingStatusNote.textContent = 'Checking auto cabin detection…';
+  }
+  if (restoreAutoBtn){
+    restoreAutoBtn.style.display = 'none';
+  }
+  if (autoCopyToggle){
+    autoCopyToggle.checked = true;
+  }
 
-  convertBtn.addEventListener('click', () => {
-    clearMessages();
-    copyBtn.disabled = true;
-    const raw = (viInput.value || '').trim();
-    if(!raw){
-      showError('Paste VI* text first.');
-      outputEl.value = '';
-      return;
+  const state = {
+    bookingClassLocked: false,
+    originalBookingClass: 'J',
+    bookingEdited: false,
+    autoCopy: true,
+    lastInput: '',
+    lastResult: '',
+    lastCopied: ''
+  };
+
+  const scheduleAutoConvert = debounce((reason) => runConversion(reason || 'auto'), 140);
+
+  chrome.storage.sync.get([
+    'bookingClass',
+    'segmentStatus',
+    'enableDirectionButtons',
+    'bookingClassLocked',
+    'autoCopyOnConvert'
+  ], (res) => {
+    const bookingValue = sanitizeBookingClass(res && res.bookingClass);
+    const segmentStatus = sanitizeSegmentStatus(res && res.segmentStatus);
+    if (bookingInput){
+      bookingInput.value = bookingValue;
     }
-    const options = {
-      bookingClass: sanitizeBookingClass(booking.value),
-      segmentStatus: sanitizeSegmentStatus(status.value),
-      baseYear: parseYear(yearInput.value)
-    };
-    try {
-      const result = convertViToI(raw, options);
-      outputEl.value = result;
-      if(result){
-        copyBtn.disabled = false;
-        const lines = result.split('\n');
-        showStatus(`Converted ${lines.length} segment${lines.length === 1 ? '' : 's'}.`);
-      } else {
-        showError('No segments found in VI* text.');
+    if (statusInput){
+      statusInput.value = segmentStatus;
+    }
+    if (enableDirections){
+      enableDirections.checked = !!(res && res.enableDirectionButtons);
+    }
+    state.originalBookingClass = bookingValue;
+    state.bookingClassLocked = !!(res && res.bookingClassLocked);
+    state.bookingEdited = false;
+    state.autoCopy = (res && typeof res.autoCopyOnConvert === 'boolean')
+      ? !!res.autoCopyOnConvert
+      : true;
+    if (autoCopyToggle){
+      autoCopyToggle.checked = state.autoCopy;
+    }
+    updateAutoDetectionNote();
+  });
+
+  if (bookingInput){
+    bookingInput.addEventListener('input', () => {
+      state.bookingEdited = true;
+      updateAutoDetectionNote();
+    });
+  }
+
+  if (autoCopyToggle){
+    autoCopyToggle.addEventListener('change', () => {
+      state.autoCopy = !!autoCopyToggle.checked;
+      chrome.storage.sync.set({ autoCopyOnConvert: state.autoCopy }, () => {});
+    });
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync') return;
+    if (changes.bookingClassLocked){
+      state.bookingClassLocked = !!changes.bookingClassLocked.newValue;
+      updateAutoDetectionNote();
+    }
+    if (changes.bookingClass && !state.bookingEdited){
+      const nextValue = sanitizeBookingClass(changes.bookingClass.newValue);
+      if (bookingInput){
+        bookingInput.value = nextValue;
       }
-    } catch(err){
-      outputEl.value = '';
-      showError(err && err.message ? err.message : 'Could not convert itinerary.');
+      state.originalBookingClass = nextValue;
+      updateAutoDetectionNote();
+    }
+    if (changes.autoCopyOnConvert){
+      state.autoCopy = !!changes.autoCopyOnConvert.newValue;
+      if (autoCopyToggle){
+        autoCopyToggle.checked = state.autoCopy;
+      }
     }
   });
 
-  copyBtn.addEventListener('click', () => {
-    const text = (outputEl.value || '').trim();
-    if(!text){
+  if (saveBtn){
+    saveBtn.addEventListener('click', () => {
+      const bookingClass = bookingInput ? sanitizeBookingClass(bookingInput.value) : 'J';
+      const segmentStatus = statusInput ? sanitizeSegmentStatus(statusInput.value) : 'SS1';
+      if (bookingInput) bookingInput.value = bookingClass;
+      if (statusInput) statusInput.value = segmentStatus;
+      const enableDir = !!(enableDirections && enableDirections.checked);
+      const shouldLock = state.bookingEdited ? true : state.bookingClassLocked;
+      chrome.storage.sync.set({
+        bookingClass,
+        segmentStatus,
+        enableDirectionButtons: enableDir,
+        bookingClassLocked: shouldLock
+      }, () => {
+        if (okEl){
+          okEl.textContent = 'Saved';
+          okEl.style.display = 'inline-block';
+        }
+        state.bookingClassLocked = shouldLock;
+        state.originalBookingClass = bookingClass;
+        state.bookingEdited = false;
+        updateAutoDetectionNote();
+        setTimeout(() => { window.close(); }, 600);
+      });
+    });
+  }
+
+  if (restoreAutoBtn){
+    restoreAutoBtn.addEventListener('click', () => {
+      if (!state.bookingClassLocked){
+        updateAutoDetectionNote();
+        return;
+      }
+      restoreAutoBtn.disabled = true;
+      chrome.storage.sync.set({ bookingClassLocked: false }, () => {
+        state.bookingClassLocked = false;
+        state.bookingEdited = false;
+        updateAutoDetectionNote();
+        restoreAutoBtn.disabled = false;
+      });
+    });
+  }
+
+  if (viInput){
+    viInput.addEventListener('input', () => {
+      if (!viInput.value.trim()){
+        resetConversionState();
+        return;
+      }
+      scheduleAutoConvert('auto');
+    });
+    viInput.addEventListener('paste', () => {
+      requestAnimationFrame(() => runConversion('auto'));
+    });
+    viInput.addEventListener('drop', () => {
+      setTimeout(() => runConversion('auto'), 0);
+    });
+  }
+
+  if (convertBtn){
+    convertBtn.addEventListener('click', () => {
+      runConversion('manual');
+    });
+  }
+
+  if (copyBtn){
+    copyBtn.addEventListener('click', () => {
+      handleManualCopy();
+    });
+  }
+
+  async function runConversion(reason = 'auto'){
+    if (!viInput || !outputEl) return;
+    const raw = (viInput.value || '').trim();
+    if (!raw){
+      resetConversionState();
+      if (reason === 'manual'){
+        showError('Paste VI* text first.');
+      }
       return;
     }
-    navigator.clipboard.writeText(text).then(() => {
-      showStatus('Copied to clipboard.');
-    }).catch(() => {
-      showError('Copy failed.');
-    });
-  });
 
-  viInput.addEventListener('input', clearMessages);
-  yearInput.addEventListener('input', clearMessages);
+    resetFeedback();
+    if (copyBtn){
+      copyBtn.disabled = true;
+    }
+
+    const sameInput = state.lastInput === raw;
+
+    try {
+      const bookingClass = bookingInput ? sanitizeBookingClass(bookingInput.value) : 'J';
+      const segmentStatus = statusInput ? sanitizeSegmentStatus(statusInput.value) : 'SS1';
+      if (bookingInput) bookingInput.value = bookingClass;
+      if (statusInput) statusInput.value = segmentStatus;
+
+      const result = convertViToI(raw, { bookingClass, segmentStatus });
+      state.lastInput = raw;
+      outputEl.value = result;
+
+      if (!result){
+        state.lastResult = '';
+        state.lastCopied = '';
+        if (copyBtn) copyBtn.disabled = true;
+        showError('No segments found in VI* text.');
+        return;
+      }
+
+      state.lastResult = result;
+      if (copyBtn) copyBtn.disabled = false;
+      const segmentCount = result.split('\n').length;
+      const shouldAutoCopy = state.autoCopy && (!sameInput || result !== state.lastCopied);
+
+      if (shouldAutoCopy){
+        const outcome = await copyOutputText(result);
+        if (outcome.ok){
+          state.lastCopied = result;
+          showStatus(`Copied ${segmentCount} segment${segmentCount === 1 ? '' : 's'} to clipboard.`);
+          return;
+        }
+        state.lastCopied = '';
+        if (outcome.fallback){
+          showError('Clipboard blocked. Result selected for manual copy.');
+          return;
+        }
+        showError('Copy failed. Use the Copy button.');
+        return;
+      }
+
+      showStatus(`Converted ${segmentCount} segment${segmentCount === 1 ? '' : 's'}.`);
+    } catch (err){
+      state.lastResult = '';
+      state.lastCopied = '';
+      outputEl.value = '';
+      if (copyBtn) copyBtn.disabled = true;
+      const message = err && err.message ? err.message : 'Could not convert itinerary.';
+      showError(message);
+    }
+  }
+
+  async function handleManualCopy(){
+    if (!outputEl) return;
+    resetFeedback();
+    const text = (outputEl.value || '').trim();
+    if (!text){
+      showError('Nothing to copy yet.');
+      return;
+    }
+    const outcome = await copyOutputText(text);
+    if (outcome.ok){
+      state.lastCopied = text;
+      showStatus('Copied to clipboard.');
+      return;
+    }
+    state.lastCopied = '';
+    if (outcome.fallback){
+      showError('Clipboard blocked. Result selected for manual copy.');
+      return;
+    }
+    showError('Copy failed.');
+  }
+
+  async function copyOutputText(text){
+    if (!text){
+      return { ok: false };
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      try {
+        await navigator.clipboard.writeText(text);
+        return { ok: true };
+      } catch (err) {
+        // fall through to execCommand fallback
+      }
+    }
+    if (outputEl){
+      try {
+        if (document.queryCommandSupported && document.queryCommandSupported('copy')){
+          outputEl.focus();
+          outputEl.select();
+          if (document.execCommand('copy')){
+            return { ok: true };
+          }
+        }
+      } catch (err) {
+        // ignore and continue to selection fallback
+      }
+      try {
+        outputEl.focus();
+        outputEl.select();
+      } catch (err) {}
+    }
+    return { ok: false, fallback: true };
+  }
 
   function sanitizeBookingClass(value){
-    const clean = (value || 'J').toUpperCase().replace(/[^A-Z]/g,'').slice(0,1);
+    const clean = (value || 'J').toString().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1);
     return clean || 'J';
   }
 
   function sanitizeSegmentStatus(value){
-    const clean = (value || 'SS1').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,3);
+    const clean = (value || 'SS1').toString().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
     return clean || 'SS1';
   }
 
-  function parseYear(value){
-    const year = parseInt(value, 10);
-    if(Number.isFinite(year) && year >= 1900 && year <= 2100){
-      return year;
-    }
-    return null;
+  function resetConversionState(){
+    resetFeedback();
+    if (outputEl) outputEl.value = '';
+    if (copyBtn) copyBtn.disabled = true;
+    state.lastResult = '';
+    state.lastCopied = '';
+    state.lastInput = '';
   }
 
-  function clearMessages(){
-    convertErrorEl.style.display = 'none';
-    convertErrorEl.textContent = '';
-    convertStatusEl.style.display = 'none';
-    convertStatusEl.textContent = '';
-    copyBtn.disabled = true;
+  function resetFeedback(){
+    if (convertErrorEl){
+      convertErrorEl.style.display = 'none';
+      convertErrorEl.textContent = '';
+    }
+    if (convertStatusEl){
+      convertStatusEl.style.display = 'none';
+      convertStatusEl.textContent = '';
+    }
   }
 
   function showError(message){
+    if (!convertErrorEl) return;
     convertStatusEl.style.display = 'none';
     convertStatusEl.textContent = '';
     convertErrorEl.textContent = message;
@@ -115,16 +342,43 @@
   }
 
   function showStatus(message){
+    if (!convertStatusEl) return;
     convertErrorEl.style.display = 'none';
     convertErrorEl.textContent = '';
     convertStatusEl.textContent = message;
     convertStatusEl.style.display = 'block';
   }
 
+  function updateAutoDetectionNote(){
+    if (!bookingStatusNote) return;
+    const currentClass = bookingInput ? sanitizeBookingClass(bookingInput.value) : state.originalBookingClass;
+    if (state.bookingClassLocked){
+      bookingStatusNote.textContent = `Auto cabin detection paused — using manual booking class ${currentClass || 'J'}.`;
+      if (restoreAutoBtn){
+        restoreAutoBtn.style.display = '';
+        restoreAutoBtn.disabled = false;
+      }
+    } else {
+      bookingStatusNote.textContent = `Auto cabin detection active (default ${currentClass || 'J'}).`;
+      if (restoreAutoBtn){
+        restoreAutoBtn.style.display = 'none';
+        restoreAutoBtn.disabled = false;
+      }
+    }
+  }
+
+  function debounce(fn, wait){
+    let timer = null;
+    return function debounced(...args){
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), wait);
+    };
+  }
+
   function convertViToI(rawText, options){
     const opts = options || {};
     const segments = extractSegments(rawText);
-    if(segments.length === 0){
+    if (segments.length === 0){
       throw new Error('No segments found in VI* text.');
     }
     assignSegmentDates(segments, opts.baseYear);
@@ -133,41 +387,41 @@
 
   function extractSegments(rawText){
     const segments = [];
-    if(!rawText) return segments;
+    if (!rawText) return segments;
     const lines = rawText.replace(/\r\n/g, '\n').split('\n');
-    for(const line of lines){
-      if(!/^\s*\d+\s+/.test(line || '')) continue;
+    for (const line of lines){
+      if (!/^\s*\d+\s+/.test(line || '')) continue;
       const tokens = line.trim().split(/\s+/);
-      if(tokens.length < 7) continue;
+      if (tokens.length < 7) continue;
 
       const indexToken = tokens.shift();
-      if(!/^\d+$/.test(indexToken)) continue;
+      if (!/^\d+$/.test(indexToken)) continue;
 
       const flightTokens = [];
-      while(tokens.length && !/^\d{1,2}[A-Z]{3}$/i.test(tokens[0])){
+      while (tokens.length && !/^\d{1,2}[A-Z]{3}$/i.test(tokens[0])){
         flightTokens.push(tokens.shift());
       }
-      if(flightTokens.length === 0) continue;
+      if (flightTokens.length === 0) continue;
       const flightJoined = flightTokens.join('');
       const flightMatch = flightJoined.match(/^([A-Z0-9]{2})(\*?)([A-Z0-9]+)$/i);
-      if(!flightMatch) continue;
+      if (!flightMatch) continue;
 
       const airlineCode = flightMatch[1].toUpperCase();
       const flightNumber = flightMatch[3].toUpperCase();
 
-      if(tokens.length === 0) continue;
+      if (tokens.length === 0) continue;
       const dateToken = (tokens.shift() || '').toUpperCase();
       const dateMatch = dateToken.match(/^(\d{1,2})([A-Z]{3})$/);
-      if(!dateMatch) continue;
+      if (!dateMatch) continue;
       const day = parseInt(dateMatch[1], 10);
       const monthKey = dateMatch[2];
-      if(!Object.prototype.hasOwnProperty.call(MONTH_INDEX, monthKey)) continue;
+      if (!Object.prototype.hasOwnProperty.call(MONTH_INDEX, monthKey)) continue;
       const monthIndex = MONTH_INDEX[monthKey];
 
-      if(tokens.length < 4) continue;
+      if (tokens.length < 4) continue;
       const depAirport = (tokens.shift() || '').toUpperCase();
       const arrAirport = (tokens.shift() || '').toUpperCase();
-      if(!/^[A-Z]{3}$/.test(depAirport) || !/^[A-Z]{3}$/.test(arrAirport)) continue;
+      if (!/^[A-Z]{3}$/.test(depAirport) || !/^[A-Z]{3}$/.test(arrAirport)) continue;
 
       const depTimeToken = tokens.shift() || '';
       const arrTimeToken = tokens.shift() || '';
@@ -191,7 +445,7 @@
 
   function parseTimeToken(token){
     const trimmed = (token || '').trim();
-    if(!trimmed){
+    if (!trimmed){
       return { time: '', offset: 0 };
     }
     const offsetMatch = trimmed.match(/(?:¥|\+)(\d+)/i);
@@ -199,7 +453,7 @@
     const base = trimmed.replace(/(?:¥|\+)\s*\d+/gi, '');
     const cleaned = base.replace(/[^0-9AP]/gi, '');
     const match = cleaned.match(/(\d{3,4})([AP])?/i);
-    if(!match){
+    if (!match){
       return { time: cleaned.toUpperCase(), offset };
     }
     const time = match[1] + (match[2] ? match[2].toUpperCase() : '');
@@ -207,15 +461,15 @@
   }
 
   function assignSegmentDates(segments, baseYear){
-    if(segments.length === 0) return;
+    if (segments.length === 0) return;
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     let workingYear = Number.isFinite(baseYear) ? baseYear : now.getFullYear();
 
     let firstDep = new Date(workingYear, segments[0].depMonth, segments[0].depDay);
-    if(!Number.isFinite(baseYear)){
+    if (!Number.isFinite(baseYear)){
       const nextCandidate = new Date(workingYear + 1, segments[0].depMonth, segments[0].depDay);
-      if(firstDep < today && Math.abs(nextCandidate - today) < Math.abs(firstDep - today)){
+      if (firstDep < today && Math.abs(nextCandidate - today) < Math.abs(firstDep - today)){
         workingYear += 1;
         firstDep = nextCandidate;
       }
@@ -223,15 +477,15 @@
     applyDatesToSegment(segments[0], firstDep);
     let lastArrMidnight = toMidnight(segments[0].arrDateObj);
 
-    for(let i = 1; i < segments.length; i++){
+    for (let i = 1; i < segments.length; i++){
       let candidate = new Date(workingYear, segments[i].depMonth, segments[i].depDay);
-      while(candidate < lastArrMidnight){
+      while (candidate < lastArrMidnight){
         workingYear += 1;
         candidate = new Date(workingYear, segments[i].depMonth, segments[i].depDay);
       }
       applyDatesToSegment(segments[i], candidate);
       const arrMidnight = toMidnight(segments[i].arrDateObj);
-      if(arrMidnight > lastArrMidnight){
+      if (arrMidnight > lastArrMidnight){
         lastArrMidnight = arrMidnight;
       }
     }
@@ -262,7 +516,7 @@
     const bookingClass = sanitizeBookingClass(options.bookingClass);
     const segmentStatus = sanitizeSegmentStatus(options.segmentStatus);
     const lines = [];
-    for(let i = 0; i < segments.length; i++){
+    for (let i = 0; i < segments.length; i++){
       const seg = segments[i];
       const segNumber = String(i + 1).padStart(2, ' ');
       const flightField = formatFlightField(seg.airlineCode, seg.flightNumber, bookingClass);
@@ -271,9 +525,9 @@
         ? `${seg.depAirport}${seg.arrAirport}*${segmentStatus}`
         : `${seg.depAirport}${seg.arrAirport}`;
       const parts = [segNumber, flightField, dateField, cityField];
-      if(seg.depTime){ parts.push(seg.depTime); }
-      if(seg.arrTime){ parts.push(seg.arrTime); }
-      if(seg.arrOffset > 0){
+      if (seg.depTime){ parts.push(seg.depTime); }
+      if (seg.arrTime){ parts.push(seg.arrTime); }
+      if (seg.arrOffset > 0){
         const arrField = seg.arrDow ? `${seg.arrDateString} ${seg.arrDow}` : seg.arrDateString;
         parts.push(arrField);
       }
