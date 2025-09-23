@@ -824,10 +824,21 @@
       });
     }
 
+    let effectiveConfigs = configs;
+    let effectiveShowJourneyButtons = showJourneyButtons;
+
+    if(!SETTINGS.enableDirectionButtons){
+      effectiveConfigs = configs.filter(cfg => cfg && cfg.copyKind !== 'availability');
+      if(!effectiveConfigs.length && configs.length){
+        effectiveConfigs = [ configs[0] ];
+      }
+      effectiveShowJourneyButtons = false;
+    }
+
     const signaturePieces = [
-      showJourneyButtons ? 'multi' : 'simple',
+      effectiveShowJourneyButtons ? 'multi' : 'simple',
       journeySignatureParts.join('|'),
-      String(configs.length)
+      String(effectiveConfigs.length)
     ];
     if(segments.length){
       const segmentSignature = segments.map(seg => {
@@ -843,10 +854,10 @@
     }
 
     return {
-      configs,
+      configs: effectiveConfigs,
       signature: signaturePieces.join('::'),
       preview,
-      showJourneyButtons
+      showJourneyButtons: effectiveShowJourneyButtons
     };
   }
 
@@ -2307,6 +2318,12 @@
     }
 
     const selectBtn = findSelectButton(card);
+    let cardRect = null;
+    try {
+      cardRect = card.getBoundingClientRect();
+    } catch (err) {
+      cardRect = null;
+    }
     let inlineFallback = false;
     let selectRect = null;
     if(selectBtn){
@@ -2334,6 +2351,17 @@
       }
     } else {
       inlineFallback = true;
+    }
+
+    if(!inlineFallback && cardRect){
+      try {
+        const avoidTop = measureAvoidTop();
+        if(Number.isFinite(avoidTop) && (cardRect.top <= avoidTop + 10)){
+          inlineFallback = true;
+        }
+      } catch (err) {
+        // ignore measurement failure
+      }
     }
 
     if(!cardHasFlightClues(card, selectBtn, { suppressSelectLookup: true, allowMissingSelect: inlineFallback })){
