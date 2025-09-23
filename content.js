@@ -15,6 +15,7 @@
   const CTA_MIN_HEIGHT = 32;
   const CTA_MIN_AREA = CTA_MIN_WIDTH * CTA_MIN_HEIGHT;
   const ITA_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
+  const REVIEW_BOOK_SIGNATURE_RX = /review(?:\s|&|and|-|_)*book|book(?:\s|&|and|-|_)*review/;
   const CARD_KEY_ATTR = 'data-kayak-copy-key';
   const CABIN_BOOKING_MAP = { economy:'Y', premium:'N', business:'J', first:'F' };
   const CABIN_PRIORITY = ['first','business','premium','economy'];
@@ -54,6 +55,8 @@
   let lastStoredAutoBookingClass = null;
   let cabinDetectionState = { cabin:null, bookingClass:null, mixed:false, label:'', source:'' };
   let cabinDetectionScheduled = false;
+  let reviewHeadingCacheTime = 0;
+  let reviewHeadingCacheValue = false;
 
   const cardGroupMap = new WeakMap();
   const activeGroups = new Set();
@@ -172,9 +175,57 @@
     return false;
   }
 
+  function invalidateReviewHeadingCache(){
+    reviewHeadingCacheTime = 0;
+    reviewHeadingCacheValue = false;
+  }
+
+  function pageIndicatesReview(){
+    if(IS_ITA) return false;
+    const now = Date.now();
+    if(reviewHeadingCacheTime && (now - reviewHeadingCacheTime) < 800){
+      return reviewHeadingCacheValue;
+    }
+    reviewHeadingCacheTime = now;
+    reviewHeadingCacheValue = false;
+    try {
+      const headings = document.querySelectorAll(ITA_HEADING_SELECTOR);
+      for(const node of headings){
+        if(!node) continue;
+        const txt = (node.textContent || node.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if(!txt) continue;
+        if(REVIEW_BOOK_SIGNATURE_RX.test(txt)){
+          reviewHeadingCacheValue = true;
+          break;
+        }
+      }
+    } catch (err) {
+      reviewHeadingCacheValue = false;
+    }
+    return reviewHeadingCacheValue;
+  }
+
+  function isInKayakReviewContext(node){
+    if(IS_ITA || !node) return false;
+    let el = node.nodeType === 1 ? node : node.parentElement;
+    let hops = 0;
+    while(el && el.nodeType === 1 && hops++ < 24){
+      const tokens = nodeSignatureTokens(el);
+      if(tokens && tokens.length){
+        const signature = tokens.join(' ').replace(/[\s\u00a0]+/g, ' ').toLowerCase();
+        if(REVIEW_BOOK_SIGNATURE_RX.test(signature)){
+          return true;
+        }
+      }
+      el = el.parentElement;
+    }
+    return pageIndicatesReview();
+  }
+
   function shouldIgnoreCard(card){
     if(!card) return true;
     if(card === overlayRoot) return true;
+    if(!IS_ITA && isInKayakReviewContext(card)) return true;
     if(hasDisqualifyingSignature(card)) return true;
     const searchLikeSelector = 'form, [role="search"], [data-testid*="searchbox" i], [data-test*="searchbox" i], [data-testid*="search-form" i], [data-test*="search-form" i], [data-testid*="searchform" i], [data-test*="searchform" i], [data-testid*="searchpanel" i], [data-test*="searchpanel" i], [class*="searchbox" i], [class*="search-form" i], [aria-label*="search" i]';
     if(card.matches){
@@ -3214,8 +3265,14 @@
   const mo = new MutationObserver((muts) => {
     let needsCleanup = false;
     let detailHint = false;
+    let mutatedStructure = false;
     for (const m of muts){
       if (m.type === 'childList'){
+        const addedCount = m.addedNodes ? m.addedNodes.length : 0;
+        const removedCount = m.removedNodes ? m.removedNodes.length : 0;
+        if (addedCount || removedCount){
+          mutatedStructure = true;
+        }
         if (m.addedNodes){
           m.addedNodes.forEach(n => { if (n.nodeType === 1) processNode(n); });
           if (IS_ITA && m.addedNodes.length){
@@ -3264,6 +3321,9 @@
     if (IS_ITA && detailHint){
       scheduleItaDetailEnsure();
     }
+    if(mutatedStructure){
+      invalidateReviewHeadingCache();
+    }
     schedulePositionSync();
     scheduleCabinDetection();
   });
@@ -3274,9 +3334,13 @@
     attributeFilter: IS_ITA ? ['aria-expanded','class'] : ['aria-expanded']
   });
 
-  window.addEventListener('popstate', () => scheduleCabinDetection());
-  window.addEventListener('hashchange', () => scheduleCabinDetection());
-  window.addEventListener('pageshow', () => scheduleCabinDetection());
+  const handleNavigationEvent = () => {
+    invalidateReviewHeadingCache();
+    scheduleCabinDetection();
+  };
+  window.addEventListener('popstate', handleNavigationEvent);
+  window.addEventListener('hashchange', handleNavigationEvent);
+  window.addEventListener('pageshow', handleNavigationEvent);
 
   if (IS_ITA){
     const rescheduleDetail = () => scheduleItaDetailEnsure();
@@ -3291,6 +3355,7 @@
         const ret = orig.apply(this, args);
         try {
           rescheduleDetail();
+          invalidateReviewHeadingCache();
         } catch (e) {}
         return ret;
       };
