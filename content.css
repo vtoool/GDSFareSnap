@@ -55,7 +55,7 @@
 .kayak-copy-btn-group--ita.kayak-copy-btn-group--multi{
   right:16px;
   left:auto;
-  max-width:calc(100% - 24px);
+  max-width:calc(100% - 20px);
 }
 
 .kayak-copy-btn{
@@ -105,14 +105,18 @@
 
 .kayak-copy-btn-group--ita.kayak-copy-btn-group--multi .kayak-copy-btn{
   width:auto;
-  min-width:44px;
+  min-width:60px;
   height:32px;
-  padding:0 12px;
+  padding:0 14px;
   border-radius:999px;
+  flex:0 1 auto;
+  max-width:calc(100% - 8px);
 }
 
 .kayak-copy-btn-group--multi .kayak-copy-btn{
-  flex-shrink:1;
+  flex:0 1 auto;
+  min-width:60px;
+  max-width:min(340px, 72vw);
 }
 
 .kayak-copy-btn-group--ita .kayak-copy-btn .pill-text{
@@ -169,19 +173,20 @@
   animation:kayak-copy-ping .45s ease-out forwards;
 }
 
-.kayak-copy-btn--journey{
+.kayak-copy-btn.kayak-copy-btn--journey{
   width:auto;
-  min-width:64px;
+  min-width:68px;
   height:32px;
   padding:0 18px;
   border-radius:999px;
   font-size:12px;
   letter-spacing:0;
   overflow:visible;
-  max-width:240px;
+  flex:0 1 auto;
+  max-width:min(360px, 72vw);
 }
 
-.kayak-copy-btn--journey .pill-text{
+.kayak-copy-btn.kayak-copy-btn--journey .pill-text{
   position:relative;
   inset:auto;
   width:auto;
@@ -189,7 +194,7 @@
   font-size:12px;
   letter-spacing:0;
   white-space:nowrap;
-  padding:0 6px;
+  padding:0 8px;
   display:flex;
   align-items:center;
   justify-content:center;
