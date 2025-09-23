@@ -190,13 +190,37 @@
     reviewHeadingCacheValue = false;
     try {
       const headings = document.querySelectorAll(ITA_HEADING_SELECTOR);
+      let sawReview = false;
+      let sawBook = false;
+      let sawStepReview = false;
+      let sawStepBook = false;
       for(const node of headings){
         if(!node) continue;
         const txt = (node.textContent || node.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
         if(!txt) continue;
-        if(REVIEW_BOOK_SIGNATURE_RX.test(txt)){
+        const hasReview = /\breview\b/.test(txt);
+        const hasBook = /\bbook(?:ing)?\b/.test(txt);
+        const hasStep = /\bstep\s*\d+\b/.test(txt);
+        if(REVIEW_BOOK_SIGNATURE_RX.test(txt) || (hasReview && hasBook) || (hasStep && hasReview)){
           reviewHeadingCacheValue = true;
           break;
+        }
+        if(hasStep && hasBook){
+          sawStepBook = true;
+        }
+        if(hasStep && hasReview){
+          sawStepReview = true;
+        }
+        if(hasReview){
+          sawReview = true;
+        }
+        if(hasBook){
+          sawBook = true;
+        }
+      }
+      if(!reviewHeadingCacheValue){
+        if((sawReview && sawBook) || sawStepReview || (sawReview && sawStepBook)){
+          reviewHeadingCacheValue = true;
         }
       }
     } catch (err) {
