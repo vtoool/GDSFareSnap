@@ -23,6 +23,7 @@
       ],
       "js": [
         "airlines.js",
+        "rbd.js",
         "converter.js",
         "content.js"
       ],

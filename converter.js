@@ -3,6 +3,11 @@
 (function(){
   'use strict';
 
+  const GLOBAL_ROOT = typeof globalThis !== 'undefined'
+    ? globalThis
+    : (typeof self !== 'undefined' ? self : {});
+  const CABIN_FALLBACK_BOOKING = { FIRST:'F', BUSINESS:'J', PREMIUM:'N', ECONOMY:'Y' };
+
   // Expect global AIRLINE_CODES from airlines.js
   const MONTHS = {JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11};
   const MONTH_3 = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
@@ -120,6 +125,27 @@
     const mon = m[2].toUpperCase().slice(0,3);
     const day = pad2(m[3]);
     return { dow, mon, day };
+  }
+
+  function resolveCabinEnum(value){
+    if(!value) return null;
+    if(GLOBAL_ROOT && typeof GLOBAL_ROOT.normalizeCabinEnum === 'function'){
+      try {
+        const normalized = GLOBAL_ROOT.normalizeCabinEnum(value);
+        if(normalized) return normalized;
+      } catch (err) {}
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if(!normalized) return null;
+    if(normalized === 'first' || normalized === 'f') return 'FIRST';
+    if(normalized === 'business' || normalized === 'b' || normalized === 'j') return 'BUSINESS';
+    if(normalized === 'premium' || normalized === 'premium economy' || normalized === 'w') return 'PREMIUM';
+    if(normalized === 'economy' || normalized === 'coach' || normalized === 'y') return 'ECONOMY';
+    if(normalized.startsWith('first')) return 'FIRST';
+    if(normalized.startsWith('business') || normalized.includes('biz')) return 'BUSINESS';
+    if(normalized.startsWith('premium')) return 'PREMIUM';
+    if(normalized.startsWith('economy') || normalized.startsWith('coach')) return 'ECONOMY';
+    return null;
   }
 
   function parseLooseDate(line){
@@ -783,10 +809,35 @@
       return date || dow;
     };
 
+    const preferredRbdFn = GLOBAL_ROOT && typeof GLOBAL_ROOT.getPreferredRBD === 'function'
+      ? GLOBAL_ROOT.getPreferredRBD
+      : null;
+    const autoCabinEnum = opts && opts.autoCabin ? resolveCabinEnum(opts.autoCabin) : null;
+    const baseBookingClass = (opts && opts.bookingClass) ? String(opts.bookingClass).trim().toUpperCase() : '';
+
     for(let idx = 0; idx < segs.length; idx++){
       const s = segs[idx];
       const segNumber = String(idx + 1).padStart(2, ' ');
-      const bookingClass = (s.bookingClass || opts.bookingClass || '').toUpperCase();
+      let bookingClass = (s && s.bookingClass) ? String(s.bookingClass).trim().toUpperCase() : '';
+      if(!bookingClass){
+        if(preferredRbdFn && autoCabinEnum){
+          try {
+            const candidate = preferredRbdFn(s ? s.airlineCode || '' : '', autoCabinEnum);
+            if(candidate){
+              bookingClass = String(candidate).trim().toUpperCase();
+            }
+          } catch (err) {}
+        }
+        if(!bookingClass && autoCabinEnum && CABIN_FALLBACK_BOOKING[autoCabinEnum]){
+          bookingClass = CABIN_FALLBACK_BOOKING[autoCabinEnum];
+        }
+        if(!bookingClass && baseBookingClass){
+          bookingClass = baseBookingClass;
+        }
+      }
+      if(!bookingClass){
+        bookingClass = CABIN_FALLBACK_BOOKING.ECONOMY;
+      }
       const flightField = formatFlightDesignator(s.airlineCode, s.number, bookingClass);
       const dateField = formatDateField(s.depDate, s.depDOW);
       const status = (opts.segmentStatus || '').trim();
