@@ -144,8 +144,16 @@
 
   const isVisible = (el) => {
     if (!el) return false;
-    const cs = getComputedStyle(el);
+    let cs;
+    try {
+      cs = getComputedStyle(el);
+    } catch (err) {
+      return false;
+    }
+    if (!cs) return false;
     if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    const opacity = parseFloat(cs.opacity || '1');
+    if (Number.isFinite(opacity) && opacity <= 0.02) return false;
     if (el.getClientRects().length === 0) return false;
     return true;
   };
@@ -1267,14 +1275,58 @@
     return overlayRoot;
   }
 
+  function looksLikeModalCandidate(node){
+    if(!node || node.nodeType !== 1) return false;
+    let rect = null;
+    try {
+      rect = node.getBoundingClientRect();
+    } catch (err) {
+      rect = null;
+    }
+    if(!rect || rect.width <= 0 || rect.height <= 0) return false;
+    const viewWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    if(viewWidth <= 0 || viewHeight <= 0) return false;
+    const area = rect.width * rect.height;
+    const viewArea = viewWidth * viewHeight;
+    if(!Number.isFinite(area) || !Number.isFinite(viewArea) || viewArea <= 0) return false;
+    const areaRatio = area / viewArea;
+    const widthRatio = rect.width / viewWidth;
+    const heightRatio = rect.height / viewHeight;
+    if(areaRatio < 0.18 && (widthRatio < 0.32 || heightRatio < 0.32)) return false;
+    let cs;
+    try {
+      cs = getComputedStyle(node);
+    } catch (err) {
+      cs = null;
+    }
+    if(!cs) return false;
+    if(cs.display === 'none' || cs.visibility === 'hidden') return false;
+    const opacity = parseFloat(cs.opacity || '1');
+    if(Number.isFinite(opacity) && opacity <= 0.02) return false;
+    const pos = cs.position || '';
+    if(pos !== 'fixed' && pos !== 'sticky' && pos !== 'absolute') return false;
+    return true;
+  }
+
   function hasVisibleModal(){
     if(!IS_KAYAK) return false;
-    const selectors = ['[aria-modal="true"]', '[role="dialog"]'];
+    const selectors = [
+      '[aria-modal="true"]',
+      '[role="dialog"]',
+      '[role="alertdialog"]',
+      '[data-testid*="modal" i]',
+      '[data-test*="modal" i]',
+      '[data-testid*="dialog" i]',
+      '[data-test*="dialog" i]',
+      '[id*="modal" i]'
+    ];
     const nodes = document.querySelectorAll(selectors.join(','));
     for(const node of nodes){
       if(!node || node.nodeType !== 1) continue;
       if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) continue;
       if(!isVisible(node)) continue;
+      if(!looksLikeModalCandidate(node)) continue;
       return true;
     }
     return false;
@@ -1355,6 +1407,11 @@
 
   function positionGroup(card, group){
     if (!card || !group) return;
+    if (!isVisible(card)){
+      group.style.display = 'none';
+      group.style.visibility = 'hidden';
+      return;
+    }
     const rect = card.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) {
       group.style.display = 'none';

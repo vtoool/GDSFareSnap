@@ -67,14 +67,14 @@
   height:44px;
   padding:0;
   border-radius:50%;
-  border:2px solid rgba(255,255,255,.9);
-  background:linear-gradient(180deg, #f44f4f 0%, #d93025 100%);
-  box-shadow:0 4px 14px rgba(0,0,0,.25);
+  border:2px solid rgba(217,48,37,.85);
+  background:linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(244,244,244,.98) 100%);
+  box-shadow:0 4px 14px rgba(0,0,0,.22);
   cursor:pointer;
-  backdrop-filter:saturate(1.1) blur(3px);
-  transition:transform .18s ease, box-shadow .18s ease, background .22s ease, border-color .22s ease, filter .22s ease, opacity .22s ease;
+  backdrop-filter:saturate(1.08) blur(3px);
+  transition:transform .18s ease, box-shadow .18s ease, background .22s ease, border-color .22s ease, filter .22s ease, opacity .22s ease, color .22s ease;
   font:700 14px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-  color:#fff;
+  color:#d93025;
   overflow:hidden;
 }
 
@@ -82,8 +82,8 @@
   width:36px;
   height:36px;
   border-radius:999px;
-  border:2px solid rgba(255,255,255,.9);
-  box-shadow:0 4px 14px rgba(0,0,0,.25);
+  border:2px solid rgba(217,48,37,.85);
+  box-shadow:0 4px 14px rgba(0,0,0,.2);
 }
 
 .kayak-copy-btn.kayak-copy-btn--ita:hover{
@@ -150,7 +150,7 @@
   font-size:20px;
   opacity:0;
   transform:scale(.6);
-  color:#fff;
+  color:#1a1a1a;
 }
 
 .kayak-copy-btn.is-copied{
@@ -160,7 +160,7 @@
   box-shadow:0 6px 18px rgba(12,94,40,.38);
 }
 .kayak-copy-btn.is-copied .pill-text{ opacity:0; transform:scale(.7); }
-.kayak-copy-btn.is-copied .pill-check{ opacity:1; transform:scale(1); }
+.kayak-copy-btn.is-copied .pill-check{ opacity:1; transform:scale(1); color:#fff; }
 .kayak-copy-btn.is-copied::after{
   content:'';
   position:absolute;

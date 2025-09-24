@@ -57,4 +57,34 @@ assert.ok(lines[1].includes('12APR'), 'second line should show original departur
 assert.ok(lines[1].includes('13APR M'), 'second line should include arrival date suffix');
 assert.ok(/13APR\s+M\s+MADBCN/.test(lines[2]), 'third line should use Apr 13 for MAD-BCN leg');
 
+const interleavedOrder = [
+  'Flight 1 • Thu, Jun 4',
+  'Turkish Airlines 32',
+  '9:50 pm',
+  'Atlanta (ATL)',
+  '3:40 pm',
+  'Istanbul (IST)',
+  'Flight 2 • Mon, Jun 15',
+  'Turkish Airlines 1845',
+  '6:55 pm',
+  'Istanbul (IST)',
+  '8:30 pm',
+  'Athens (ATH)',
+  'Turkish Airlines 1362',
+  '7:05 am',
+  'Rome (FCO)',
+  '10:45 am',
+  'Istanbul (IST)',
+  'Turkish Airlines 31',
+  '2:45 pm',
+  'Istanbul (IST)',
+  '7:45 pm',
+  'Atlanta (ATL)'
+].join('\n');
+
+const interleavedLines = window.convertTextToI(interleavedOrder).split('\n');
+assert.ok(/15JUN/.test(interleavedLines[2] || ''), 'first inbound segment should use Jun 15 header date');
+assert.ok(/15JUN/.test(interleavedLines[3] || ''), 'final inbound segment should use Jun 15 header date');
+assert.ok(/04JUN/.test(interleavedLines[1]), 'outbound connection should not inherit return date');
+
 console.log('✓ converter maintains departure date continuity for connecting segments');
