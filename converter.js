@@ -608,7 +608,10 @@
     }
 
     const applyDepartsOverride = (line) => {
-      const depInfo = parseDepartsDate(line || '');
+      if(!line) return false;
+      const raw = String(line);
+      if(/\bArriv/i.test(raw)) return false;
+      const depInfo = parseDepartsDate(raw);
       if(depInfo){
         const nextDow = depInfo.dow || (currentDate ? currentDate.dow : '');
         currentDate = { day: depInfo.day, mon: depInfo.mon, dow: nextDow };
