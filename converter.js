@@ -650,6 +650,10 @@
         if(/Arrives\b/i.test(raw)) continue;
         if(/^\d{1,2}:\d{2}/.test(raw)) break;
         if(/Layover/i.test(raw)) continue;
+        const normalizedForward = raw.replace(/[\s\u00a0]+/g, ' ').trim();
+        if(!normalizedForward) continue;
+        if(/^Flight\s+\d+/i.test(normalizedForward)) break;
+        if(/\b(Return|Outbound|Inbound|Journey|Trip|Itinerary)\b/i.test(normalizedForward)) break;
         const depCandidate = parseDepartsDate(raw) || parseInlineOnDate(raw) || parseLooseDate(raw);
         if(depCandidate) return depCandidate;
       }

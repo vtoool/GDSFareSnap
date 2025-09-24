@@ -11,6 +11,7 @@
   }
 
   const BTN_CLASS    = 'kayak-copy-btn';
+  const SEARCH_LIKE_SELECTOR = 'form, [role="search"], [data-testid*="searchbox" i], [data-test*="searchbox" i], [data-testid*="search-form" i], [data-test*="search-form" i], [data-testid*="searchform" i], [data-test*="searchform" i], [data-testid*="searchpanel" i], [data-test*="searchpanel" i], [class*="searchbox" i], [class*="search-form" i], [aria-label*="search" i]';
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MODAL_DIM_CLASS = 'kayak-copy-modal-dim';
@@ -260,9 +261,8 @@
     if(card === overlayRoot) return true;
     if(!IS_ITA && isInKayakReviewContext(card)) return true;
     if(hasDisqualifyingSignature(card)) return true;
-    const searchLikeSelector = 'form, [role="search"], [data-testid*="searchbox" i], [data-test*="searchbox" i], [data-testid*="search-form" i], [data-test*="search-form" i], [data-testid*="searchform" i], [data-test*="searchform" i], [data-testid*="searchpanel" i], [data-test*="searchpanel" i], [class*="searchbox" i], [class*="search-form" i], [aria-label*="search" i]';
     if(card.matches){
-      if(card.matches(searchLikeSelector)) return true;
+      if(card.matches(SEARCH_LIKE_SELECTOR)) return true;
     }
     if(card.closest){
       const structural = card.closest('header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"]');
@@ -270,7 +270,7 @@
       if(card.closest('[data-testid*="kayak+ai" i], [data-test*="kayak+ai" i], [data-testid*="kayak plus ai" i], [data-test*="kayak plus ai" i], [data-testid*="kayakplusai" i], [data-test*="kayakplusai" i], [data-testid*="k+ai" i], [data-test*="k+ai" i]')) return true;
       const bannerWrapper = card.closest('[data-testid*="banner" i], [data-test*="banner" i], [class*="banner" i]');
       if(bannerWrapper && bannerWrapper !== card) return true;
-      const searchWrapper = card.closest(searchLikeSelector);
+      const searchWrapper = card.closest(SEARCH_LIKE_SELECTOR);
       if(searchWrapper && searchWrapper !== card) return true;
     }
     if(isWithinRightRail(card)) return true;
@@ -547,6 +547,30 @@
     }
 
     let maxBottom = 0;
+    let searchBottom = 0;
+    const considerSearchLike = (el) => {
+      if(!el || !el.isConnected) return;
+      if(el.closest && el.closest(`#${OVERLAY_ROOT_ID}`)) return;
+      let rect;
+      try {
+        rect = el.getBoundingClientRect();
+      } catch (err) {
+        return;
+      }
+      if(!rect || rect.bottom <= 0) return;
+      if(rect.height < 24) return;
+      const maxAllowableTop = (() => {
+        if(!Number.isFinite(viewHeight) || viewHeight <= 0){
+          return 360;
+        }
+        const mid = Math.max(viewHeight * 0.5, 0);
+        const cap = Math.max(viewHeight - 120, 0);
+        return Math.max(200, Math.min(mid, cap));
+      })();
+      if(rect.top > maxAllowableTop) return;
+      searchBottom = Math.max(searchBottom, rect.bottom);
+    };
+
     candidates.forEach(el => {
       if(!el || !el.isConnected) return;
       if(el === overlayRoot) return;
@@ -574,14 +598,26 @@
       maxBottom = Math.max(maxBottom, rect.bottom);
     });
 
+    if(SEARCH_LIKE_SELECTOR){
+      try {
+        document.querySelectorAll(SEARCH_LIKE_SELECTOR).forEach(considerSearchLike);
+      } catch (err) {
+        // ignore query issues
+      }
+    }
+
+    if(searchBottom > 0){
+      maxBottom = Math.max(maxBottom, searchBottom);
+    }
+
     cachedAvoidTop = maxBottom || 0;
     const fallbackAvoid = (() => {
       if(!Number.isFinite(viewHeight) || viewHeight <= 0){
-        return 72;
+        return 96;
       }
-      const scaled = Math.max(viewHeight * 0.16, 72);
-      const capped = Math.min(scaled, Math.max(viewHeight - 160, 72));
-      return Math.max(72, Math.round(capped));
+      const scaled = Math.max(viewHeight * 0.2, 96);
+      const capped = Math.min(scaled, Math.max(viewHeight - 140, 96));
+      return Math.max(96, Math.round(capped));
     })();
     if(cachedAvoidTop < fallbackAvoid){
       cachedAvoidTop = fallbackAvoid;
