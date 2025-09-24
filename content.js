@@ -14,8 +14,23 @@
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MAX_CLIMB   = 12;
-  const SELECT_RX   = /\b(?:Select(?:\s+Flight)?|Choose|View\s+(?:Deal|Flight|Offer)|See\s+(?:Deal|Offer)|Book|Continue(?:\s+to\s+Airline)?|Go\s+to\s+(?:Site|Airline)|Visit\s+(?:Airline|Site)|Check\s+Price|View\s+Offer)\b/i;
-  const CTA_ATTR_HINTS = ['select','book','booking','cta','result-select','provider','price-link','price','offer','deal'];
+  const SELECT_LABEL_PATTERNS = [
+    'Select(?:\\s+(?:Flight|Flights))?',
+    'Choose',
+    'View\\s+(?:Deal|Deals|Flight|Flights|Offer|Offers|Details|Site|Price|Prices|Options)',
+    'See\\s+(?:Deal|Deals|Offer|Offers|Flight|Flights|Details|Options)',
+    'Show\\s+(?:Deal|Deals|Offer|Offers|Flight|Flights|Details|Options)',
+    'Book',
+    'Continue(?:\\s+to\\s+(?:Airline|Site))?',
+    'Go\\s+to\\s+(?:Site|Airline)',
+    'Visit\\s+(?:Airline|Site)',
+    'Check\\s+(?:Price|Prices|Availability)',
+    'See\\s+Availability',
+    'Compare\\s+(?:Fares|Prices|Deals|Offers|Options)',
+    'Get\\s+(?:Deal|Deals|Offer|Offers)'
+  ];
+  const SELECT_RX   = new RegExp(`\\b(?:${SELECT_LABEL_PATTERNS.join('|')})\\b`, 'i');
+  const CTA_ATTR_HINTS = ['select','book','booking','cta','result-select','provider','price-link','price','offer','deal','availability'];
   const CTA_MIN_WIDTH = 90;
   const CTA_MIN_HEIGHT = 32;
   const CTA_MIN_AREA = CTA_MIN_WIDTH * CTA_MIN_HEIGHT;
@@ -2276,7 +2291,8 @@
         'price': 90,
         'provider': 80,
         'offer': 70,
-        'deal': 60
+        'deal': 60,
+        'availability': 75
       };
       let hasPreferredAttr = false;
       for(const hint of CTA_ATTR_HINTS){
@@ -2293,6 +2309,9 @@
       if(/\bcheck\s+price\b/.test(loweredLabel)) score += 24;
       if(/\bdeal\b/.test(loweredLabel)) score += 20;
       if(/\boffer\b/.test(loweredLabel)) score += 20;
+      if(/\bavailability\b/.test(loweredLabel)) score += 24;
+      if(/\bdetails?\b/.test(loweredLabel)) score += 18;
+      if(/\bprices?\b/.test(loweredLabel)) score += 18;
 
       scored.push({ element: candidate, score, order, hasPreferredAttr });
     }

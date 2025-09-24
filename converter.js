@@ -28,6 +28,14 @@
     return Object.prototype.hasOwnProperty.call(MONTHS, key) ? key : '';
   }
 
+  function normalizeNumericMonthToken(value){
+    if(!value && value !== 0) return '';
+    const num = parseInt(String(value).trim(), 10);
+    if(!Number.isFinite(num)) return '';
+    if(num < 1 || num > 12) return '';
+    return MONTH_3[num - 1] || '';
+  }
+
   function normalizeDayToken(value){
     if(!value) return '';
     const cleaned = String(value).replace(/(?:st|nd|rd|th)$/i, '');
@@ -41,7 +49,10 @@
     const monIdx = typeof cfg.month === 'number' ? cfg.month : null;
     const dayIdx = typeof cfg.day === 'number' ? cfg.day : null;
     if(monIdx == null || dayIdx == null) return null;
-    const mon = normalizeMonthToken(match[monIdx]);
+    const rawMonth = match[monIdx];
+    const mon = cfg && cfg.monthIsNumeric
+      ? normalizeNumericMonthToken(rawMonth)
+      : normalizeMonthToken(rawMonth);
     const day = normalizeDayToken(match[dayIdx]);
     if(!mon || !day) return null;
     const dowIdx = typeof cfg.dow === 'number' ? cfg.dow : null;
@@ -298,6 +309,27 @@
         day: 1,
         month: 2,
         dow: 3
+      },
+      {
+        regex: new RegExp(`${dowPattern}[,\\s-]+${dayPattern}[\\/\\.\\-]+(\\d{1,2})(?:[\\/\\.\\-]+\\d{2,4})?`, 'i'),
+        dow: 1,
+        day: 2,
+        month: 3,
+        monthIsNumeric: true
+      },
+      {
+        regex: new RegExp(`${dowPattern}[,\\s-]+(\\d{1,2})[\\/\\.\\-]+(\\d{1,2})(?:[\\/\\.\\-]+\\d{2,4})?`, 'i'),
+        dow: 1,
+        day: 2,
+        month: 3,
+        monthIsNumeric: true
+      },
+      {
+        regex: new RegExp(`${dayPattern}[\\/\\.\\-]+(\\d{1,2})(?:[\\/\\.\\-]+\\d{2,4})?(?:[,\\s-]+${dowPattern})?`, 'i'),
+        day: 1,
+        month: 2,
+        dow: 3,
+        monthIsNumeric: true
       }
     ];
 
