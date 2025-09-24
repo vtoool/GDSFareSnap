@@ -13,6 +13,7 @@
   const BTN_CLASS    = 'kayak-copy-btn';
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
+  const MODAL_DIM_CLASS = 'kayak-copy-modal-dim';
   const MAX_CLIMB   = 12;
   const SELECT_RX   = /\b(?:Select(?:\s+Flight)?|Choose|View\s+(?:Deal|Flight|Offer)|See\s+(?:Deal|Offer)|Book|Continue(?:\s+to\s+Airline)?|Go\s+to\s+(?:Site|Airline)|Visit\s+(?:Airline|Site)|Check\s+Price|View\s+Offer)\b/i;
   const CTA_ATTR_HINTS = ['select','book','booking','cta','result-select','provider','price-link','price','offer','deal'];
@@ -69,6 +70,8 @@
   const cardGroupsByKey = new Map();
   const kayakInlineSlotMap = new WeakMap();
   const itaGroupsByKey = new Map();
+  let modalDimScheduled = false;
+  let modalDimState = false;
 
   let itaResultsObserver = null;
   let itaObservedRoot = null;
@@ -1226,6 +1229,43 @@
       host.appendChild(overlayRoot);
     }
     return overlayRoot;
+  }
+
+  function hasVisibleModal(){
+    if(!IS_KAYAK) return false;
+    const selectors = ['[aria-modal="true"]', '[role="dialog"]'];
+    const nodes = document.querySelectorAll(selectors.join(','));
+    for(const node of nodes){
+      if(!node || node.nodeType !== 1) continue;
+      if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) continue;
+      if(!isVisible(node)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function updateModalDimState(){
+    if(!IS_KAYAK) return;
+    const shouldDim = hasVisibleModal();
+    if(shouldDim === modalDimState) return;
+    modalDimState = shouldDim;
+    const host = document.documentElement || document.body;
+    if(!host) return;
+    if(shouldDim){
+      host.classList.add(MODAL_DIM_CLASS);
+    } else {
+      host.classList.remove(MODAL_DIM_CLASS);
+    }
+  }
+
+  function scheduleModalDimUpdate(){
+    if(modalDimScheduled) return;
+    modalDimScheduled = true;
+    const fn = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (cb) => setTimeout(cb, 16);
+    fn(() => {
+      modalDimScheduled = false;
+      updateModalDimState();
+    });
   }
 
   function registerGroup(card, group){
@@ -3377,6 +3417,7 @@
     }
     schedulePositionSync();
     scheduleCabinDetection();
+    scheduleModalDimUpdate();
   });
   mo.observe(document.documentElement || document.body, {
     subtree:true,
@@ -3388,6 +3429,7 @@
   const handleNavigationEvent = () => {
     invalidateReviewHeadingCache();
     scheduleCabinDetection();
+    scheduleModalDimUpdate();
   };
   window.addEventListener('popstate', handleNavigationEvent);
   window.addEventListener('hashchange', handleNavigationEvent);
@@ -3435,4 +3477,6 @@
       processNode(walker.currentNode.parentElement);
     }
   })();
+
+  scheduleModalDimUpdate();
 })();

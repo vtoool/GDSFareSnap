@@ -72,7 +72,7 @@
   box-shadow:0 4px 14px rgba(9,19,33,.25);
   cursor:pointer;
   backdrop-filter:saturate(1.1) blur(3px);
-  transition:transform .18s ease, box-shadow .18s ease, background .22s ease, border-color .22s ease;
+  transition:transform .18s ease, box-shadow .18s ease, background .22s ease, border-color .22s ease, filter .22s ease, opacity .22s ease;
   font:700 14px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
   color:#101a2a;
   overflow:hidden;
@@ -204,6 +204,21 @@
 
 .kayak-copy-btn--journey.is-copied::after{
   border-radius:999px;
+}
+
+html.kayak-copy-modal-dim .kayak-copy-btn{
+  opacity:.82;
+  filter:saturate(.85) brightness(.84);
+  box-shadow:0 3px 12px rgba(9,19,33,.22);
+}
+
+html.kayak-copy-modal-dim .kayak-copy-btn.kayak-copy-btn--ita{
+  box-shadow:0 3px 12px rgba(0,0,0,.24);
+}
+
+html.kayak-copy-modal-dim .kayak-copy-btn.is-copied{
+  filter:saturate(.9) brightness(.88);
+  box-shadow:0 4px 14px rgba(12,94,40,.32);
 }
 
 .kayak-copy-cabin-hint{
