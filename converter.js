@@ -12,9 +12,54 @@
   const MONTHS = {JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11};
   const MONTH_3 = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
   const DOW_CODE = { SUN:'S', MON:'M', TUE:'T', WED:'W', THU:'Q', FRI:'F', SAT:'J' };
+  const DOW_SEQUENCE = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const DOW_FROM_CODE = { S:'SUN', M:'MON', T:'TUE', W:'WED', Q:'THU', F:'FRI', J:'SAT' };
   const UNKNOWN_AIRLINE_CODE = 'XX';
 
   function pad2(n){ return String(n).padStart(2,'0'); }
+
+  function cloneDateInfo(info){
+    if(!info) return null;
+    return {
+      day: info.day || '',
+      mon: info.mon || '',
+      dow: info.dow || ''
+    };
+  }
+
+  function addDaysToDateInfo(info, offset, fallbackDow){
+    if(!info || !Number.isFinite(offset) || offset === 0) return info ? cloneDateInfo(info) : null;
+    const monKey = normalizeMonthToken(info.mon);
+    const dayVal = parseInt(info.day, 10);
+    if(!monKey || !Number.isFinite(dayVal)){
+      return cloneDateInfo(info);
+    }
+    const monthIndex = MONTHS[monKey];
+    const base = new Date(Date.UTC(2024, monthIndex, dayVal));
+    base.setUTCDate(base.getUTCDate() + offset);
+    const nextDay = pad2(base.getUTCDate());
+    const nextMon = MONTH_3[base.getUTCMonth()];
+    const resolveDowIndex = (code) => {
+      if(!code) return null;
+      const key = String(code).trim().toUpperCase();
+      const dowName = DOW_FROM_CODE[key];
+      if(!dowName) return null;
+      const idx = DOW_SEQUENCE.indexOf(dowName);
+      return idx >= 0 ? idx : null;
+    };
+    const baseDowIdx = resolveDowIndex(info.dow) != null
+      ? resolveDowIndex(info.dow)
+      : resolveDowIndex(fallbackDow);
+    let nextDow = '';
+    if(baseDowIdx != null){
+      const normalized = ((baseDowIdx + offset) % DOW_SEQUENCE.length + DOW_SEQUENCE.length) % DOW_SEQUENCE.length;
+      const dowName = DOW_SEQUENCE[normalized];
+      nextDow = DOW_CODE[dowName] || '';
+    }else if(info.dow){
+      nextDow = info.dow;
+    }
+    return { day: nextDay, mon: nextMon, dow: nextDow };
+  }
 
   function normalizeDowToken(value){
     if(!value) return '';
@@ -540,6 +585,7 @@
     let lastRouteInfo = null;
     let homeAirport = null;
     let inboundActive = false;
+    let lastArrivalInfo = null;
 
     const tracking = collector && typeof collector === 'object' ? collector : null;
     const journeys = tracking ? [] : null;
@@ -637,11 +683,19 @@
         ? currentJourney.indexHint
         : null;
 
-      const considerJourneyHeader = (raw, context) => {
+      const considerJourneyHeader = (raw, idx, context) => {
         if(!raw) return null;
         const info = parseJourneyHeader(raw);
         if(!info) return null;
         const headerIdx = Number.isFinite(info.index) ? info.index : null;
+        if(pendingJourneyHeader && pendingJourneyHeader.deferred){
+          const pendingSource = Number.isFinite(pendingJourneyHeader.sourceIndex)
+            ? pendingJourneyHeader.sourceIndex
+            : null;
+          if(pendingSource != null && Number.isFinite(idx) && pendingSource === idx){
+            return { skip:true };
+          }
+        }
         if(pendingJourneyHeader){
           const pendingIdx = pendingJourneyHeader.indexHint != null && Number.isFinite(Number(pendingJourneyHeader.indexHint))
             ? Number(pendingJourneyHeader.indexHint)
@@ -672,7 +726,7 @@
           sawConnectionBack = true;
           continue;
         }
-        const journeyCheck = considerJourneyHeader(raw, { connectionHint: sawConnectionBack });
+        const journeyCheck = considerJourneyHeader(raw, lookIdx, { connectionHint: sawConnectionBack });
         if(journeyCheck){
           if(journeyCheck.skip) continue;
           if(journeyCheck.date) return journeyCheck.date;
@@ -692,7 +746,7 @@
           sawConnectionForward = true;
           continue;
         }
-        const journeyCheck = considerJourneyHeader(raw, { connectionHint: sawConnectionForward });
+        const journeyCheck = considerJourneyHeader(raw, lookIdx, { connectionHint: sawConnectionForward });
         if(journeyCheck){
           if(journeyCheck.skip) continue;
           if(journeyCheck.date) return journeyCheck.date;
@@ -703,7 +757,7 @@
         if(/Layover/i.test(raw)) continue;
         const normalizedForward = raw.replace(/[\s\u00a0]+/g, ' ').trim();
         if(!normalizedForward) continue;
-        const forwardJourney = considerJourneyHeader(normalizedForward, { connectionHint: sawConnectionForward });
+        const forwardJourney = considerJourneyHeader(normalizedForward, lookIdx, { connectionHint: sawConnectionForward });
         if(forwardJourney){
           if(forwardJourney.skip) continue;
           if(forwardJourney.date) return forwardJourney.date;
@@ -744,7 +798,9 @@
             indexHint: (typeof journeyInfo.index === 'number' && Number.isFinite(journeyInfo.index))
               ? journeyInfo.index
               : null,
-            explicit: true
+            explicit: true,
+            sourceIndex: j,
+            deferred: false
           };
           continue;
         }
@@ -912,7 +968,9 @@
         if(pendingJourneyHeader){
           const lastSeg = segs.length ? segs[segs.length - 1] : null;
           const matchesPrevArrival = lastSeg && lastSeg.arrAirport && depAirport && lastSeg.arrAirport === depAirport;
-          if(!matchesPrevArrival){
+          if(matchesPrevArrival){
+            pendingJourneyHeader.deferred = true;
+          } else {
             const headerDate = pendingJourneyHeader.headerDate ? { ...pendingJourneyHeader.headerDate } : null;
             if(headerDate){
               const prevDow = currentDate ? currentDate.dow : '';
@@ -927,10 +985,28 @@
             pendingJourneyHeader = null;
           }
         }
+        const lastArrivalMatches = lastArrivalInfo && depAirport && lastArrivalInfo.airport === depAirport;
+        let segmentDate = currentDate ? cloneDateInfo(currentDate) : null;
+        if(lastArrivalMatches){
+          let base = lastArrivalInfo.date ? cloneDateInfo(lastArrivalInfo.date) : null;
+          if(!base && segmentDate){
+            base = cloneDateInfo(segmentDate);
+          }else if(!base && currentDate){
+            base = cloneDateInfo(currentDate);
+          }
+          if(base){
+            if(lastArrivalInfo.minutes != null && depTime && depTime.mins != null && depTime.mins < lastArrivalInfo.minutes){
+              base = addDaysToDateInfo(base, 1, base.dow || (segmentDate ? segmentDate.dow : ''));
+            }
+            segmentDate = cloneDateInfo(base);
+            currentDate = cloneDateInfo(base);
+          }
+        }
+
         const airlineCode = flightInfo.airlineCode || UNKNOWN_AIRLINE_CODE; // ensure unknown carriers default to XX
         const flightNumber = flightInfo.number;
-        const depDateString = currentDate ? `${currentDate.day}${currentDate.mon}` : '';
-        const depDow = currentDate ? currentDate.dow : '';
+        const depDateString = segmentDate ? `${segmentDate.day}${segmentDate.mon}` : '';
+        const depDow = segmentDate ? segmentDate.dow : '';
         const arrDateString = arrivesDate
           ? `${arrivesDate.day}${arrivesDate.mon}${arrivesDate.dow ? ` ${arrivesDate.dow}` : ''}`
           : "";
@@ -945,7 +1021,7 @@
           arrGDS: arrTime.gds,
           routeOrigin: lastRouteInfo ? lastRouteInfo.origin : null,
           routeDest: lastRouteInfo ? lastRouteInfo.dest : null,
-          headerRef: currentDate ? { ...currentDate } : null,
+          headerRef: segmentDate ? cloneDateInfo(segmentDate) : (currentDate ? cloneDateInfo(currentDate) : null),
           bookingClass,
           arrDate: arrDateString,
           direction: inboundActive ? 'inbound' : 'outbound'
@@ -960,15 +1036,34 @@
             currentJourney.dest = arrAirport || currentJourney.dest || null;
           }
         }
+        let nextDateContext = null;
         if(arrivesDate){
-          const prevDow = currentDate ? currentDate.dow : '';
-          const nextDow = arrivesDate.dow || prevDow || '';
-          currentDate = {
+          nextDateContext = {
             day: arrivesDate.day,
             mon: arrivesDate.mon,
+            dow: arrivesDate.dow || (segmentDate ? segmentDate.dow : '')
+          };
+        } else if(segmentDate){
+          nextDateContext = cloneDateInfo(segmentDate);
+          if(arrTime && arrTime.mins != null && depTime && depTime.mins != null && arrTime.mins < depTime.mins){
+            nextDateContext = addDaysToDateInfo(nextDateContext, 1, nextDateContext.dow || (segmentDate ? segmentDate.dow : ''));
+          }
+        }
+        if(nextDateContext){
+          const prevDow = currentDate ? currentDate.dow : (segmentDate ? segmentDate.dow : '');
+          const nextDow = nextDateContext.dow || prevDow || '';
+          currentDate = {
+            day: nextDateContext.day,
+            mon: nextDateContext.mon,
             dow: nextDow
           };
         }
+
+        lastArrivalInfo = {
+          airport: arrAirport || null,
+          minutes: arrTime && Number.isFinite(arrTime.mins) ? arrTime.mins : null,
+          date: currentDate ? cloneDateInfo(currentDate) : null
+        };
         i = k;
       }else{
         i = flightInfo.index + 1;
