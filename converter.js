@@ -544,6 +544,7 @@
     const tracking = collector && typeof collector === 'object' ? collector : null;
     const journeys = tracking ? [] : null;
     let currentJourney = null;
+    let pendingJourneyHeader = null;
 
     const finalizeJourney = () => {
       if(!currentJourney) return;
@@ -632,27 +633,81 @@
       const maxLook = 6;
       if(!Array.isArray(lines) || !lines.length) return null;
       const base = Number.isFinite(idx) ? idx : 0;
+      const activeJourneyIndex = currentJourney && Number.isFinite(currentJourney.indexHint)
+        ? currentJourney.indexHint
+        : null;
+
+      const considerJourneyHeader = (raw, context) => {
+        if(!raw) return null;
+        const info = parseJourneyHeader(raw);
+        if(!info) return null;
+        const headerIdx = Number.isFinite(info.index) ? info.index : null;
+        if(pendingJourneyHeader){
+          const pendingIdx = pendingJourneyHeader.indexHint != null && Number.isFinite(Number(pendingJourneyHeader.indexHint))
+            ? Number(pendingJourneyHeader.indexHint)
+            : null;
+          if(pendingIdx != null && headerIdx != null && pendingIdx === headerIdx){
+            return { skip:true };
+          }
+        }
+        if(activeJourneyIndex != null && headerIdx != null && headerIdx !== activeJourneyIndex){
+          return { skip:true };
+        }
+        if(context && context.connectionHint){
+          return { skip:true };
+        }
+        if(info.headerDate){
+          return { date: info.headerDate };
+        }
+        return null;
+      };
+
+      const connectionHintRx = /\b(Change planes|Long layover|Overnight flight)\b/i;
+      let sawConnectionBack = false;
       for(let back = 0; back <= maxLook; back++){
         const lookIdx = base - back;
         if(lookIdx < 0) break;
         const raw = lines[lookIdx] || '';
+        if(connectionHintRx.test(raw)){
+          sawConnectionBack = true;
+          continue;
+        }
+        const journeyCheck = considerJourneyHeader(raw, { connectionHint: sawConnectionBack });
+        if(journeyCheck){
+          if(journeyCheck.skip) continue;
+          if(journeyCheck.date) return journeyCheck.date;
+        }
         if(isSegmentNoiseLine(raw)) continue;
         if(/Arrives\b/i.test(raw)) continue;
         if(/Layover/i.test(raw)) continue;
         const depCandidate = parseDepartsDate(raw) || parseInlineOnDate(raw) || parseLooseDate(raw);
         if(depCandidate) return depCandidate;
       }
+      let sawConnectionForward = false;
       for(let forward = 1; forward <= maxLook; forward++){
         const lookIdx = base + forward;
         if(lookIdx >= lines.length) break;
         const raw = lines[lookIdx] || '';
+        if(connectionHintRx.test(raw)){
+          sawConnectionForward = true;
+          continue;
+        }
+        const journeyCheck = considerJourneyHeader(raw, { connectionHint: sawConnectionForward });
+        if(journeyCheck){
+          if(journeyCheck.skip) continue;
+          if(journeyCheck.date) return journeyCheck.date;
+        }
         if(isSegmentNoiseLine(raw)) continue;
         if(/Arrives\b/i.test(raw)) continue;
         if(/^\d{1,2}:\d{2}/.test(raw)) break;
         if(/Layover/i.test(raw)) continue;
         const normalizedForward = raw.replace(/[\s\u00a0]+/g, ' ').trim();
         if(!normalizedForward) continue;
-        if(/^Flight\s+\d+/i.test(normalizedForward)) break;
+        const forwardJourney = considerJourneyHeader(normalizedForward, { connectionHint: sawConnectionForward });
+        if(forwardJourney){
+          if(forwardJourney.skip) continue;
+          if(forwardJourney.date) return forwardJourney.date;
+        }
         if(/\b(Return|Outbound|Inbound|Journey|Trip|Itinerary)\b/i.test(normalizedForward)) break;
         const depCandidate = parseDepartsDate(raw) || parseInlineOnDate(raw) || parseLooseDate(raw);
         if(depCandidate) return depCandidate;
@@ -667,11 +722,6 @@
         const journeyInfo = parseJourneyHeader(lines[j]);
         if(journeyInfo){
           const headerRef = journeyInfo.headerDate ? { ...journeyInfo.headerDate } : null;
-          if(headerRef){
-            const prevDow = currentDate ? currentDate.dow : '';
-            const nextDow = headerRef.dow || prevDow || '';
-            currentDate = { day: headerRef.day, mon: headerRef.mon, dow: nextDow };
-          }
           if(journeys && currentJourney && currentJourney.explicit && journeyInfo.index != null){
             const currentIndex = (typeof currentJourney.indexHint === 'number' && Number.isFinite(currentJourney.indexHint))
               ? currentJourney.indexHint
@@ -679,13 +729,23 @@
             if(currentIndex != null && currentIndex === journeyInfo.index){
               if(headerRef){
                 currentJourney.headerDate = { ...headerRef };
+                const prevDow = currentDate ? currentDate.dow : '';
+                const nextDow = headerRef.dow || prevDow || '';
+                currentDate = { day: headerRef.day, mon: headerRef.mon, dow: nextDow };
               } else if(!currentJourney.headerDate && currentDate){
                 currentJourney.headerDate = { ...currentDate };
               }
+              pendingJourneyHeader = null;
               continue;
             }
           }
-          startJourney({ explicit: true, indexHint: journeyInfo.index != null ? Number(journeyInfo.index) : null, headerDate: headerRef || currentDate });
+          pendingJourneyHeader = {
+            headerDate: headerRef,
+            indexHint: (typeof journeyInfo.index === 'number' && Number.isFinite(journeyInfo.index))
+              ? journeyInfo.index
+              : null,
+            explicit: true
+          };
           continue;
         }
         if(applyDepartsOverride(lines[j])) continue;
@@ -849,6 +909,24 @@
       }
 
       if(depTime && depAirport && arrTime && arrAirport){
+        if(pendingJourneyHeader){
+          const lastSeg = segs.length ? segs[segs.length - 1] : null;
+          const matchesPrevArrival = lastSeg && lastSeg.arrAirport && depAirport && lastSeg.arrAirport === depAirport;
+          if(!matchesPrevArrival){
+            const headerDate = pendingJourneyHeader.headerDate ? { ...pendingJourneyHeader.headerDate } : null;
+            if(headerDate){
+              const prevDow = currentDate ? currentDate.dow : '';
+              const nextDow = headerDate.dow || prevDow || '';
+              currentDate = { day: headerDate.day, mon: headerDate.mon, dow: nextDow };
+            }
+            startJourney({
+              explicit: !!pendingJourneyHeader.explicit,
+              indexHint: pendingJourneyHeader.indexHint != null ? Number(pendingJourneyHeader.indexHint) : null,
+              headerDate: pendingJourneyHeader.headerDate || currentDate
+            });
+            pendingJourneyHeader = null;
+          }
+        }
         const airlineCode = flightInfo.airlineCode || UNKNOWN_AIRLINE_CODE; // ensure unknown carriers default to XX
         const flightNumber = flightInfo.number;
         const depDateString = currentDate ? `${currentDate.day}${currentDate.mon}` : '';
