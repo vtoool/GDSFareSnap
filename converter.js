@@ -15,6 +15,66 @@
   const UNKNOWN_AIRLINE_CODE = 'XX';
 
   function pad2(n){ return String(n).padStart(2,'0'); }
+
+  function normalizeDowToken(value){
+    if(!value) return '';
+    const key = String(value).toUpperCase().slice(0,3);
+    return DOW_CODE[key] || '';
+  }
+
+  function normalizeMonthToken(value){
+    if(!value) return '';
+    const key = String(value).toUpperCase().slice(0,3);
+    return Object.prototype.hasOwnProperty.call(MONTHS, key) ? key : '';
+  }
+
+  function normalizeDayToken(value){
+    if(!value) return '';
+    const cleaned = String(value).replace(/(?:st|nd|rd|th)$/i, '');
+    const num = parseInt(cleaned, 10);
+    if(!Number.isFinite(num)) return '';
+    return pad2(num);
+  }
+
+  function buildDateFromMatch(match, cfg){
+    if(!match) return null;
+    const monIdx = typeof cfg.month === 'number' ? cfg.month : null;
+    const dayIdx = typeof cfg.day === 'number' ? cfg.day : null;
+    if(monIdx == null || dayIdx == null) return null;
+    const mon = normalizeMonthToken(match[monIdx]);
+    const day = normalizeDayToken(match[dayIdx]);
+    if(!mon || !day) return null;
+    const dowIdx = typeof cfg.dow === 'number' ? cfg.dow : null;
+    const dow = dowIdx != null ? normalizeDowToken(match[dowIdx]) : '';
+    return { dow, mon, day };
+  }
+
+  function matchDatePatterns(cleaned, patterns){
+    if(!cleaned) return null;
+    for(const cfg of patterns){
+      const m = cleaned.match(cfg.regex);
+      if(!m) continue;
+      const date = buildDateFromMatch(m, cfg);
+      if(date) return date;
+    }
+    return null;
+  }
+
+  function minutesToGds(mins){
+    if(!Number.isFinite(mins)) return '';
+    const normalized = ((mins % (24*60)) + (24*60)) % (24*60);
+    const hh = Math.floor(normalized / 60);
+    const mm = normalized % 60;
+    const period = hh >= 12 ? 'P' : 'A';
+    const hourToken = (() => {
+      if(hh === 0) return '00';
+      if(hh === 12) return '12';
+      const base = hh % 12;
+      return pad2(base);
+    })();
+    return `${hourToken}${pad2(mm)}${period}`;
+  }
+
   function toAmPmMinutes(s){ // "12:20 pm" -> minutes from midnight and GDS "1220P"
     if(!s) return { mins:null, gds:s };
     let cleaned = s.replace(/\(.*?\)/g, ' ')
@@ -31,7 +91,7 @@
       if(ap==='PM' && hh!==12) hh += 12;
       if(ap==='AM' && hh===12) hh = 0;
       const mins = hh*60+mm;
-      const gds = `${pad2(((hh+11)%12)+1)}${pad2(mm)}${ap[0]}`; // 13:05 -> 105P style
+      const gds = minutesToGds(mins);
       return { mins, gds };
     }
 
@@ -40,10 +100,7 @@
       let hh = parseInt(m[1],10), mm = parseInt(m[2],10);
       if(hh > 23 || mm > 59) return { mins:null, gds:s };
       const mins = hh*60 + mm;
-      const isPm = hh >= 12;
-      let disp = hh % 12;
-      if(disp === 0) disp = 12;
-      const gds = `${pad2(disp)}${pad2(mm)}${isPm ? 'P' : 'A'}`;
+      const gds = minutesToGds(mins);
       return { mins, gds };
     }
 
@@ -53,13 +110,23 @@
   function parseHeaderDate(line){
     // "Depart • Sat, Oct 4" -> {dow:'J', day:'04', mon:'OCT'}
     const cleaned = line.replace(/\(.*?\)/g, ' ').replace(/\s+/g,' ').trim();
-    const m = cleaned.match(/(Depart(?:ure)?|Return|Outbound|Inbound)\s*(?:[•·-]\s*)?(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
-    if(!m) return null;
-    const dowKey = m[2] ? m[2].toUpperCase().slice(0,3) : '';
-    const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-    const mon = m[3].toUpperCase().slice(0,3);
-    const day = pad2(m[4]);
-    return { dow, mon, day };
+    const patterns = [
+      {
+        regex: /(Depart(?:ure)?|Return|Outbound|Inbound)\s*(?:[•·-]\s*)?(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})[,\s]*(\d{1,2})(?:st|nd|rd|th)?/i,
+        dow: 2,
+        month: 3,
+        day: 4
+      },
+      {
+        regex: /(Depart(?:ure)?|Return|Outbound|Inbound)\s*(?:[•·-]\s*)?(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*(\d{1,2})(?:st|nd|rd|th)?[,\s]*([A-Za-z]{3,})/i,
+        dow: 2,
+        day: 3,
+        month: 4
+      }
+    ];
+    const direct = matchDatePatterns(cleaned, patterns);
+    if(direct) return direct;
+    return parseLooseDate(cleaned);
   }
 
   function parseJourneyHeader(line){
@@ -72,15 +139,22 @@
     const indexMatch = normalized.match(/^Flight\s+(\d+)/i);
     const index = indexMatch ? parseInt(indexMatch[1], 10) : null;
 
-    const dateMatch = normalized.match(/^Flight\s+\d+(?:\s*(?:of|\/|-)\s*\d+)?\s+(?:((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat))[\s,]+)?([A-Za-z]{3,})\s*(\d{1,2})/i);
-    let headerDate = null;
-    if(dateMatch){
-      const dowKey = dateMatch[1] ? dateMatch[1].toUpperCase().slice(0,3) : '';
-      const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-      const mon = dateMatch[2].toUpperCase().slice(0,3);
-      const day = pad2(dateMatch[3]);
-      headerDate = { dow, mon, day };
-    }
+    const datePatterns = [
+      {
+        regex: /^Flight\s+\d+(?:\s*(?:of|\/|-)\s*\d+)?\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})[,\s]*(\d{1,2})(?:st|nd|rd|th)?/i,
+        dow: 1,
+        month: 2,
+        day: 3
+      },
+      {
+        regex: /^Flight\s+\d+(?:\s*(?:of|\/|-)\s*\d+)?\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*(\d{1,2})(?:st|nd|rd|th)?[,\s]*([A-Za-z]{3,})/i,
+        dow: 1,
+        day: 2,
+        month: 3
+      }
+    ];
+
+    let headerDate = matchDatePatterns(normalized, datePatterns);
 
     if(!headerDate){
       headerDate = parseLooseDate(normalized);
@@ -92,39 +166,69 @@
   function parseArrivesDate(line){
     // "Arrives Fri, Oct 24"
     const cleaned = line.replace(/\(.*?\)/g, ' ').replace(/\s*\+\s?\d+(?:\s*day(?:s)?)?/ig,' ').replace(/\s+/g,' ').trim();
-    const m = cleaned.match(/Arrives\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
-    if(!m) return null;
-    const dowKey = m[1] ? m[1].toUpperCase().slice(0,3) : '';
-    const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-    const mon = m[2].toUpperCase().slice(0,3);
-    const day = pad2(m[3]);
-    return { dow, mon, day };
+    const patterns = [
+      {
+        regex: /Arrives\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})[,\s]*(\d{1,2})(?:st|nd|rd|th)?/i,
+        dow: 1,
+        month: 2,
+        day: 3
+      },
+      {
+        regex: /Arrives\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*(\d{1,2})(?:st|nd|rd|th)?[,\s]*([A-Za-z]{3,})/i,
+        dow: 1,
+        day: 2,
+        month: 3
+      }
+    ];
+    const direct = matchDatePatterns(cleaned, patterns);
+    if(direct) return direct;
+    return parseLooseDate(cleaned);
   }
 
   function parseDepartsDate(line){
     const cleaned = line.replace(/\(.*?\)/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const m = cleaned.match(/Dep(?:arts|arture)(?:\s+on)?\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
-    if(!m) return null;
-    const dowKey = m[1] ? m[1].toUpperCase().slice(0,3) : '';
-    const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-    const mon = m[2].toUpperCase().slice(0,3);
-    const day = pad2(m[3]);
-    return { dow, mon, day };
+    const patterns = [
+      {
+        regex: /Dep(?:arts|arture)(?:\s+on)?\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})[,\s]*(\d{1,2})(?:st|nd|rd|th)?/i,
+        dow: 1,
+        month: 2,
+        day: 3
+      },
+      {
+        regex: /Dep(?:arts|arture)(?:\s+on)?\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*(\d{1,2})(?:st|nd|rd|th)?[,\s]*([A-Za-z]{3,})/i,
+        dow: 1,
+        day: 2,
+        month: 3
+      }
+    ];
+    const direct = matchDatePatterns(cleaned, patterns);
+    if(direct) return direct;
+    return parseLooseDate(cleaned);
   }
 
   function parseInlineOnDate(line){
     const cleaned = line.replace(/\(.*?\)/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const m = cleaned.match(/\bon\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})\s*(\d{1,2})/i);
-    if(!m) return null;
-    const dowKey = m[1] ? m[1].toUpperCase().slice(0,3) : '';
-    const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-    const mon = m[2].toUpperCase().slice(0,3);
-    const day = pad2(m[3]);
-    return { dow, mon, day };
+    const patterns = [
+      {
+        regex: /\bon\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*([A-Za-z]{3,})[,\s]*(\d{1,2})(?:st|nd|rd|th)?/i,
+        dow: 1,
+        month: 2,
+        day: 3
+      },
+      {
+        regex: /\bon\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)?[,\s]*(\d{1,2})(?:st|nd|rd|th)?[,\s]*([A-Za-z]{3,})/i,
+        dow: 1,
+        day: 2,
+        month: 3
+      }
+    ];
+    const direct = matchDatePatterns(cleaned, patterns);
+    if(direct) return direct;
+    return parseLooseDate(cleaned);
   }
 
   function resolveCabinEnum(value){
@@ -166,35 +270,39 @@
       .trim();
     if(!candidate) candidate = cleaned;
 
-    const patternDowFirst = /(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[,\s-]+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s-]*(\d{1,2})(?:st|nd|rd|th)?/i;
-    let match = candidate.match(patternDowFirst);
-    if(match){
-      const dowKey = match[1] ? match[1].toUpperCase().slice(0,3) : '';
-      const mon = match[2].toUpperCase().slice(0,3);
-      const day = pad2(match[3]);
-      const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-      return { dow, mon, day };
-    }
+    const monthPattern = '(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
+    const dowPattern = '(Sun|Mon|Tue|Wed|Thu|Fri|Sat)';
+    const dayPattern = '(\\d{1,2})(?:st|nd|rd|th)?';
 
-    const patternDowDayMonth = /(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[,\s-]+(\d{1,2})(?:st|nd|rd|th)?[,\s-]+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)/i;
-    match = candidate.match(patternDowDayMonth);
-    if(match){
-      const dowKey = match[1] ? match[1].toUpperCase().slice(0,3) : '';
-      const day = pad2(match[2]);
-      const mon = match[3].toUpperCase().slice(0,3);
-      const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-      return { dow, mon, day };
-    }
+    const patterns = [
+      {
+        regex: new RegExp(`${dowPattern}[,\\s-]+${monthPattern}[,\\s-]+${dayPattern}`, 'i'),
+        dow: 1,
+        month: 2,
+        day: 3
+      },
+      {
+        regex: new RegExp(`${dowPattern}[,\\s-]+${dayPattern}[,\\s-]+${monthPattern}`, 'i'),
+        dow: 1,
+        day: 2,
+        month: 3
+      },
+      {
+        regex: new RegExp(`${monthPattern}[,\\s-]*${dayPattern}(?:[,\\s-]+${dowPattern})?`, 'i'),
+        month: 1,
+        day: 2,
+        dow: 3
+      },
+      {
+        regex: new RegExp(`${dayPattern}[,\\s-]+${monthPattern}(?:[,\\s-]+${dowPattern})?`, 'i'),
+        day: 1,
+        month: 2,
+        dow: 3
+      }
+    ];
 
-    const patternMonthFirst = /(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s-]*(\d{1,2})(?:st|nd|rd|th)?(?:[,\s-]+(Sun|Mon|Tue|Wed|Thu|Fri|Sat))?/i;
-    match = candidate.match(patternMonthFirst);
-    if(match){
-      const mon = match[1].toUpperCase().slice(0,3);
-      const day = pad2(match[2]);
-      const dowKey = match[3] ? match[3].toUpperCase().slice(0,3) : '';
-      const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-      return { dow, mon, day };
-    }
+    const loose = matchDatePatterns(candidate, patterns);
+    if(loose) return loose;
 
     return null;
   }
@@ -218,14 +326,22 @@
     if(codes.length < 2) return null;
     let headerDate = parseInlineOnDate(cleaned);
     if(!headerDate){
-      const alt = cleaned.match(/((?:Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?))?[,\s]*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s\.]*(\d{1,2})$/i);
-      if(alt){
-        const dowKey = alt[1] ? alt[1].toUpperCase().slice(0,3) : '';
-        const dow = dowKey ? (DOW_CODE[dowKey] || '') : '';
-        const mon = alt[2].toUpperCase().slice(0,3);
-        const day = pad2(alt[3]);
-        headerDate = { dow, mon, day };
-      }
+      const tailPatterns = [
+        {
+          regex: /((?:Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?))?[,\s]*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s\.]*(\d{1,2})(?:st|nd|rd|th)?$/i,
+          dow: 1,
+          month: 2,
+          day: 3
+        },
+        {
+          regex: /((?:Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?))?[,\s]*(\d{1,2})(?:st|nd|rd|th)?[,\s\.]*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)$/i,
+          dow: 1,
+          day: 2,
+          month: 3
+        }
+      ];
+      const tail = matchDatePatterns(cleaned, tailPatterns);
+      if(tail) headerDate = tail;
     }
     if(!headerDate){
       headerDate = parseLooseDate(cleaned);
