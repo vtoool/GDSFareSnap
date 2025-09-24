@@ -4,6 +4,11 @@
 
   const HOSTNAME = (location && location.hostname) || '';
   const IS_ITA = /(?:^|\.)matrix\.itasoftware\.com$/i.test(HOSTNAME);
+  const IS_KAYAK = /(?:^|\.)kayak\.[^.]+(?:\.[^.]+)*$/i.test(HOSTNAME);
+
+  if (!IS_ITA && !IS_KAYAK) {
+    return;
+  }
 
   const BTN_CLASS    = 'kayak-copy-btn';
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
