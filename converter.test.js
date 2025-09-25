@@ -64,6 +64,7 @@ const interleavedOrder = [
   'Atlanta (ATL)',
   '3:40 pm',
   'Istanbul (IST)',
+  'Arrives Fri, Jun 5',
   'Flight 2 • Mon, Jun 15',
   'Turkish Airlines 1845',
   '6:55 pm',
@@ -83,8 +84,30 @@ const interleavedOrder = [
 ].join('\n');
 
 const interleavedLines = window.convertTextToI(interleavedOrder).split('\n');
+const interleavedPeek = window.peekSegments(interleavedOrder);
 assert.ok(/15JUN/.test(interleavedLines[2] || ''), 'first inbound segment should use Jun 15 header date');
 assert.ok(/15JUN/.test(interleavedLines[3] || ''), 'final inbound segment should use Jun 15 header date');
-assert.ok(/04JUN/.test(interleavedLines[1]), 'outbound connection should not inherit return date');
+assert.ok(/05JUN/.test(interleavedLines[1]), 'outbound connection should carry arrival date to next leg');
+assert.ok(/05JUN\s+F/.test(interleavedLines[0]), 'overnight arrival should include next-day date context');
+assert.strictEqual(interleavedPeek.segments[1].depDate, '05JUN', 'peekSegments should advance outbound connection date');
+
+const overnightWrap = [
+  'Depart • Fri, Mar 1',
+  'Flight 1 • Fri, Mar 1',
+  'Delta Air Lines 101',
+  '11:30 pm',
+  'Los Angeles (LAX)',
+  '1:00 am',
+  'New York (JFK)',
+  'Delta Air Lines 202',
+  '1:45 am',
+  'New York (JFK)',
+  '3:15 am',
+  'Boston (BOS)'
+].join('\n');
+
+const overnightLines = window.convertTextToI(overnightWrap).split('\n');
+assert.ok(/01MAR/.test(overnightLines[0]), 'first segment should retain original departure date');
+assert.ok(/02MAR/.test(overnightLines[1]), 'time wrap should advance to next calendar day for continuing leg');
 
 console.log('✓ converter maintains departure date continuity for connecting segments');
