@@ -400,22 +400,64 @@
       preview = null;
     }
     const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
+    const segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
+    const directionGroups = (typeof window.computeDirectionsFromSegments === 'function' && segments.length)
+      ? window.computeDirectionsFromSegments(segments, { journeys })
+      : [];
     const commands = [];
-    const labelFor = (idx) => {
-      if (preview && preview.isMultiCity){
-        return `Journey ${idx + 1}`;
+    const isMultiCity = !!(preview && preview.isMultiCity);
+    const labelForDirection = (direction, fallbackIdx) => {
+      if (!direction) return `Journey ${fallbackIdx + 1}`;
+      const origin = direction.od && direction.od[0] ? direction.od[0] : '';
+      const dest = direction.od && direction.od[1] ? direction.od[1] : '';
+      if (origin && dest){
+        return `${origin}-${dest}`;
       }
-      if (idx === 0) return 'Outbound';
-      if (idx === 1) return 'Inbound';
-      return `Journey ${idx + 1}`;
+      const kind = (direction.kind || '').toLowerCase();
+      if (kind === 'outbound') return 'Outbound';
+      if (kind === 'inbound') return 'Inbound';
+      const index = Number.isFinite(direction.index) ? direction.index : fallbackIdx;
+      return `Journey ${index + 1}`;
     };
-    if (journeys.length){
+    if (!isMultiCity && directionGroups.length){
+      const sortedDirections = directionGroups.slice().sort((a, b) => {
+        const priority = (entry) => {
+          if (!entry) return 99;
+          const kind = (entry.kind || '').toLowerCase();
+          if (kind === 'outbound') return 0;
+          if (kind === 'inbound') return 1;
+          return 2 + (Number.isFinite(entry.index) ? entry.index : 0);
+        };
+        const diff = priority(a) - priority(b);
+        if (diff !== 0) return diff;
+        const idxA = Number.isFinite(a && a.index) ? a.index : 0;
+        const idxB = Number.isFinite(b && b.index) ? b.index : 0;
+        return idxA - idxB;
+      });
+      sortedDirections.forEach((direction, idx) => {
+        if (!direction) return;
+        const range = Array.isArray(direction.range) && direction.range.length === 2
+          ? [ Number(direction.range[0]), Number(direction.range[1]) ]
+          : null;
+        if (!range) return;
+        try {
+          const command = window.convertTextToAvailability(trimmed, { direction: 'all', segmentRange: range });
+          if (command){
+            commands.push({ label: labelForDirection(direction, idx), command });
+          }
+        } catch (err) {
+          console.warn('Availability command build failed:', err);
+        }
+      });
+    }
+    if (!commands.length && journeys.length){
       journeys.forEach((journey, idx) => {
         if (!journey) return;
         try {
           const command = window.convertTextToAvailability(trimmed, { journeyIndex: idx, direction: 'all' });
           if (command){
-            commands.push({ label: labelFor(idx), command });
+            const label = isMultiCity ? `Journey ${idx + 1}` : labelForDirection(null, idx);
+            commands.push({ label, command });
           }
         } catch (err) {
           console.warn('Availability command build failed:', err);

@@ -1333,38 +1333,259 @@
     return sections.filter(sec => desired === 'inbound' ? sec.kind === 'inbound' : sec.kind !== 'inbound');
   }
 
-  function buildAvailabilityCommandFromSegments(segments){
-    if(!segments || segments.length === 0){
-      throw new Error('No segments parsed from itinerary.');
+  function normalizeDirectionKind(value){
+    if(!value && value !== 0) return '';
+    const text = String(value).trim().toLowerCase();
+    if(text.startsWith('in')) return 'inbound';
+    if(text.startsWith('out')) return 'outbound';
+    return text || '';
+  }
+
+  function clampIndex(value, min, max){
+    if(!Number.isFinite(value)) return min;
+    if(max < min) return min;
+    return Math.max(min, Math.min(value, max));
+  }
+
+  function buildDirectionDescriptor(segments, startIdx, endIdx, index, kindHint){
+    if(!Array.isArray(segments) || segments.length === 0){
+      return null;
     }
-    const first = segments[0];
-    const last = segments[segments.length - 1];
-    if(!first || !last || !first.depDate || !first.depAirport || !last.arrAirport){
-      throw new Error('Missing required data for availability search.');
+    const total = segments.length;
+    const safeStart = clampIndex(startIdx, 0, total - 1);
+    const safeEnd = clampIndex(endIdx, safeStart, total - 1);
+    const slice = [];
+    for(let i = safeStart; i <= safeEnd; i++){
+      const seg = segments[i];
+      if(seg) slice.push({ seg, absoluteIndex: i });
+    }
+    if(slice.length === 0){
+      return null;
+    }
+    let origin = '';
+    let destination = '';
+    let dateToken = '';
+    const carriers = new Set();
+    const connections = [];
+    let resolvedKind = normalizeDirectionKind(kindHint);
+    let prevArr = null;
+    let lastConnection = null;
+    for(let idx = 0; idx < slice.length; idx++){
+      const seg = slice[idx].seg;
+      if(!seg) continue;
+      if(!origin && seg.depAirport){
+        origin = seg.depAirport;
+      }
+      if(seg.arrAirport){
+        destination = seg.arrAirport;
+      }
+      if(!dateToken && seg.depDate){
+        dateToken = seg.depDate;
+      }
+      const carrier = (seg.marketingCarrier || seg.airlineCode || '').trim().toUpperCase();
+      if(carrier){
+        carriers.add(carrier);
+      }
+      if(idx > 0){
+        const connection = seg.depAirport || prevArr;
+        if(connection && connection !== origin && connection !== destination && connection !== lastConnection){
+          connections.push(connection);
+          lastConnection = connection;
+        }
+      }
+      prevArr = seg.arrAirport || prevArr;
+      if(!resolvedKind){
+        resolvedKind = normalizeDirectionKind(seg.direction);
+      }
+    }
+    const firstIdx = slice[0].absoluteIndex;
+    const lastIdx = slice[slice.length - 1].absoluteIndex;
+    return {
+      index: Number.isFinite(index) ? index : 0,
+      od: [origin || '', destination || ''],
+      date: dateToken || '',
+      carriers,
+      connections,
+      kind: resolvedKind || '',
+      range: [firstIdx, lastIdx]
+    };
+  }
+
+  function computeDirectionsFromSegments(segments, options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const allSegments = Array.isArray(segments) ? segments : [];
+    const journeys = Array.isArray(opts.journeys) ? opts.journeys.slice() : [];
+    const directions = [];
+
+    const pushRange = (start, end, kindHint) => {
+      const descriptor = buildDirectionDescriptor(allSegments, start, end, directions.length, kindHint);
+      if(descriptor){
+        descriptor.index = directions.length;
+        directions.push(descriptor);
+      }
+    };
+
+    if(journeys.length && allSegments.length){
+      journeys.sort((a, b) => {
+        const aStart = Number.isFinite(a?.startIdx) ? a.startIdx : 0;
+        const bStart = Number.isFinite(b?.startIdx) ? b.startIdx : 0;
+        if(aStart !== bStart) return aStart - bStart;
+        const aEnd = Number.isFinite(a?.endIdx) ? a.endIdx : aStart;
+        const bEnd = Number.isFinite(b?.endIdx) ? b.endIdx : bStart;
+        return aEnd - bEnd;
+      });
+      for(const journey of journeys){
+        if(!journey) continue;
+        const start = clampIndex(journey.startIdx, 0, allSegments.length - 1);
+        const end = clampIndex(journey.endIdx, start, allSegments.length - 1);
+        pushRange(start, end, journey.sectionKind || journey.kind || null);
+      }
+      if(directions.length){
+        return directions;
+      }
     }
 
-    const rawDay = first.depDate.slice(0, 2);
-    const month = first.depDate.slice(2);
+    let currentStart = null;
+    let currentEnd = null;
+    let currentKind = '';
+    for(let idx = 0; idx < allSegments.length; idx++){
+      const seg = allSegments[idx];
+      if(!seg){
+        continue;
+      }
+      const segKind = normalizeDirectionKind(seg.direction);
+      if(currentStart == null){
+        currentStart = idx;
+        currentEnd = idx;
+        currentKind = segKind || '';
+        continue;
+      }
+      if(segKind && currentKind && segKind !== currentKind){
+        pushRange(currentStart, currentEnd, currentKind);
+        currentStart = idx;
+        currentEnd = idx;
+        currentKind = segKind;
+        continue;
+      }
+      currentEnd = idx;
+      if(!currentKind && segKind){
+        currentKind = segKind;
+      }
+    }
+
+    if(currentStart != null){
+      pushRange(currentStart, currentEnd != null ? currentEnd : currentStart, currentKind);
+    }
+
+    if(directions.length){
+      return directions;
+    }
+
+    if(allSegments.length){
+      const descriptor = buildDirectionDescriptor(allSegments, 0, allSegments.length - 1, 0, null);
+      return descriptor ? [descriptor] : [];
+    }
+
+    return [];
+  }
+
+  function selectPreferredCarrier(direction, segments){
+    const carrierCounts = new Map();
+    const order = [];
+    const sourceSegments = [];
+
+    const totalSegments = Array.isArray(segments) ? segments.length : 0;
+
+    if(direction && Array.isArray(direction.range) && direction.range.length === 2){
+      const [start, end] = direction.range;
+      const safeStart = clampIndex(start, 0, totalSegments ? totalSegments - 1 : 0);
+      const safeEnd = clampIndex(end, safeStart, totalSegments ? totalSegments - 1 : safeStart);
+      for(let idx = safeStart; idx <= safeEnd; idx++){
+        const seg = totalSegments ? segments[idx] : null;
+        if(seg) sourceSegments.push(seg);
+      }
+    } else if(Array.isArray(segments)){
+      for(const seg of segments){
+        if(seg) sourceSegments.push(seg);
+      }
+    }
+
+    for(const seg of sourceSegments){
+      if(!seg) continue;
+      const code = (seg.marketingCarrier || seg.airlineCode || '').trim().toUpperCase();
+      if(!code) continue;
+      carrierCounts.set(code, (carrierCounts.get(code) || 0) + 1);
+      if(order.indexOf(code) === -1){
+        order.push(code);
+      }
+    }
+
+    if(!carrierCounts.size){
+      return '';
+    }
+
+    let best = order[0];
+    let bestCount = carrierCounts.get(best) || 0;
+    for(const [code, count] of carrierCounts.entries()){
+      if(count > bestCount){
+        best = code;
+        bestCount = count;
+      }
+    }
+    return best || '';
+  }
+
+  function buildAvailabilityCommandForDirection(direction, segments){
+    if(!direction){
+      throw new Error('Missing required data for availability search.');
+    }
+    const origin = direction.od && direction.od[0] ? direction.od[0] : '';
+    const destination = direction.od && direction.od[1] ? direction.od[1] : '';
+    if(!origin || !destination){
+      throw new Error('Missing required data for availability search.');
+    }
+    const dateToken = (direction.date || '').trim().toUpperCase();
+    if(!dateToken || dateToken.length < 5){
+      throw new Error('Invalid departure date for availability search.');
+    }
+    const rawDay = dateToken.slice(0, 2);
+    const month = dateToken.slice(2);
     const dayNumeric = parseInt(rawDay, 10);
     if(!Number.isFinite(dayNumeric) || dayNumeric <= 0 || !month){
       throw new Error('Invalid departure date for availability search.');
     }
     const dayPart = String(dayNumeric);
 
-    let command = `1${dayPart}${month}${first.depAirport}${last.arrAirport}`;
+    let command = `${dayPart}${month}${origin}${destination}`;
 
-    const transitAirports = segments.slice(0, -1).map(seg => seg.arrAirport).filter(Boolean);
-    if(transitAirports.length){
-      command += `12A${transitAirports.join('/')}`;
+    const connectionList = Array.isArray(direction.connections)
+      ? direction.connections.filter(Boolean)
+      : [];
+    if(connectionList.length){
+      command += `12A${connectionList.join('/')}`;
     }
 
-    for(const seg of segments){
-      const code = (seg.airlineCode || '').trim();
-      if(!code) continue;
-      command += `¥${code}`;
+    const carrier = selectPreferredCarrier(direction, segments || []);
+    if(carrier){
+      command += `¥${carrier}`;
     }
 
     return command;
+  }
+
+  function buildAvailabilityCommandFromSegments(segments){
+    if(!segments || segments.length === 0){
+      throw new Error('No segments parsed from itinerary.');
+    }
+    const directions = computeDirectionsFromSegments(segments);
+    if(!directions.length){
+      throw new Error('Missing required data for availability search.');
+    }
+    const target = directions[0] || null;
+    if(!target){
+      throw new Error('Missing required data for availability search.');
+    }
+    return buildAvailabilityCommandForDirection(target, segments);
   }
 
   const MONTH_DAY_OFFSETS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
@@ -1727,6 +1948,10 @@
     }
 
     return { segments: allSegments, journeys, isMultiCity };
+  };
+
+  window.computeDirectionsFromSegments = function(segments, options){
+    return computeDirectionsFromSegments(segments, options);
   };
 
   // Public API

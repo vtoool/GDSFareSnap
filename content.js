@@ -949,22 +949,79 @@
         journeySignatureParts.push(`${start}-${end}-${origin || ''}-${dest || ''}-${indexHint}`);
       });
     } else if(SETTINGS.enableDirectionButtons && (!multiCity || IS_ITA)){
-      configs.push({
-        key: 'ob',
-        label: 'OB',
-        title: 'Copy outbound segments',
-        ariaLabel: 'Copy outbound segments to clipboard',
-        direction: 'outbound',
-        copyKind: 'availability'
-      });
-      configs.push({
-        key: 'ib',
-        label: 'IB',
-        title: 'Copy inbound segments',
-        ariaLabel: 'Copy inbound segments to clipboard',
-        direction: 'inbound',
-        copyKind: 'availability'
-      });
+      const directionGroups = (typeof window.computeDirectionsFromSegments === 'function' && segments.length)
+        ? window.computeDirectionsFromSegments(segments, { journeys })
+        : [];
+      const sortedDirections = directionGroups && directionGroups.length
+        ? directionGroups.slice().sort((a, b) => {
+            const priority = (entry) => {
+              if(!entry) return 99;
+              const kind = (entry.kind || '').toLowerCase();
+              if(kind === 'outbound') return 0;
+              if(kind === 'inbound') return 1;
+              return 2 + (Number.isFinite(entry.index) ? entry.index : 0);
+            };
+            const diff = priority(a) - priority(b);
+            if(diff !== 0) return diff;
+            const idxA = Number.isFinite(a && a.index) ? a.index : 0;
+            const idxB = Number.isFinite(b && b.index) ? b.index : 0;
+            return idxA - idxB;
+          })
+        : [];
+      const directionConfigs = [];
+      for(const direction of sortedDirections){
+        if(!direction) continue;
+        const range = Array.isArray(direction.range) && direction.range.length === 2
+          ? [
+              Number(direction.range[0]),
+              Number(direction.range[1])
+            ]
+          : null;
+        if(!range) continue;
+        const origin = direction.od && direction.od[0] ? direction.od[0] : '';
+        const dest = direction.od && direction.od[1] ? direction.od[1] : '';
+        const baseKind = (direction.kind || '').toLowerCase();
+        const label = origin && dest
+          ? `${origin}-${dest}`
+          : (baseKind === 'inbound'
+            ? 'Inbound'
+            : (baseKind === 'outbound' ? 'Outbound' : `Journey ${Number(direction.index || 0) + 1}`));
+        const ariaLabel = origin && dest
+          ? `Copy availability for ${origin} to ${dest}`
+          : `Copy availability for ${label}`;
+        directionConfigs.push({
+          key: `dir-${Number(direction.index || 0)}-${origin || 'NA'}-${dest || 'NA'}`,
+          label,
+          title: ariaLabel,
+          ariaLabel,
+          direction: 'all',
+          directionKind: baseKind || null,
+          segmentRange: range,
+          copyKind: 'availability'
+        });
+      }
+      if(directionConfigs.length){
+        directionConfigs.forEach(cfg => configs.push(cfg));
+      }else{
+        configs.push({
+          key: 'ob',
+          label: 'OB',
+          title: 'Copy outbound segments',
+          ariaLabel: 'Copy outbound segments to clipboard',
+          direction: 'outbound',
+          directionKind: 'outbound',
+          copyKind: 'availability'
+        });
+        configs.push({
+          key: 'ib',
+          label: 'IB',
+          title: 'Copy inbound segments',
+          ariaLabel: 'Copy inbound segments to clipboard',
+          direction: 'inbound',
+          directionKind: 'inbound',
+          copyKind: 'availability'
+        });
+      }
     }
 
     let effectiveConfigs = configs;
@@ -1025,7 +1082,10 @@
     btn.type = 'button';
     btn.title = config.title;
     btn.setAttribute('aria-label', config.ariaLabel);
-    btn.dataset.direction = config.direction;
+    const dirAttr = config.directionKind || config.direction;
+    if(dirAttr){
+      btn.dataset.direction = dirAttr;
+    }
     btn.innerHTML = '<span aria-hidden="true" class="pill pill-text">' + config.label + '</span>' +
                     '<span aria-hidden="true" class="pill pill-check">✓</span>';
 
