@@ -658,6 +658,7 @@
       if(!line) return false;
       const raw = String(line);
       if(/\bArriv/i.test(raw)) return false;
+      if(!/\bDep(?:art|arts|arture|arting)\b/i.test(raw)) return false;
       const depInfo = parseDepartsDate(raw);
       if(depInfo){
         const nextDow = depInfo.dow || (currentDate ? currentDate.dow : '');

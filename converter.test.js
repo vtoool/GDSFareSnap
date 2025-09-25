@@ -91,6 +91,43 @@ assert.ok(/05JUN/.test(interleavedLines[1]), 'outbound connection should carry a
 assert.ok(/05JUN\s+F/.test(interleavedLines[0]), 'overnight arrival should include next-day date context');
 assert.strictEqual(interleavedPeek.segments[1].depDate, '05JUN', 'peekSegments should advance outbound connection date');
 
+const matrixDateRegression = [
+  'Flight 1 • Sun, Sep 28',
+  'Los Angeles (LAX) to Munich (MUC) on Sun, Sep 28',
+  'United 8861',
+  '5:30 pm',
+  'Los Angeles (LAX)',
+  '1:40 pm',
+  'Munich (MUC)',
+  'Flight 2 • Mon, Oct 6',
+  'Munich (MUC) to Taipei (TPE) on Mon, Oct 6',
+  'EVA Air 72',
+  '12:00 pm',
+  'Munich (MUC)',
+  '6:35 am',
+  'Taipei (TPE)',
+  'Arrives Tue, Oct 7',
+  'Flight 3 • Tue, Oct 7',
+  'Taipei (TPE) to Tokyo (NRT) on Tue, Oct 7',
+  'EVA Air 184',
+  '7:55 am',
+  'Taipei (TPE)',
+  '12:25 pm',
+  'Tokyo (NRT)',
+  'Flight 4 • Tue, Oct 28',
+  'Tokyo (NRT) to Los Angeles (LAX) on Tue, Oct 28',
+  'ANA 7018',
+  '5:30 pm',
+  'Tokyo (NRT)',
+  '11:30 am',
+  'Los Angeles (LAX)'
+].join('\n');
+
+const matrixRegressionLines = window.convertTextToI(matrixDateRegression).split('\n');
+assert.ok(/28SEP/.test(matrixRegressionLines[0]), 'first Matrix leg should keep Sep 28 departure date when later journeys include October headers');
+const matrixRegressionPeek = window.peekSegments(matrixDateRegression);
+assert.strictEqual(matrixRegressionPeek.segments[0].depDate, '28SEP', 'peekSegments should retain original September departure date');
+
 const overnightWrap = [
   'Depart • Fri, Mar 1',
   'Flight 1 • Fri, Mar 1',
