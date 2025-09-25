@@ -11,7 +11,7 @@
   }
 
   const BTN_CLASS    = 'kayak-copy-btn';
-  const SEARCH_LIKE_SELECTOR = 'form, [role="search"], [data-testid*="searchbox" i], [data-test*="searchbox" i], [data-testid*="search-form" i], [data-test*="search-form" i], [data-testid*="searchform" i], [data-test*="searchform" i], [data-testid*="searchpanel" i], [data-test*="searchpanel" i], [class*="searchbox" i], [class*="search-form" i], [aria-label*="search" i]';
+  const SEARCH_LIKE_SELECTOR = 'form, [role="search"], [data-testid*="searchbox" i], [data-test*="searchbox" i], [data-testid*="search-form" i], [data-test*="search-form" i], [data-testid*="searchform" i], [data-test*="searchform" i], [data-testid*="searchpanel" i], [data-test*="searchpanel" i], [data-testid*="search-header" i], [data-test*="search-header" i], [data-testid*="searchheader" i], [data-test*="searchheader" i], [class*="searchbox" i], [class*="search-form" i], [class*="search-header" i], [class*="searchHeader" i], [class*="SearchHeader" i], [class*="search-bar" i], [class*="searchBar" i], [aria-label*="search" i]';
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MODAL_DIM_CLASS = 'kayak-copy-modal-dim';
