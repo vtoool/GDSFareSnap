@@ -148,9 +148,9 @@ assert.ok(/01MAR/.test(overnightLines[0]), 'first segment should retain original
 assert.ok(/02MAR/.test(overnightLines[1]), 'time wrap should advance to next calendar day for continuing leg');
 
 const outboundAvailability = window.convertTextToAvailability(sampleItinerary, { direction: 'outbound' });
-assert.strictEqual(outboundAvailability, '12APRSEABCN12AORD/MAD¥IB', 'outbound availability should collapse to SEA-BCN with connections');
+assert.strictEqual(outboundAvailability, '112APRSEABCN12AORD/MAD¥IB', 'outbound availability should collapse to SEA-BCN with connections');
 
 const inboundAvailability = window.convertTextToAvailability(sampleItinerary, { direction: 'inbound' });
-assert.strictEqual(inboundAvailability, '27APRSVQSEA12AMAD/DFW¥IB', 'inbound availability should collapse to SVQ-SEA with connections');
+assert.strictEqual(inboundAvailability, '127APRSVQSEA12AMAD/DFW¥IB', 'inbound availability should collapse to SVQ-SEA with connections');
 
 console.log('✓ converter maintains departure date continuity for connecting segments');

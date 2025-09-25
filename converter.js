@@ -1557,7 +1557,7 @@
     }
     const dayPart = String(dayNumeric);
 
-    let command = `${dayPart}${month}${origin}${destination}`;
+    let command = `1${dayPart}${month}${origin}${destination}`;
 
     const connectionList = Array.isArray(direction.connections)
       ? direction.connections.filter(Boolean)
