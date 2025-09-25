@@ -1076,7 +1076,11 @@
     if (IS_ITA){
       btn.classList.add('kayak-copy-btn--ita');
     }
-    if(config && config.variant === 'journey'){
+    const isJourneyVariant = !!(config && config.variant === 'journey');
+    if(!IS_ITA && config && config.copyKind === 'availability' && !isJourneyVariant){
+      btn.classList.add('kayak-copy-btn--availability');
+    }
+    if(isJourneyVariant){
       btn.classList.add('kayak-copy-btn--journey');
     }
     btn.type = 'button';
