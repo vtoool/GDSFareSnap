@@ -1745,6 +1745,11 @@
 
   function hardRemoveGroup(group){
     if (!group) return;
+    if (group.__ctaCleanup){
+      try { group.__ctaCleanup(); } catch (err) {}
+      delete group.__ctaCleanup;
+    }
+    delete group.__ctaElement;
     const card = group.__kayakCard;
     if (card && cardGroupMap.get(card) === group){
       cardGroupMap.delete(card);
@@ -2507,6 +2512,68 @@
     return scored[0].element;
   }
 
+  function syncGroupCtaBinding(card, group, selectBtn){
+    if (!group) return;
+
+    if (group.__ctaCleanup){
+      try { group.__ctaCleanup(); } catch (err) {}
+      delete group.__ctaCleanup;
+      delete group.__ctaElement;
+    }
+
+    if (!selectBtn || !selectBtn.addEventListener){
+      return;
+    }
+
+    const targetCard = card;
+    const targetGroup = group;
+    let triggered = false;
+
+    const triggerRemoval = () => {
+      if (triggered) return;
+      triggered = true;
+      if (targetGroup && targetGroup.style){
+        targetGroup.style.display = 'none';
+        targetGroup.style.visibility = 'hidden';
+      }
+      setTimeout(() => {
+        try {
+          removeCardButton(targetCard);
+        } catch (err) {
+          // ignore removal errors
+        }
+      }, 0);
+    };
+
+    const handleClick = () => {
+      triggerRemoval();
+    };
+    const handleKeyDown = (ev) => {
+      if (!ev) return;
+      const key = ev.key || ev.code || '';
+      if (key === 'Enter' || key === ' ' || key === 'Spacebar'){ 
+        triggerRemoval();
+      }
+    };
+
+    selectBtn.addEventListener('click', handleClick, true);
+    selectBtn.addEventListener('keydown', handleKeyDown, true);
+
+    const cleanup = () => {
+      try { selectBtn.removeEventListener('click', handleClick, true); } catch (err) {}
+      try { selectBtn.removeEventListener('keydown', handleKeyDown, true); } catch (err) {}
+      if (targetGroup.__ctaCleanup === cleanup){
+        delete targetGroup.__ctaCleanup;
+      }
+      if (targetGroup.__ctaElement === selectBtn){
+        delete targetGroup.__ctaElement;
+      }
+    };
+
+    group.__ctaCleanup = cleanup;
+    group.__ctaElement = selectBtn;
+  }
+
   /* ---------- Button injection near the primary Select button ---------- */
 
   function removeCardButton(card){
@@ -2825,6 +2892,13 @@
     }
 
     buildGroupForCard(card, group, configData);
+
+    const existingCta = group.__ctaElement || null;
+    if (existingCta === selectBtn && group.__ctaCleanup){
+      // already wired to the current CTA
+    } else {
+      syncGroupCtaBinding(card, group, selectBtn);
+    }
 
     const previousHost = group.__inlineHost;
     if(inlineFallback){
