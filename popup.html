@@ -4,80 +4,465 @@
   <meta charset="utf-8" />
   <title>Kayak ➜ *I Settings</title>
   <style>
-    body{ font: 14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin:16px; color:#111;}
-    label{ display:block; margin:10px 0 4px; font-weight:600; }
-    input[type="text"],
-    input[type="number"]{ width:120px; padding:6px 8px; border:1px solid #c7c7c7; border-radius:8px; font-size:14px; box-sizing:border-box; }
-    small{ color:#666; }
-    .row{ display:flex; gap:12px; align-items:center; }
-    button{ margin-top:12px; padding:8px 12px; border-radius:8px; border:1px solid #c7c7c7; background:#fff; cursor:pointer; font-weight:600; }
-    .ok{ color:#0a7; margin-left:8px; display:none; font-weight:600; }
-    .toggle{ display:flex; align-items:center; gap:8px; margin:18px 0 4px; font-weight:600; }
-    .toggle input{ width:auto; margin:0; }
-    .toggle-help{ display:block; margin-left:26px; margin-top:-2px; font-size:12px; color:#666; }
-    textarea{ width:100%; min-height:140px; padding:8px 10px; border:1px solid #c7c7c7; border-radius:8px; box-sizing:border-box; font: 13px/1.5 "SFMono-Regular","Consolas","Liberation Mono",monospace; resize:vertical; }
-    textarea[readonly]{ background:#f8f8f8; color:#222; }
-    .converter{ margin-top:22px; padding-top:16px; border-top:1px solid #e6e6e6; }
-    .converter .row{ margin-bottom:4px; }
-    .converter-actions{ display:flex; gap:10px; align-items:center; margin:12px 0; }
-    .converter-actions button{ margin-top:0; }
-    .convert-status{ font-size:12px; margin-bottom:8px; color:#0a7; display:none; }
-    .convert-error{ font-size:12px; margin-bottom:8px; color:#c0392b; display:none; }
-    .converter small{ display:block; margin-top:-6px; margin-bottom:10px; color:#888; }
-    #copyBtn:disabled{ opacity:0.5; cursor:default; }
-    .auto-detect{ display:flex; align-items:center; gap:12px; margin:6px 0 10px; }
-    .auto-detect__note{ font-size:12px; color:#555; flex:1; }
-    .link-btn{ border:none; background:none; padding:0; color:#0a7; font-size:12px; font-weight:600; cursor:pointer; text-decoration:underline; }
-    .link-btn:disabled{ opacity:0.6; cursor:default; text-decoration:none; }
-    .availability-preview{ margin-top:16px; padding:12px 12px 10px; border:1px solid #d8d8d8; border-radius:10px; background:#f8f9fb; display:none; }
-    .availability-preview__title{ font-weight:700; margin-bottom:6px; font-size:13px; color:#0a4069; }
-    .availability-preview__list{ display:flex; flex-direction:column; gap:6px; }
-    .availability-preview__item{ display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; padding:6px 8px; border-radius:8px; background:#fff; box-shadow:0 1px 2px rgba(9, 19, 33, .08); }
-    .availability-preview__label{ font-weight:600; color:#0a4069; font-size:12px; }
-    .availability-preview__command{ font:12px/1.4 "SFMono-Regular","Consolas","Liberation Mono",monospace; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .availability-preview__copy{ border:none; background:#0a7; color:#fff; font-weight:600; font-size:12px; padding:6px 10px; border-radius:6px; cursor:pointer; }
-    .availability-preview__copy:disabled{ opacity:.6; cursor:default; }
-    .availability-preview__hint{ display:block; margin-top:8px; font-size:11px; color:#5a6472; }
+    :root {
+      --color-bg: #f4f6ff;
+      --color-surface: #ffffff;
+      --color-text: #111322;
+      --color-muted: #5b6072;
+      --color-accent: #4b6bff;
+      --color-accent-strong: #1e40ff;
+      --color-border: rgba(34, 44, 82, 0.12);
+      --color-highlight: #e8ecff;
+      --color-success: #2db47c;
+      --color-error: #d94b5b;
+      --shadow-md: 0 16px 40px rgba(15, 23, 42, 0.12);
+      --shadow-sm: 0 6px 18px rgba(15, 23, 42, 0.08);
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --transition: 180ms ease;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font: 14px/1.55 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, rgba(75, 107, 255, 0.12), transparent 46%), var(--color-bg);
+      color: var(--color-text);
+      min-width: 360px;
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .popup {
+      width: min(420px, 92vw);
+      display: grid;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--color-surface);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      border: 1px solid var(--color-border);
+      box-shadow: var(--shadow-sm);
+      display: grid;
+      gap: 18px;
+    }
+
+    .card__header {
+      display: grid;
+      gap: 6px;
+    }
+
+    .card__eyebrow {
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      color: var(--color-accent);
+    }
+
+    .card__title {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    .card__subtitle {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--color-muted);
+    }
+
+    .field-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field__label {
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: var(--color-text);
+    }
+
+    .field__control {
+      width: 100%;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 0.95rem;
+      transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+      background: #fff;
+    }
+
+    .field__control:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px rgba(75, 107, 255, 0.2);
+    }
+
+    .field__control--textarea {
+      min-height: 140px;
+      resize: vertical;
+      font: 13px/1.5 "JetBrains Mono", "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+    }
+
+    .field__control[readonly] {
+      background: var(--color-highlight);
+      color: var(--color-text);
+    }
+
+    .field__hint {
+      font-size: 0.75rem;
+      color: var(--color-muted);
+    }
+
+    .auto-detect {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      background: rgba(75, 107, 255, 0.08);
+    }
+
+    .auto-detect__note {
+      font-size: 0.8rem;
+      color: var(--color-muted);
+      flex: 1;
+    }
+
+    .link-btn {
+      border: none;
+      background: none;
+      padding: 0;
+      font-weight: 600;
+      font-size: 0.8rem;
+      color: var(--color-accent);
+      cursor: pointer;
+      text-decoration: underline;
+      transition: color var(--transition);
+    }
+
+    .link-btn:hover,
+    .link-btn:focus {
+      color: var(--color-accent-strong);
+      outline: none;
+    }
+
+    .link-btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+      text-decoration: none;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle input {
+      appearance: none;
+      width: 44px;
+      height: 24px;
+      border-radius: 999px;
+      background: rgba(91, 96, 114, 0.28);
+      position: relative;
+      transition: background var(--transition);
+      flex-shrink: 0;
+    }
+
+    .toggle input::after {
+      content: "";
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+      transition: transform var(--transition);
+    }
+
+    .toggle input:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(75, 107, 255, 0.25);
+    }
+
+    .toggle input:checked {
+      background: linear-gradient(135deg, var(--color-accent), var(--color-accent-strong));
+    }
+
+    .toggle input:checked::after {
+      transform: translateX(20px);
+    }
+
+    .toggle__label {
+      font-size: 0.9rem;
+    }
+
+    .toggle-help {
+      margin: -6px 0 0 56px;
+      font-size: 0.78rem;
+      color: var(--color-muted);
+    }
+
+    .card__actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 999px;
+      font-weight: 600;
+      padding: 0.6rem 1.2rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: transform var(--transition), box-shadow var(--transition), background var(--transition), color var(--transition);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--color-accent), var(--color-accent-strong));
+      color: #fff;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-primary:hover,
+    .btn-primary:focus {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+      outline: none;
+    }
+
+    .btn-secondary {
+      background: rgba(75, 107, 255, 0.12);
+      color: var(--color-accent-strong);
+    }
+
+    .btn-secondary:hover,
+    .btn-secondary:focus {
+      background: rgba(75, 107, 255, 0.2);
+      outline: none;
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .status {
+      display: none;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .status--success {
+      color: var(--color-success);
+    }
+
+    .status--error {
+      color: var(--color-error);
+    }
+
+    .status-pill {
+      display: none;
+      padding: 0.25rem 0.7rem;
+      border-radius: 999px;
+      background: rgba(45, 180, 124, 0.12);
+      color: var(--color-success);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .converter-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .availability-preview {
+      display: none;
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--color-border);
+      background: linear-gradient(150deg, rgba(75, 107, 255, 0.12), transparent 60%), var(--color-surface);
+      box-shadow: var(--shadow-sm);
+      gap: 10px;
+    }
+
+    .availability-preview__title {
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: var(--color-accent-strong);
+    }
+
+    .availability-preview__list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .availability-preview__item {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: #fff;
+      border: 1px solid rgba(34, 44, 82, 0.08);
+    }
+
+    .availability-preview__label {
+      font-weight: 600;
+      font-size: 0.8rem;
+      color: var(--color-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .availability-preview__command {
+      font: 12px/1.45 "JetBrains Mono", "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+      color: var(--color-text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .availability-preview__copy {
+      border: none;
+      border-radius: 999px;
+      padding: 0.45rem 0.8rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: linear-gradient(135deg, var(--color-accent), var(--color-accent-strong));
+      color: #fff;
+      cursor: pointer;
+      transition: transform var(--transition), box-shadow var(--transition);
+    }
+
+    .availability-preview__copy:hover,
+    .availability-preview__copy:focus {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-sm);
+      outline: none;
+    }
+
+    .availability-preview__copy:disabled {
+      opacity: 0.6;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .availability-preview__hint {
+      font-size: 0.75rem;
+      color: var(--color-muted);
+    }
+
+    @media (max-width: 420px) {
+      body {
+        padding: 20px;
+      }
+
+      .card {
+        padding: 18px;
+      }
+
+      .field-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .toggle-help {
+        margin-left: 0;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="row">
-    <div>
-      <label for="bookingClass">Booking class</label>
-      <input id="bookingClass" type="text" maxlength="1" placeholder="J" />
-      <small>1 letter</small>
-    </div>
-    <div>
-      <label for="segmentStatus">Segment status</label>
-      <input id="segmentStatus" type="text" maxlength="3" placeholder="SS1" />
-      <small>3 chars</small>
-    </div>
-  </div>
-  <div class="auto-detect">
-    <span id="bookingStatusNote" class="auto-detect__note"></span>
-    <button id="restoreAutoBtn" type="button" class="link-btn">Restore auto cabin detection</button>
-  </div>
-  <label class="toggle"><input id="enableDirections" type="checkbox" /> Show availability buttons</label>
-  <small class="toggle-help">Adds outbound / inbound (and multi-city journey) availability pills next to *I.</small>
-  <button id="saveBtn" type="button">Save</button><span id="ok" class="ok">Saved</span>
+  <main class="popup" aria-labelledby="popupTitle">
+    <section class="card">
+      <header class="card__header">
+        <span class="card__eyebrow">Defaults</span>
+        <h1 id="popupTitle" class="card__title">Clipboard preferences</h1>
+        <p class="card__subtitle">Control the booking class, segment status, and on-page availability pills.</p>
+      </header>
+      <div class="field-grid">
+        <div class="field">
+          <label class="field__label" for="bookingClass">Booking class</label>
+          <input id="bookingClass" class="field__control" type="text" maxlength="1" placeholder="J" />
+          <span class="field__hint">1 letter</span>
+        </div>
+        <div class="field">
+          <label class="field__label" for="segmentStatus">Segment status</label>
+          <input id="segmentStatus" class="field__control" type="text" maxlength="3" placeholder="SS1" />
+          <span class="field__hint">3 chars</span>
+        </div>
+      </div>
+      <div class="auto-detect">
+        <span id="bookingStatusNote" class="auto-detect__note"></span>
+        <button id="restoreAutoBtn" type="button" class="link-btn">Restore auto cabin detection</button>
+      </div>
+      <label class="toggle" for="enableDirections">
+        <input id="enableDirections" type="checkbox" />
+        <span class="toggle__label">Show availability buttons</span>
+      </label>
+      <p class="toggle-help">Adds outbound / inbound (and multi-city journey) availability pills next to *I.</p>
+      <div class="card__actions">
+        <button id="saveBtn" type="button" class="btn btn-primary">Save preferences</button>
+        <span id="ok" class="status-pill">Saved</span>
+      </div>
+    </section>
 
-  <div class="converter">
-    <label for="viInput">VI* itinerary</label>
-    <textarea id="viInput" placeholder="Paste Sabre VI* output here"></textarea>
-    <div id="availabilityPreview" class="availability-preview">
-      <div class="availability-preview__title">Availability commands</div>
-      <div id="availabilityList" class="availability-preview__list" role="list"></div>
-      <small class="availability-preview__hint">Generated from the VI* text — tap any command to copy it instantly.</small>
-    </div>
-    <div class="converter-actions">
-      <button id="convertBtn" type="button">Convert to *I</button>
-      <button id="copyBtn" type="button" disabled>Copy</button>
-    </div>
-    <div id="convertStatus" class="convert-status"></div>
-    <div id="convertError" class="convert-error"></div>
-    <label for="iOutput">*I result</label>
-    <textarea id="iOutput" readonly placeholder="Converted *I output will appear here"></textarea>
-  </div>
+    <section class="card converter">
+      <header class="card__header">
+        <span class="card__eyebrow">Converter</span>
+        <h2 class="card__title">Turn VI* into *I instantly</h2>
+        <p class="card__subtitle">Paste Sabre VI* output to generate clipboard-ready *I strings and availability commands.</p>
+      </header>
+      <div class="field">
+        <label class="field__label" for="viInput">VI* itinerary</label>
+        <textarea id="viInput" class="field__control field__control--textarea" placeholder="Paste Sabre VI* output here"></textarea>
+      </div>
+      <div id="availabilityPreview" class="availability-preview">
+        <div class="availability-preview__title">Availability commands</div>
+        <div id="availabilityList" class="availability-preview__list" role="list"></div>
+        <p class="availability-preview__hint">Generated from the VI* text — tap any command to copy it instantly.</p>
+      </div>
+      <div class="converter-actions">
+        <button id="convertBtn" type="button" class="btn btn-secondary">Convert to *I</button>
+        <button id="copyBtn" type="button" class="btn btn-primary" disabled>Copy result</button>
+      </div>
+      <div id="convertStatus" class="status status--success"></div>
+      <div id="convertError" class="status status--error"></div>
+      <div class="field">
+        <label class="field__label" for="iOutput">*I result</label>
+        <textarea id="iOutput" class="field__control field__control--textarea" readonly placeholder="Converted *I output will appear here"></textarea>
+      </div>
+    </section>
+  </main>
   <script src="airlines.js"></script>
   <script src="converter.js"></script>
   <script src="popup.js"></script>

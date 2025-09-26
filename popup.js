@@ -489,7 +489,7 @@
         + `</div>`;
     }).join('');
     availabilityList.innerHTML = html;
-    availabilityPreview.style.display = 'block';
+    availabilityPreview.style.display = 'grid';
   }
 
   function escapeHtml(value){
