@@ -48,7 +48,8 @@
     lastSegments: [],
     availabilityCommands: [],
     lastAvailabilityCopiedIndex: -1,
-    copyLabelTimer: null
+    copyLabelTimer: null,
+    copyHoldUntil: 0
   };
 
   const scheduleAutoConvert = debounce((reason) => runConversion(reason || 'auto'), 140);
@@ -261,14 +262,14 @@
       updateAvailabilityPreview('');
       const message = err && err.message ? err.message : 'Could not convert itinerary.';
       showError(message);
-      resetCopyButtonLabel();
+      resetCopyButtonLabel(true);
     }
   }
 
   async function handleManualCopy(){
     if (!outputEl) return;
     resetFeedback();
-    resetCopyButtonLabel();
+    resetCopyButtonLabel(true);
     const text = (outputEl.value || '').trim();
     if (!text){
       showError('Nothing to copy yet.');
@@ -410,16 +411,14 @@
       console.warn('peekSegments preview failed:', err);
       preview = null;
     }
-    const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
-    const segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
-    const directionGroups = (typeof window.computeDirectionsFromSegments === 'function' && segments.length)
+    let journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
+    let segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
+    let directionGroups = (typeof window.computeDirectionsFromSegments === 'function' && segments.length)
       ? window.computeDirectionsFromSegments(segments, { journeys })
       : [];
     const commands = [];
-    const isMultiCity = !!(preview && preview.isMultiCity);
-    const airportCode = (value) => {
-      return value ? String(value).trim().toUpperCase() : '';
-    };
+    let isMultiCity = !!(preview && preview.isMultiCity);
+    const airportCode = toAirportCode;
     const formatDirectionLabel = (direction, fallbackIdx) => {
       if (!direction){
         return `Journey ${fallbackIdx + 1}`;
@@ -510,6 +509,22 @@
         console.warn('Availability command build failed:', err);
       }
     }
+    if (!commands.length && Array.isArray(state.lastSegments) && state.lastSegments.length){
+      const viPreview = buildViAvailabilityPreview(state.lastSegments);
+      if (viPreview){
+        if (!isMultiCity && viPreview.isMultiCity){
+          isMultiCity = true;
+        }
+        const viCommands = buildViAvailabilityCommands({
+          preview: viPreview,
+          formatDirectionLabel,
+          formatJourneyLabel
+        });
+        if (viCommands.length){
+          viCommands.forEach(entry => commands.push(entry));
+        }
+      }
+    }
     if (!commands.length){
       availabilityPreview.style.display = 'none';
       return;
@@ -526,6 +541,352 @@
     }).join('');
     availabilityList.innerHTML = html;
     availabilityPreview.style.display = 'grid';
+  }
+
+  function toAirportCode(value){
+    return value ? String(value).trim().toUpperCase() : '';
+  }
+
+  function toCarrierCode(value){
+    if (!value && value !== 0) return '';
+    return String(value).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  function buildViAvailabilityPreview(sourceSegments){
+    if (!Array.isArray(sourceSegments) || !sourceSegments.length){
+      return null;
+    }
+    const normalized = sourceSegments.map((seg, idx) => {
+      const carrier = toCarrierCode(seg && seg.airlineCode);
+      return {
+        depAirport: toAirportCode(seg && seg.depAirport),
+        arrAirport: toAirportCode(seg && seg.arrAirport),
+        depDate: seg && seg.depDateString ? String(seg.depDateString).toUpperCase() : '',
+        marketingCarrier: carrier,
+        airlineCode: carrier,
+        direction: '',
+        index: idx
+      };
+    });
+    const journeys = inferViJourneysFromSegments(sourceSegments);
+    if (!journeys.length){
+      const fallbackJourney = buildViJourneyDescriptor(sourceSegments, 0, sourceSegments.length - 1, 1);
+      if (fallbackJourney){
+        journeys.push(fallbackJourney);
+      }
+    }
+    journeys.forEach((journey, idx) => {
+      if (!journey) return;
+      if (journey.indexHint == null || !Number.isFinite(journey.indexHint)){
+        journey.indexHint = idx + 1;
+      }
+      const kind = journey.sectionKind || journey.kind || '';
+      journey.kind = kind;
+      journey.sectionKind = kind;
+      for (let i = journey.startIdx; i <= journey.endIdx && i < normalized.length; i++){
+        if (!normalized[i]) continue;
+        normalized[i].direction = kind;
+      }
+    });
+    const isMultiCity = determineViMultiCity(journeys);
+    return { segments: normalized, journeys, isMultiCity };
+  }
+
+  function determineViMultiCity(journeys){
+    if (!Array.isArray(journeys) || journeys.length <= 1){
+      return false;
+    }
+    if (journeys.length > 2){
+      return true;
+    }
+    const first = journeys[0] || null;
+    const second = journeys[1] || null;
+    if (!first || !second){
+      return false;
+    }
+    const startOrigin = toAirportCode(first.origin);
+    const finalDest = toAirportCode(second.dest);
+    const outboundDest = toAirportCode(first.dest);
+    const inboundOrigin = toAirportCode(second.origin);
+    if (startOrigin && finalDest && startOrigin === finalDest && outboundDest && inboundOrigin && outboundDest === inboundOrigin){
+      return false;
+    }
+    return true;
+  }
+
+  function inferViJourneysFromSegments(segments){
+    if (!Array.isArray(segments) || !segments.length){
+      return [];
+    }
+    const journeys = [];
+    let start = 0;
+    for (let idx = 1; idx < segments.length; idx++){
+      if (!isLikelyViConnection(segments[idx - 1], segments[idx])){
+        const descriptor = buildViJourneyDescriptor(segments, start, idx - 1, journeys.length + 1);
+        if (descriptor){
+          journeys.push(descriptor);
+        }
+        start = idx;
+      }
+    }
+    const finalDescriptor = buildViJourneyDescriptor(segments, start, segments.length - 1, journeys.length + 1);
+    if (finalDescriptor){
+      journeys.push(finalDescriptor);
+    }
+    if (journeys.length === 2){
+      const first = journeys[0];
+      const second = journeys[1];
+      const startOrigin = toAirportCode(first && first.origin);
+      const finalDest = toAirportCode(second && second.dest);
+      const outboundDest = toAirportCode(first && first.dest);
+      const inboundOrigin = toAirportCode(second && second.origin);
+      if (startOrigin && finalDest && startOrigin === finalDest && outboundDest && inboundOrigin && outboundDest === inboundOrigin){
+        first.kind = 'outbound';
+        first.sectionKind = 'outbound';
+        second.kind = 'inbound';
+        second.sectionKind = 'inbound';
+      }
+    }
+    journeys.forEach((journey, idx) => {
+      if (!journey) return;
+      if (journey.indexHint == null || !Number.isFinite(journey.indexHint)){
+        journey.indexHint = idx + 1;
+      }
+      if (!journey.sectionKind){
+        journey.sectionKind = journey.kind || '';
+      }
+    });
+    return journeys;
+  }
+
+  function buildViJourneyDescriptor(segments, startIdx, endIdx, ordinal){
+    if (!Array.isArray(segments) || !segments.length){
+      return null;
+    }
+    const total = segments.length;
+    const safeStart = Math.max(0, Number.isFinite(startIdx) ? startIdx : 0);
+    const safeEndRaw = Number.isFinite(endIdx) ? endIdx : safeStart;
+    const safeEnd = Math.max(safeStart, Math.min(total - 1, safeEndRaw));
+    const first = segments[safeStart] || null;
+    const last = segments[safeEnd] || first;
+    return {
+      startIdx: safeStart,
+      endIdx: safeEnd,
+      origin: first ? toAirportCode(first.depAirport) : '',
+      dest: last ? toAirportCode(last.arrAirport) : '',
+      explicit: true,
+      indexHint: ordinal,
+      kind: '',
+      sectionKind: '',
+      headerDate: null
+    };
+  }
+
+  function isLikelyViConnection(prev, next){
+    if (!prev || !next) return false;
+    const prevArr = toAirportCode(prev.arrAirport);
+    const nextDep = toAirportCode(next.depAirport);
+    if (!prevArr || !nextDep || prevArr !== nextDep){
+      return false;
+    }
+    const prevArrDate = prev.arrDateObj instanceof Date ? prev.arrDateObj : null;
+    const nextDepDate = next.depDateObj instanceof Date ? next.depDateObj : null;
+    if (prevArrDate && nextDepDate){
+      const diffDays = Math.floor((nextDepDate - prevArrDate) / (24 * 60 * 60 * 1000));
+      if (diffDays > 1){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function buildViAvailabilityCommands(config){
+    if (!config || typeof config !== 'object') return [];
+    const preview = config.preview || {};
+    const formatDirectionLabel = typeof config.formatDirectionLabel === 'function'
+      ? config.formatDirectionLabel
+      : (direction, idx) => `Journey ${idx + 1}`;
+    const formatJourneyLabel = typeof config.formatJourneyLabel === 'function'
+      ? config.formatJourneyLabel
+      : ((journey, idx) => `Journey ${idx + 1}`);
+    const segments = Array.isArray(preview.segments) ? preview.segments : [];
+    const journeys = Array.isArray(preview.journeys) ? preview.journeys : [];
+    const isMultiCity = !!preview.isMultiCity;
+    if (!segments.length){
+      return [];
+    }
+    let directions = [];
+    if (typeof window.computeDirectionsFromSegments === 'function'){
+      try {
+        directions = window.computeDirectionsFromSegments(segments, { journeys }) || [];
+      } catch (err) {
+        console.warn('computeDirectionsFromSegments failed for VI* preview:', err);
+        directions = [];
+      }
+    }
+    const seen = new Set();
+    const commands = [];
+    const directionList = isMultiCity ? directions : sortDirectionsForDisplay(directions);
+    directionList.forEach((direction, idx) => {
+      if (!direction) return;
+      const command = buildViAvailabilityCommandForDirection(direction, segments);
+      if (!command || seen.has(command)) return;
+      const label = isMultiCity
+        ? formatJourneyLabel(journeys && direction && Number.isFinite(direction.index) ? journeys[direction.index] || null : journeys[idx] || null, idx)
+        : formatDirectionLabel(direction, idx);
+      commands.push({ label, command });
+      seen.add(command);
+    });
+    if (!commands.length){
+      const fallbackCommand = buildViAvailabilityCommandForRange(segments, 0, segments.length - 1);
+      if (fallbackCommand && !seen.has(fallbackCommand)){
+        commands.push({ label: 'All segments', command: fallbackCommand });
+      }
+    }
+    return commands;
+  }
+
+  function sortDirectionsForDisplay(directions){
+    if (!Array.isArray(directions)){
+      return [];
+    }
+    return directions.slice().sort((a, b) => {
+      const priority = (entry) => {
+        if (!entry) return 99;
+        const kind = (entry.kind || '').toLowerCase();
+        if (kind === 'outbound') return 0;
+        if (kind === 'inbound') return 1;
+        return 2 + (Number.isFinite(entry.index) ? entry.index : 0);
+      };
+      const diff = priority(a) - priority(b);
+      if (diff !== 0) return diff;
+      const idxA = Number.isFinite(a && a.index) ? a.index : 0;
+      const idxB = Number.isFinite(b && b.index) ? b.index : 0;
+      return idxA - idxB;
+    });
+  }
+
+  function buildViAvailabilityCommandForRange(segments, startIdx, endIdx){
+    const range = normalizeDirectionRange([startIdx, endIdx], Array.isArray(segments) ? segments.length : 0);
+    if (!range) return '';
+    const [start, end] = range;
+    const origin = segments[start] ? segments[start].depAirport : '';
+    const destination = segments[end] ? segments[end].arrAirport : '';
+    const date = segments[start] ? segments[start].depDate : '';
+    const connections = [];
+    for (let idx = start + 1; idx <= end; idx++){
+      const code = segments[idx] ? segments[idx].depAirport : '';
+      connections.push(code);
+    }
+    const descriptor = {
+      od: [origin, destination],
+      date,
+      connections,
+      range: [start, end]
+    };
+    return buildViAvailabilityCommandForDirection(descriptor, segments);
+  }
+
+  function buildViAvailabilityCommandForDirection(direction, segments){
+    if (!direction || !Array.isArray(segments) || !segments.length){
+      return '';
+    }
+    const origin = toAirportCode(direction.od && direction.od[0]);
+    const destination = toAirportCode(direction.od && direction.od[1]);
+    if (!origin || !destination){
+      return '';
+    }
+    const dateToken = (direction.date || '').toString().trim().toUpperCase();
+    if (!/^\d{2}[A-Z]{3}$/.test(dateToken)){
+      return '';
+    }
+    const dayValue = parseInt(dateToken.slice(0, 2), 10);
+    if (!Number.isFinite(dayValue) || dayValue <= 0){
+      return '';
+    }
+    const monthPart = dateToken.slice(2);
+    let command = `1${dayValue}${monthPart}${origin}${destination}`;
+    const connections = collectDirectionConnections(direction, segments);
+    if (connections.length){
+      command += `12A${connections.join('/')}`;
+    }
+    const carrier = selectViPreferredCarrier(direction, segments);
+    if (carrier){
+      command += `¥${carrier}`;
+    }
+    return command;
+  }
+
+  function collectDirectionConnections(direction, segments){
+    const seen = new Set();
+    const connections = [];
+    const origin = toAirportCode(direction && direction.od && direction.od[0]);
+    const destination = toAirportCode(direction && direction.od && direction.od[1]);
+    const raw = [];
+    if (direction){
+      if (Array.isArray(direction.connections)){
+        raw.push(...direction.connections);
+      } else if (direction.connections && typeof direction.connections.forEach === 'function'){
+        direction.connections.forEach((value) => raw.push(value));
+      }
+    }
+    const range = normalizeDirectionRange(direction && direction.range, Array.isArray(segments) ? segments.length : 0);
+    if (!raw.length && range){
+      const [start, end] = range;
+      for (let idx = start + 1; idx <= end; idx++){
+        const seg = segments[idx];
+        if (seg && seg.depAirport){
+          raw.push(seg.depAirport);
+        }
+      }
+    }
+    raw.forEach((code) => {
+      const airport = toAirportCode(code);
+      if (!airport || airport === origin || airport === destination) return;
+      if (seen.has(airport)) return;
+      seen.add(airport);
+      connections.push(airport);
+    });
+    return connections;
+  }
+
+  function selectViPreferredCarrier(direction, segments){
+    const range = normalizeDirectionRange(direction && direction.range, Array.isArray(segments) ? segments.length : 0);
+    if (!range){
+      return '';
+    }
+    const [start, end] = range;
+    const counts = new Map();
+    for (let idx = start; idx <= end; idx++){
+      const seg = segments[idx];
+      if (!seg) continue;
+      const code = toCarrierCode(seg.marketingCarrier || seg.airlineCode || '');
+      if (!code) continue;
+      counts.set(code, (counts.get(code) || 0) + 1);
+    }
+    let best = '';
+    let bestCount = 0;
+    counts.forEach((count, code) => {
+      if (count > bestCount){
+        best = code;
+        bestCount = count;
+      }
+    });
+    return best;
+  }
+
+  function normalizeDirectionRange(range, total){
+    if (!Array.isArray(range) || range.length < 2 || !Number.isFinite(total) || total <= 0){
+      return null;
+    }
+    const startRaw = Number(range[0]);
+    const endRaw = Number(range[1]);
+    if (!Number.isFinite(startRaw) || !Number.isFinite(endRaw)){
+      return null;
+    }
+    const start = Math.max(0, Math.min(total - 1, startRaw));
+    const end = Math.max(start, Math.min(total - 1, endRaw));
+    return [start, end];
   }
 
   function escapeHtml(value){
@@ -552,7 +913,7 @@
     resetFeedback();
     if (outputEl) outputEl.value = '';
     if (copyBtn) copyBtn.disabled = true;
-    resetCopyButtonLabel();
+    resetCopyButtonLabel(true);
     state.lastResult = '';
     state.lastCopied = '';
     state.lastInput = '';
@@ -596,18 +957,27 @@
       state.copyLabelTimer = null;
     }
     copyBtn.textContent = COPY_SUCCESS_LABEL;
+    state.copyHoldUntil = Date.now() + COPY_RESET_DELAY;
     state.copyLabelTimer = setTimeout(() => {
       copyBtn.textContent = copyBtnDefaultLabel;
       state.copyLabelTimer = null;
+      state.copyHoldUntil = 0;
     }, COPY_RESET_DELAY);
   }
 
-  function resetCopyButtonLabel(){
+  function resetCopyButtonLabel(force = false){
     if (!copyBtn) return;
+    if (!force && state.copyLabelTimer){
+      return;
+    }
+    if (!force && state.copyHoldUntil && Date.now() < state.copyHoldUntil){
+      return;
+    }
     if (state.copyLabelTimer){
       clearTimeout(state.copyLabelTimer);
       state.copyLabelTimer = null;
     }
+    state.copyHoldUntil = 0;
     copyBtn.textContent = copyBtnDefaultLabel;
   }
 
