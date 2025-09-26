@@ -147,6 +147,48 @@ const overnightLines = window.convertTextToI(overnightWrap).split('\n');
 assert.ok(/01MAR/.test(overnightLines[0]), 'first segment should retain original departure date');
 assert.ok(/02MAR/.test(overnightLines[1]), 'time wrap should advance to next calendar day for continuing leg');
 
+const journeyBoundaryRegression = [
+  'Depart • Thu, Oct 16',
+  'Flight 1 • Thu, Oct 16',
+  'British Airways 287',
+  '9:00 am',
+  'London (LHR)',
+  '1:40 pm',
+  'San Francisco (SFO)',
+  'Return • Thu, Oct 16',
+  'Flight 2 • Thu, Oct 16',
+  'British Airways 286',
+  '1:05 pm',
+  'San Francisco (SFO)',
+  '7:00 am',
+  'London (LHR)'
+].join('\n');
+
+const journeyBoundaryLines = window.convertTextToI(journeyBoundaryRegression).split('\n');
+const journeyBoundaryPeek = window.peekSegments(journeyBoundaryRegression);
+assert.ok(/16OCT/.test(journeyBoundaryLines[1] || ''), 'first return segment should stay on Oct 16 at journey boundary');
+assert.strictEqual(journeyBoundaryPeek.segments[1].depDate, '16OCT', 'return leg should not inherit next-day rollover from prior journey');
+
+const midnightConnection = [
+  'Depart • Mon, Nov 3',
+  'Flight 1 • Mon, Nov 3',
+  'Delta Air Lines 200',
+  '9:00 pm',
+  'New York (JFK)',
+  '11:30 pm',
+  'Atlanta (ATL)',
+  'Delta Air Lines 201',
+  '12:10 am',
+  'Atlanta (ATL)',
+  '2:20 am',
+  'Miami (MIA)'
+].join('\n');
+
+const midnightLines = window.convertTextToI(midnightConnection).split('\n');
+const midnightPeek = window.peekSegments(midnightConnection);
+assert.ok(/04NOV/.test(midnightLines[1] || ''), 'overnight connection should advance to Nov 4 in output');
+assert.strictEqual(midnightPeek.segments[1].depDate, '04NOV', 'overnight connection within a journey should roll to the next day');
+
 const kayakSplitHeader = [
   'Depart',
   '23h 15m',
