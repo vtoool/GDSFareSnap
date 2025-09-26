@@ -10,6 +10,7 @@
 
   // Expect global AIRLINE_CODES from airlines.js
   const MONTHS = {JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11};
+  const DAY_MS = 24 * 60 * 60 * 1000;
   const MONTH_3 = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
   const DOW_CODE = { SUN:'S', MON:'M', TUE:'T', WED:'W', THU:'Q', FRI:'F', SAT:'J' };
   const DOW_SEQUENCE = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
@@ -79,6 +80,23 @@
     const num = parseInt(cleaned, 10);
     if(!Number.isFinite(num)) return '';
     return pad2(num);
+  }
+
+  function dateInfoToUtcDate(info){
+    if(!info) return null;
+    const monKey = normalizeMonthToken(info.mon);
+    const dayVal = parseInt(info.day, 10);
+    if(!monKey || !Number.isFinite(dayVal)) return null;
+    const monthIndex = MONTHS[monKey];
+    return new Date(Date.UTC(2024, monthIndex, dayVal));
+  }
+
+  function dateInfoDifferenceInDays(a, b){
+    const dateA = dateInfoToUtcDate(a);
+    const dateB = dateInfoToUtcDate(b);
+    if(!dateA || !dateB) return null;
+    const diff = dateB.getTime() - dateA.getTime();
+    return Math.round(diff / DAY_MS);
   }
 
   function buildDateFromMatch(match, cfg){
@@ -1000,7 +1018,15 @@
         }
         const lastArrivalMatches = lastArrivalInfo && depAirport && lastArrivalInfo.airport === depAirport;
         let segmentDate = currentDate ? cloneDateInfo(currentDate) : null;
-        if(lastArrivalMatches && !isJourneyBoundary){
+        const initialSegmentDate = segmentDate ? cloneDateInfo(segmentDate) : null;
+        let shouldInheritArrivalContext = lastArrivalMatches && !isJourneyBoundary;
+        if(shouldInheritArrivalContext && lastArrivalInfo && lastArrivalInfo.date && initialSegmentDate){
+          const diffDays = dateInfoDifferenceInDays(lastArrivalInfo.date, initialSegmentDate);
+          if(diffDays != null && Math.abs(diffDays) >= 2){
+            shouldInheritArrivalContext = false;
+          }
+        }
+        if(shouldInheritArrivalContext){
           let base = lastArrivalInfo.date ? cloneDateInfo(lastArrivalInfo.date) : null;
           if(!base && segmentDate){
             base = cloneDateInfo(segmentDate);

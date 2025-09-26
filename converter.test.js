@@ -164,6 +164,28 @@ assert.ok(/10OCT/.test(matrixArriveLines[1] || ''), 'PHL-CDG segment should reta
 assert.ok(!/30OCT/.test(matrixArriveLines[1] || ''), 'PHL-CDG segment should not inherit the Oct 30 return header as an arrival date');
 assert.ok(/30OCT/.test(matrixArriveLines[2] || ''), 'CDG-LHR segment should depart on Oct 30 per the return header');
 
+const matrixReturnless = [
+  'Los Angeles (LAX) to Paris (CDG) on Fri, Oct 10',
+  'Los Angeles (LAX) to Philadelphia (PHL) on Fri, Oct 10',
+  '12:04 PM to 8:19 PM (5h 15m)',
+  'American 3013',
+  'Philadelphia (PHL) to Paris (CDG) on Fri, Oct 10',
+  '10:15 PM to 11:30 AM (7h 15m)',
+  'American 754',
+  'Paris (CDG) to San Francisco (SFO) on Thu, Oct 30',
+  'Paris (CDG) to London (LHR) on Thu, Oct 30',
+  '7:05 AM to 7:35 AM (1h 30m)',
+  'American 7044 (operated by British Airways)',
+  'London (LHR) to San Francisco (SFO) on Thu, Oct 30',
+  '11:45 AM to 4:00 PM (11h 15m)',
+  'American 6996 (operated by British Airways)'
+].join('\n');
+
+const matrixReturnlessLines = window.convertTextToI(matrixReturnless).split('\n');
+const matrixReturnlessPeek = window.peekSegments(matrixReturnless);
+assert.ok(/30OCT/.test(matrixReturnlessLines[2] || ''), 'returnless itinerary should still depart on Oct 30 when a new route header provides the date');
+assert.strictEqual(matrixReturnlessPeek.segments[2].depDate, '30OCT', 'peekSegments should honor the Oct 30 departure for the inbound leg even without a return header');
+
 const overnightWrap = [
   'Depart • Fri, Mar 1',
   'Flight 1 • Fri, Mar 1',
