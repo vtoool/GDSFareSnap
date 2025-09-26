@@ -128,6 +128,42 @@ assert.ok(/28SEP/.test(matrixRegressionLines[0]), 'first Matrix leg should keep 
 const matrixRegressionPeek = window.peekSegments(matrixDateRegression);
 assert.strictEqual(matrixRegressionPeek.segments[0].depDate, '28SEP', 'peekSegments should retain original September departure date');
 
+const matrixArriveLeak = [
+  'Depart • Fri, Oct 10',
+  'Flight 1 • Fri, Oct 10',
+  'Los Angeles (LAX) to Philadelphia (PHL) on Fri, Oct 10',
+  'American 3013',
+  '12:04 pm',
+  'Los Angeles (LAX)',
+  '8:19 pm',
+  'Philadelphia (PHL)',
+  'Philadelphia (PHL) to Paris (CDG) on Fri, Oct 10',
+  'American 754',
+  '10:15 pm',
+  'Philadelphia (PHL)',
+  '11:30 am',
+  'Paris (CDG)',
+  'Return • Thu, Oct 30',
+  'Flight 2 • Thu, Oct 30',
+  'Paris (CDG) to London (LHR) on Thu, Oct 30',
+  'American 7044',
+  '7:05 am',
+  'Paris (CDG)',
+  '7:35 am',
+  'London (LHR)',
+  'London (LHR) to San Francisco (SFO) on Thu, Oct 30',
+  'American 6996',
+  '11:45 am',
+  'London (LHR)',
+  '4:00 pm',
+  'San Francisco (SFO)'
+].join('\n');
+
+const matrixArriveLines = window.convertTextToI(matrixArriveLeak).split('\n');
+assert.ok(/10OCT/.test(matrixArriveLines[1] || ''), 'PHL-CDG segment should retain its Oct 10 departure date');
+assert.ok(!/30OCT/.test(matrixArriveLines[1] || ''), 'PHL-CDG segment should not inherit the Oct 30 return header as an arrival date');
+assert.ok(/30OCT/.test(matrixArriveLines[2] || ''), 'CDG-LHR segment should depart on Oct 30 per the return header');
+
 const overnightWrap = [
   'Depart • Fri, Mar 1',
   'Flight 1 • Fri, Mar 1',

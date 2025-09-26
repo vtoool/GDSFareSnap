@@ -210,6 +210,7 @@
 
   function parseArrivesDate(line){
     // "Arrives Fri, Oct 24"
+    if(!/\bArrives\b/i.test(line || '')) return null;
     const cleaned = line.replace(/\(.*?\)/g, ' ').replace(/\s*\+\s?\d+(?:\s*day(?:s)?)?/ig,' ').replace(/\s+/g,' ').trim();
     const patterns = [
       {
