@@ -1262,27 +1262,126 @@
     }
 
     const normalized = [];
-    const headerOnly = /^(Depart(?:ure)?|Return|Outbound|Inbound)$/i;
+    const consumed = new Set();
+    const headerPrefix = /^(Depart(?:ure)?|Return|Outbound|Inbound)/i;
+    const departsPrefix = /^Departs?\b/i;
+    const arrivesPrefix = /^Arrives\b/i;
+    const skipBetweenDate = [
+      /^\*I/i,
+      /^\d+h(?:\s?\d+m)?$/i,
+      /^\d+\s?m$/i,
+      /^Overnight flight/i,
+      /^Long (?:layover|stopover)/i,
+      /^Change planes in/i,
+      /^Layover/i,
+      /^Limited seats/i
+    ];
 
-    for (let i = 0; i < expanded.length; i++) {
-      const line = expanded[i];
-      if (headerOnly.test(line)) {
-        let combined = line;
-        let consumed = 0;
-        for (let look = 1; look <= 3 && (i + look) < expanded.length; look++) {
-          combined += ' ' + expanded[i + look];
-          if (parseHeaderDate(combined)) {
-            normalized.push(combined);
-            consumed = look;
-            break;
+    const dateTokenPatterns = [
+      /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)(?:day)?[,]?$/i,
+      /^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\.?|,)?$/i,
+      /^\d{1,2}(?:st|nd|rd|th)?$/i,
+      /^\d{4}$/,
+      /^on$/i
+    ];
+
+    const isDateToken = (value) => {
+      if(!value) return false;
+      const trimmed = String(value).replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim();
+      if(!trimmed) return false;
+      return dateTokenPatterns.some(rx => rx.test(trimmed));
+    };
+
+    const normalizeCombined = (value) => {
+      return String(value || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+,/g, ',')
+        .replace(/,\s+/g, ', ')
+        .trim();
+    };
+
+    const tryMergeWithFollowing = (startIndex, parseFn, options) => {
+      let combined = expanded[startIndex];
+      const consumedOffsets = [];
+      let appendedDate = false;
+      const maxLook = options && Number.isFinite(options.maxLook) ? options.maxLook : 8;
+      for(let look = 1; look <= maxLook; look++){
+        const idx = startIndex + look;
+        if(idx >= expanded.length) break;
+        if(consumed.has(idx)) continue;
+        const candidate = expanded[idx];
+        if(!candidate) continue;
+        const normalizedCandidate = candidate.replace(/\s+/g,' ').trim();
+        if(!normalizedCandidate) continue;
+        if(isDateToken(normalizedCandidate)){
+          combined += ' ' + normalizedCandidate;
+          consumedOffsets.push(idx);
+          appendedDate = true;
+          if(parseFn(combined)){
+            return { merged: normalizeCombined(combined), consumed: consumedOffsets };
           }
+          continue;
         }
-        if (consumed) {
-          i += consumed;
+        if(options && Array.isArray(options.skipPatterns) && options.skipPatterns.some(rx => rx.test(normalizedCandidate))){
           continue;
         }
       }
-      normalized.push(line);
+      if(options && options.requireDate && !appendedDate){
+        return null;
+      }
+      return null;
+    };
+
+    for (let i = 0; i < expanded.length; i++) {
+      if(consumed.has(i)) continue;
+      const line = expanded[i];
+      if(!line) continue;
+      const trimmed = line.replace(/\s+/g, ' ').trim();
+      if(!trimmed) continue;
+
+      if(headerPrefix.test(trimmed)){
+        const parsed = parseHeaderDate(trimmed);
+        if(parsed){
+          normalized.push(trimmed);
+          continue;
+        }
+        const merged = tryMergeWithFollowing(i, parseHeaderDate, { skipPatterns: skipBetweenDate, maxLook: 10, requireDate: true });
+        if(merged){
+          merged.consumed.forEach(idx => consumed.add(idx));
+          normalized.push(merged.merged);
+          continue;
+        }
+      }
+
+      if(departsPrefix.test(trimmed)){
+        const parsedDep = parseDepartsDate(trimmed);
+        if(parsedDep){
+          normalized.push(trimmed);
+          continue;
+        }
+        const mergedDep = tryMergeWithFollowing(i, parseDepartsDate, { skipPatterns: skipBetweenDate, maxLook: 6, requireDate: true });
+        if(mergedDep){
+          mergedDep.consumed.forEach(idx => consumed.add(idx));
+          normalized.push(mergedDep.merged);
+          continue;
+        }
+      }
+
+      if(arrivesPrefix.test(trimmed)){
+        const parsedArr = parseArrivesDate(trimmed);
+        if(parsedArr){
+          normalized.push(trimmed);
+          continue;
+        }
+        const mergedArr = tryMergeWithFollowing(i, parseArrivesDate, { skipPatterns: skipBetweenDate, maxLook: 6, requireDate: true });
+        if(mergedArr){
+          mergedArr.consumed.forEach(idx => consumed.add(idx));
+          normalized.push(mergedArr.merged);
+          continue;
+        }
+      }
+
+      normalized.push(trimmed);
     }
 
     return normalized;

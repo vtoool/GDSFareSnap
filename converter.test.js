@@ -147,6 +147,55 @@ const overnightLines = window.convertTextToI(overnightWrap).split('\n');
 assert.ok(/01MAR/.test(overnightLines[0]), 'first segment should retain original departure date');
 assert.ok(/02MAR/.test(overnightLines[1]), 'time wrap should advance to next calendar day for continuing leg');
 
+const kayakSplitHeader = [
+  'Depart',
+  '23h 15m',
+  '*I✓',
+  'Fri,',
+  '3',
+  'Oct',
+  'Turkish Airlines 272',
+  '21:20',
+  'Chișinău Intl (RMO)',
+  '22:55',
+  'Istanbul (IST)',
+  'Long stopover',
+  'Turkish Airlines 289',
+  '07:10',
+  'Istanbul (IST)',
+  'Departs',
+  'Sat,',
+  '4',
+  'Oct',
+  '10:35',
+  'San Francisco (SFO)',
+  'Return',
+  '15h 45m',
+  '*I✓',
+  'Fri,',
+  '24',
+  'Oct',
+  'Turkish Airlines 80',
+  '18:45',
+  'San Francisco (SFO)',
+  'Arrives',
+  'Sat,',
+  '25',
+  'Oct',
+  '17:45',
+  'Istanbul (IST)',
+  'Turkish Airlines 271',
+  '18:55',
+  'Istanbul (IST)',
+  '20:30',
+  'Chișinău Intl (RMO)'
+].join('\n');
+
+const kayakSplitLines = window.convertTextToI(kayakSplitHeader).split('\n');
+assert.strictEqual(kayakSplitLines.length, 4, 'split header sample should yield four segments');
+assert.ok(/03OCT/.test(kayakSplitLines[0]), 'split header should still yield outbound date');
+assert.ok(/24OCT/.test(kayakSplitLines[2]), 'return header should reset inbound departure date');
+
 const outboundAvailability = window.convertTextToAvailability(sampleItinerary, { direction: 'outbound' });
 assert.strictEqual(outboundAvailability, '112APRSEABCN12AORD/MAD¥IB', 'outbound availability should collapse to SEA-BCN with connections');
 
