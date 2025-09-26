@@ -1368,17 +1368,61 @@
         if(!candidate) continue;
         const normalizedCandidate = candidate.replace(/\s+/g,' ').trim();
         if(!normalizedCandidate) continue;
+
+        if(options && options.stopOnHeader && headerPrefix.test(normalizedCandidate)){
+          break;
+        }
+
+        if((!options || options.skipArrives !== false) && arrivesPrefix.test(normalizedCandidate)){
+          continue;
+        }
+
+        if(options && Array.isArray(options.skipPatterns) && options.skipPatterns.some(rx => rx.test(normalizedCandidate))){
+          continue;
+        }
+
+        if(options && options.allowAirlineTokens){
+          if(looksLikeAirlineName(normalizedCandidate)){
+            continue;
+          }
+          if(extractFlightNumberLine(normalizedCandidate)){
+            continue;
+          }
+        }
+
+        if(options && options.allowEquipmentTokens && isLikelyEquipmentLine(normalizedCandidate)){
+          continue;
+        }
+
+        if(options && options.allowTimeTokens){
+          const timeCandidate = toAmPmMinutes(normalizedCandidate);
+          if(timeCandidate && Number.isFinite(timeCandidate.mins)){
+            continue;
+          }
+        }
+
+        if(options && options.allowAirportTokens && extractAirportCode(normalizedCandidate)){
+          continue;
+        }
+
         if(isDateToken(normalizedCandidate)){
           combined += ' ' + normalizedCandidate;
           consumedOffsets.push(idx);
           appendedDate = true;
-          if(parseFn(combined)){
-            return { merged: normalizeCombined(combined), consumed: consumedOffsets };
+          const normalizedCombined = normalizeCombined(combined);
+          if(parseFn(normalizedCombined)){
+            return { merged: normalizedCombined, consumed: consumedOffsets };
           }
           continue;
         }
-        if(options && Array.isArray(options.skipPatterns) && options.skipPatterns.some(rx => rx.test(normalizedCandidate))){
-          continue;
+
+        if(options && options.allowCombinedDate){
+          const testCombined = normalizeCombined(`${combined} ${normalizedCandidate}`);
+          if(parseFn(testCombined)){
+            consumedOffsets.push(idx);
+            appendedDate = true;
+            return { merged: testCombined, consumed: consumedOffsets };
+          }
         }
       }
       if(options && options.requireDate && !appendedDate){
@@ -1400,7 +1444,17 @@
           normalized.push(trimmed);
           continue;
         }
-        const merged = tryMergeWithFollowing(i, parseHeaderDate, { skipPatterns: skipBetweenDate, maxLook: 10, requireDate: true });
+        const merged = tryMergeWithFollowing(i, parseHeaderDate, {
+          skipPatterns: skipBetweenDate,
+          maxLook: 12,
+          requireDate: true,
+          allowAirlineTokens: true,
+          allowEquipmentTokens: true,
+          allowTimeTokens: true,
+          allowAirportTokens: true,
+          allowCombinedDate: true,
+          stopOnHeader: true
+        });
         if(merged){
           merged.consumed.forEach(idx => consumed.add(idx));
           normalized.push(merged.merged);
@@ -1414,7 +1468,17 @@
           normalized.push(trimmed);
           continue;
         }
-        const mergedDep = tryMergeWithFollowing(i, parseDepartsDate, { skipPatterns: skipBetweenDate, maxLook: 6, requireDate: true });
+        const mergedDep = tryMergeWithFollowing(i, parseDepartsDate, {
+          skipPatterns: skipBetweenDate,
+          maxLook: 6,
+          requireDate: true,
+          allowAirlineTokens: true,
+          allowEquipmentTokens: true,
+          allowTimeTokens: true,
+          allowAirportTokens: true,
+          allowCombinedDate: true,
+          stopOnHeader: true
+        });
         if(mergedDep){
           mergedDep.consumed.forEach(idx => consumed.add(idx));
           normalized.push(mergedDep.merged);
@@ -1428,7 +1492,18 @@
           normalized.push(trimmed);
           continue;
         }
-        const mergedArr = tryMergeWithFollowing(i, parseArrivesDate, { skipPatterns: skipBetweenDate, maxLook: 6, requireDate: true });
+        const mergedArr = tryMergeWithFollowing(i, parseArrivesDate, {
+          skipPatterns: skipBetweenDate,
+          maxLook: 6,
+          requireDate: true,
+          allowAirlineTokens: true,
+          allowEquipmentTokens: true,
+          allowTimeTokens: true,
+          allowAirportTokens: true,
+          allowCombinedDate: true,
+          skipArrives: false,
+          stopOnHeader: true
+        });
         if(mergedArr){
           mergedArr.consumed.forEach(idx => consumed.add(idx));
           normalized.push(mergedArr.merged);

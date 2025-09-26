@@ -190,6 +190,28 @@ const returnHeaderWithInterveningText = [
 const returnHeaderWithInterveningLines = window.convertTextToI(returnHeaderWithInterveningText).split('\n');
 assert.ok(/16OCT/.test(returnHeaderWithInterveningLines[1] || ''), 'return leg should respect explicit Oct 16 header even when header tokens are split by carrier lines');
 
+const returnDateAfterDetailLines = [
+  'Depart • Thu, Oct 9',
+  'Austrian Airlines 7857 · Operated by United Airlines',
+  '10:35 am',
+  'London Heathrow (LHR)',
+  '1:40 pm',
+  'San Francisco (SFO)',
+  'Return',
+  'Austrian Airlines',
+  'Austrian Airlines 7856 · Operated by United Airlines',
+  'Boeing 777',
+  '1:05 pm',
+  'San Francisco (SFO)',
+  '7:25 am',
+  'London Heathrow (LHR)',
+  'Arrives Fri, Oct 17',
+  'Thu, Oct 16'
+].join('\n');
+
+const returnDateAfterDetailOutput = window.convertTextToI(returnDateAfterDetailLines).split('\n');
+assert.ok(/16OCT/.test(returnDateAfterDetailOutput[1] || ''), 'delayed header date should still apply Oct 16 to the first inbound segment');
+
 const midnightConnection = [
   'Depart • Mon, Nov 3',
   'Flight 1 • Mon, Nov 3',
