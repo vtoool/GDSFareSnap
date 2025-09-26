@@ -591,6 +591,7 @@
     const journeys = tracking ? [] : null;
     let currentJourney = null;
     let pendingJourneyHeader = null;
+    let journeyBoundaryPending = false;
 
     const finalizeJourney = () => {
       if(!currentJourney) return;
@@ -613,6 +614,8 @@
     };
 
     const startJourney = (meta) => {
+      lastArrivalInfo = null;
+      journeyBoundaryPending = true;
       if(!journeys) return;
       if(currentJourney){
         const startIdx = currentJourney.startIdx;
@@ -801,7 +804,8 @@
               : null,
             explicit: true,
             sourceIndex: j,
-            deferred: false
+            deferred: false,
+            boundaryPending: false
           };
           continue;
         }
@@ -971,6 +975,7 @@
           const matchesPrevArrival = lastSeg && lastSeg.arrAirport && depAirport && lastSeg.arrAirport === depAirport;
           if(matchesPrevArrival){
             pendingJourneyHeader.deferred = true;
+            pendingJourneyHeader.boundaryPending = true;
           } else {
             const headerDate = pendingJourneyHeader.headerDate ? { ...pendingJourneyHeader.headerDate } : null;
             if(headerDate){
@@ -986,9 +991,15 @@
             pendingJourneyHeader = null;
           }
         }
+        const boundaryFromHeader = pendingJourneyHeader && pendingJourneyHeader.boundaryPending === true;
+        const isJourneyBoundary = journeyBoundaryPending || boundaryFromHeader;
+        journeyBoundaryPending = false;
+        if(boundaryFromHeader && pendingJourneyHeader){
+          pendingJourneyHeader.boundaryPending = false;
+        }
         const lastArrivalMatches = lastArrivalInfo && depAirport && lastArrivalInfo.airport === depAirport;
         let segmentDate = currentDate ? cloneDateInfo(currentDate) : null;
-        if(lastArrivalMatches){
+        if(lastArrivalMatches && !isJourneyBoundary){
           let base = lastArrivalInfo.date ? cloneDateInfo(lastArrivalInfo.date) : null;
           if(!base && segmentDate){
             base = cloneDateInfo(segmentDate);
