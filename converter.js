@@ -1027,16 +1027,24 @@
         }
         const lastArrivalMatches = lastArrivalInfo && depAirport && lastArrivalInfo.airport === depAirport;
         let segmentDate = currentDate ? cloneDateInfo(currentDate) : null;
-        if(lastArrivalMatches && !isJourneyBoundary){
-          const hasSegmentDate = segmentDate && segmentDate.day && segmentDate.mon;
-          const diffFromArrival = hasSegmentDate ? diffDateInfoDays(segmentDate, lastArrivalInfo.date) : null;
+        const initialSegmentDate = segmentDate ? cloneDateInfo(segmentDate) : null;
+        let shouldInheritArrivalContext = lastArrivalMatches && !isJourneyBoundary;
+        if(shouldInheritArrivalContext && lastArrivalInfo && lastArrivalInfo.date && initialSegmentDate){
+          const diffDays = diffDateInfoDays(initialSegmentDate, lastArrivalInfo.date);
+          if(diffDays != null && Math.abs(diffDays) >= 2){
+            shouldInheritArrivalContext = false;
+          }
+        }
+        if(shouldInheritArrivalContext){
+          const hasSegmentDate = initialSegmentDate && initialSegmentDate.day && initialSegmentDate.mon;
+          const diffFromArrival = hasSegmentDate ? diffDateInfoDays(initialSegmentDate, lastArrivalInfo.date) : null;
           const arrivalDateExplicit = lastArrivalInfo && lastArrivalInfo.dateExplicit === true;
           const requiresRollover = lastArrivalInfo && lastArrivalInfo.minutes != null && depTime && depTime.mins != null && depTime.mins < lastArrivalInfo.minutes;
           let base = null;
           let usedArrivalBaseline = false;
           const shouldPreferSegmentDate = hasSegmentDate && diffFromArrival != null && diffFromArrival > 0;
           if(shouldPreferSegmentDate){
-            base = cloneDateInfo(segmentDate);
+            base = cloneDateInfo(initialSegmentDate);
           }
           if(!base && lastArrivalInfo.date && (arrivalDateExplicit || !hasSegmentDate || (diffFromArrival != null && diffFromArrival < 0) || headerDeferred || requiresRollover)){
             base = cloneDateInfo(lastArrivalInfo.date);
@@ -1044,14 +1052,14 @@
           }
           if(!base){
             if(hasSegmentDate){
-              base = cloneDateInfo(segmentDate);
+              base = cloneDateInfo(initialSegmentDate);
             } else if(currentDate){
               base = cloneDateInfo(currentDate);
             }
           }
           if(base){
             if(usedArrivalBaseline && lastArrivalInfo.minutes != null && depTime && depTime.mins != null && depTime.mins < lastArrivalInfo.minutes){
-              base = addDaysToDateInfo(base, 1, base.dow || (segmentDate ? segmentDate.dow : ''));
+              base = addDaysToDateInfo(base, 1, base.dow || (initialSegmentDate ? initialSegmentDate.dow : ''));
             }
             segmentDate = cloneDateInfo(base);
             currentDate = cloneDateInfo(base);
