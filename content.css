@@ -67,14 +67,14 @@
   height:44px;
   padding:0;
   border-radius:50%;
-  border:2px solid rgba(217,48,37,.85);
-  background:linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(244,244,244,.98) 100%);
+  border:2px solid rgba(64,86,217,.82);
+  background:linear-gradient(180deg, rgba(248,249,255,.98) 0%, rgba(234,238,255,.98) 100%);
   box-shadow:0 4px 14px rgba(0,0,0,.22);
   cursor:pointer;
   backdrop-filter:saturate(1.08) blur(3px);
   transition:transform .18s ease, box-shadow .18s ease, background .22s ease, border-color .22s ease, filter .22s ease, opacity .22s ease, color .22s ease;
   font:700 14px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-  color:#d93025;
+  color:#3146c9;
   overflow:hidden;
 }
 
@@ -91,7 +91,7 @@
   width:36px;
   height:36px;
   border-radius:999px;
-  border:2px solid rgba(217,48,37,.85);
+  border:2px solid rgba(64,86,217,.82);
   box-shadow:0 4px 14px rgba(0,0,0,.2);
 }
 
