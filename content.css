@@ -174,10 +174,10 @@
 }
 
 .kayak-copy-btn.is-copied{
-  background:linear-gradient(180deg, #2dd36f 0%, #1ea85a 100%);
-  border-color:rgba(255,255,255,.92);
+  background:linear-gradient(180deg, #5a77ff 0%, #1e40ff 100%);
+  border-color:rgba(231, 237, 255, .95);
   color:#fff;
-  box-shadow:0 6px 18px rgba(12,94,40,.38);
+  box-shadow:0 6px 18px rgba(38, 64, 178, .36);
 }
 .kayak-copy-btn.is-copied .pill-text{ opacity:0; transform:scale(.7); }
 .kayak-copy-btn.is-copied .pill-check{ opacity:1; transform:scale(1); color:#fff; }
@@ -186,7 +186,7 @@
   position:absolute;
   inset:-4px;
   border-radius:50%;
-  border:2px solid rgba(45,211,111,.45);
+  border:2px solid rgba(90, 119, 255, .45);
   pointer-events:none;
   animation:kayak-copy-ping .45s ease-out forwards;
 }
@@ -239,8 +239,8 @@ html.kayak-copy-modal-dim .kayak-copy-btn.kayak-copy-btn--ita{
 }
 
 html.kayak-copy-modal-dim .kayak-copy-btn.is-copied{
-  filter:saturate(.9) brightness(.88);
-  box-shadow:0 4px 14px rgba(12,94,40,.32);
+  filter:saturate(.94) brightness(.9);
+  box-shadow:0 4px 14px rgba(38,64,178,.32);
 }
 
 .kayak-copy-cabin-hint{
