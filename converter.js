@@ -1338,8 +1338,29 @@
         .trim();
     };
 
+    const inlineMonthPattern = '(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
+    const inlineDowPattern = '(Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?)';
+    const inlineDayPattern = '(?:\\d{1,2})(?:st|nd|rd|th)?';
+    const dateFragmentPatterns = [
+      new RegExp(`${inlineDowPattern}[,\\s-]+${inlineMonthPattern}[,\\s-]+${inlineDayPattern}`, 'i'),
+      new RegExp(`${inlineDowPattern}[,\\s-]+${inlineDayPattern}[,\\s-]+${inlineMonthPattern}`, 'i'),
+      new RegExp(`${inlineMonthPattern}[,\\s-]*${inlineDayPattern}(?:[,\\s-]+${inlineDowPattern})?`, 'i'),
+      new RegExp(`${inlineDayPattern}[,\\s-]+${inlineMonthPattern}(?:[,\\s-]+${inlineDowPattern})?`, 'i')
+    ];
+
+    const extractDateFragment = (value) => {
+      if(!value) return '';
+      for(const rx of dateFragmentPatterns){
+        const match = value.match(rx);
+        if(match && match[0]){
+          return match[0];
+        }
+      }
+      return '';
+    };
+
     const tryMergeWithFollowing = (startIndex, parseFn, options) => {
-      let combined = expanded[startIndex];
+      let combined = normalizeCombined(expanded[startIndex]);
       const consumedOffsets = [];
       let appendedDate = false;
       const maxLook = options && Number.isFinite(options.maxLook) ? options.maxLook : 8;
@@ -1352,15 +1373,24 @@
         const normalizedCandidate = candidate.replace(/\s+/g,' ').trim();
         if(!normalizedCandidate) continue;
         if(isDateToken(normalizedCandidate)){
-          combined += ' ' + normalizedCandidate;
+          combined = normalizeCombined(`${combined} ${normalizedCandidate}`);
           consumedOffsets.push(idx);
           appendedDate = true;
           if(parseFn(combined)){
-            return { merged: normalizeCombined(combined), consumed: consumedOffsets };
+            return { merged: combined, consumed: consumedOffsets };
           }
           continue;
         }
         if(options && Array.isArray(options.skipPatterns) && options.skipPatterns.some(rx => rx.test(normalizedCandidate))){
+          continue;
+        }
+        const extracted = extractDateFragment(normalizedCandidate);
+        if(extracted){
+          combined = normalizeCombined(`${combined} ${extracted}`);
+          appendedDate = true;
+          if(parseFn(combined)){
+            return { merged: combined, consumed: consumedOffsets };
+          }
           continue;
         }
       }
