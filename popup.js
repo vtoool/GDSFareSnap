@@ -23,6 +23,10 @@
   const availabilityPreview = document.getElementById('availabilityPreview');
   const availabilityList = document.getElementById('availabilityList');
 
+  const COPY_SUCCESS_LABEL = 'Copied';
+  const COPY_RESET_DELAY = 1600;
+  const copyBtnDefaultLabel = copyBtn && copyBtn.textContent ? copyBtn.textContent.trim() || 'Copy result' : 'Copy result';
+
   if (bookingStatusNote){
     bookingStatusNote.textContent = 'Checking auto cabin detection…';
   }
@@ -43,7 +47,8 @@
     lastCopied: '',
     lastSegments: [],
     availabilityCommands: [],
-    lastAvailabilityCopiedIndex: -1
+    lastAvailabilityCopiedIndex: -1,
+    copyLabelTimer: null
   };
 
   const scheduleAutoConvert = debounce((reason) => runConversion(reason || 'auto'), 140);
@@ -192,6 +197,7 @@
     }
 
     resetFeedback();
+    resetCopyButtonLabel();
     if (copyBtn){
       copyBtn.disabled = true;
     }
@@ -232,6 +238,7 @@
         if (outcome.ok){
           state.lastCopied = itineraryText;
           showStatus(`Copied ${segmentCount} segment${segmentCount === 1 ? '' : 's'} to clipboard.`);
+          flashCopyButtonLabel();
           return;
         }
         state.lastCopied = '';
@@ -244,6 +251,7 @@
       }
 
       showStatus(`Converted ${segmentCount} segment${segmentCount === 1 ? '' : 's'}.`);
+      resetCopyButtonLabel();
     } catch (err){
       state.lastResult = '';
       state.lastCopied = '';
@@ -253,12 +261,14 @@
       updateAvailabilityPreview('');
       const message = err && err.message ? err.message : 'Could not convert itinerary.';
       showError(message);
+      resetCopyButtonLabel();
     }
   }
 
   async function handleManualCopy(){
     if (!outputEl) return;
     resetFeedback();
+    resetCopyButtonLabel();
     const text = (outputEl.value || '').trim();
     if (!text){
       showError('Nothing to copy yet.');
@@ -268,6 +278,7 @@
     if (outcome.ok){
       state.lastCopied = text;
       showStatus('Copied to clipboard.');
+      flashCopyButtonLabel();
       return;
     }
     state.lastCopied = '';
@@ -406,18 +417,43 @@
       : [];
     const commands = [];
     const isMultiCity = !!(preview && preview.isMultiCity);
-    const labelForDirection = (direction, fallbackIdx) => {
-      if (!direction) return `Journey ${fallbackIdx + 1}`;
-      const origin = direction.od && direction.od[0] ? direction.od[0] : '';
-      const dest = direction.od && direction.od[1] ? direction.od[1] : '';
-      if (origin && dest){
-        return `${origin}-${dest}`;
+    const airportCode = (value) => {
+      return value ? String(value).trim().toUpperCase() : '';
+    };
+    const formatDirectionLabel = (direction, fallbackIdx) => {
+      if (!direction){
+        return `Journey ${fallbackIdx + 1}`;
       }
       const kind = (direction.kind || '').toLowerCase();
-      if (kind === 'outbound') return 'Outbound';
-      if (kind === 'inbound') return 'Inbound';
-      const index = Number.isFinite(direction.index) ? direction.index : fallbackIdx;
-      return `Journey ${index + 1}`;
+      const origin = airportCode(direction.od && direction.od[0]);
+      const dest = airportCode(direction.od && direction.od[1]);
+      const route = origin && dest ? `${origin}-${dest}` : '';
+      if (kind === 'outbound'){
+        return route ? `OB ${route}` : 'OB';
+      }
+      if (kind === 'inbound'){
+        return route ? `IB ${route}` : 'IB';
+      }
+      const ordinal = Number.isFinite(direction.index) ? direction.index + 1 : fallbackIdx + 1;
+      if (route){
+        return `${ordinal} ${route}`;
+      }
+      return `Journey ${ordinal}`;
+    };
+    const formatJourneyLabel = (journey, idx) => {
+      if (!journey){
+        return `Journey ${idx + 1}`;
+      }
+      const ordinal = Number.isFinite(journey.indexHint) && journey.indexHint > 0
+        ? journey.indexHint
+        : idx + 1;
+      const origin = airportCode(journey.origin);
+      const dest = airportCode(journey.dest);
+      const route = origin && dest ? `${origin}-${dest}` : '';
+      if (route){
+        return `${ordinal} ${route}`;
+      }
+      return `Journey ${ordinal}`;
     };
     if (!isMultiCity && directionGroups.length){
       const sortedDirections = directionGroups.slice().sort((a, b) => {
@@ -443,20 +479,20 @@
         try {
           const command = window.convertTextToAvailability(trimmed, { direction: 'all', segmentRange: range });
           if (command){
-            commands.push({ label: labelForDirection(direction, idx), command });
+            commands.push({ label: formatDirectionLabel(direction, idx), command });
           }
         } catch (err) {
           console.warn('Availability command build failed:', err);
         }
       });
     }
-    if (!commands.length && journeys.length){
+    if ((isMultiCity && journeys.length) || (!commands.length && journeys.length)){
       journeys.forEach((journey, idx) => {
         if (!journey) return;
         try {
           const command = window.convertTextToAvailability(trimmed, { journeyIndex: idx, direction: 'all' });
           if (command){
-            const label = isMultiCity ? `Journey ${idx + 1}` : labelForDirection(null, idx);
+            const label = isMultiCity ? formatJourneyLabel(journey, idx) : formatDirectionLabel(null, idx);
             commands.push({ label, command });
           }
         } catch (err) {
@@ -516,6 +552,7 @@
     resetFeedback();
     if (outputEl) outputEl.value = '';
     if (copyBtn) copyBtn.disabled = true;
+    resetCopyButtonLabel();
     state.lastResult = '';
     state.lastCopied = '';
     state.lastInput = '';
@@ -550,6 +587,28 @@
     convertErrorEl.textContent = '';
     convertStatusEl.textContent = message;
     convertStatusEl.style.display = 'block';
+  }
+
+  function flashCopyButtonLabel(){
+    if (!copyBtn) return;
+    if (state.copyLabelTimer){
+      clearTimeout(state.copyLabelTimer);
+      state.copyLabelTimer = null;
+    }
+    copyBtn.textContent = COPY_SUCCESS_LABEL;
+    state.copyLabelTimer = setTimeout(() => {
+      copyBtn.textContent = copyBtnDefaultLabel;
+      state.copyLabelTimer = null;
+    }, COPY_RESET_DELAY);
+  }
+
+  function resetCopyButtonLabel(){
+    if (!copyBtn) return;
+    if (state.copyLabelTimer){
+      clearTimeout(state.copyLabelTimer);
+      state.copyLabelTimer = null;
+    }
+    copyBtn.textContent = copyBtnDefaultLabel;
   }
 
   function updateAutoDetectionNote(){
