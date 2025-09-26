@@ -296,6 +296,45 @@ assert.strictEqual(kayakSplitLines.length, 4, 'split header sample should yield 
 assert.ok(/03OCT/.test(kayakSplitLines[0]), 'split header should still yield outbound date');
 assert.ok(/24OCT/.test(kayakSplitLines[2]), 'return header should reset inbound departure date');
 
+const kayakReturnHeaderRegression = [
+  'Depart • Thu, Oct 9',
+  'Austrian Airlines 654',
+  '4:15 pm',
+  'Chișinău Intl (RMO)',
+  '4:55 pm',
+  'Vienna Intl (VIE)',
+  'Austrian Airlines 7857 · Operated by United Airlines',
+  '10:35 am',
+  'London Heathrow (LHR)',
+  '1:40 pm',
+  'San Francisco (SFO)',
+  'Return • Thu, Oct 16 19h 00m',
+  'Austrian Airlines 7856 · Operated by United Airlines',
+  '1:05 pm',
+  'San Francisco (SFO)',
+  '7:25 am',
+  'London Heathrow (LHR)',
+  'Arrives Fri, Oct 17',
+  'Austrian Airlines 454 · Operated by Air Baltic',
+  '10:25 am',
+  'London Heathrow (LHR)',
+  '1:45 pm',
+  'Vienna Intl (VIE)',
+  'Austrian Airlines 655',
+  '3:30 pm',
+  'Vienna Intl (VIE)',
+  '6:05 pm',
+  'Chișinău Intl (RMO)'
+].join('\n');
+
+const kayakReturnLines = window.convertTextToI(kayakReturnHeaderRegression).split('\n');
+const kayakReturnPeek = window.peekSegments(kayakReturnHeaderRegression);
+const sfToLondonLine = kayakReturnLines.find(line => /SFOLHR/.test(line));
+assert.ok(sfToLondonLine && /16OCT/.test(sfToLondonLine), 'SFO-LHR leg should depart on Oct 16 when return header carries duration text');
+const sfToLondonSeg = kayakReturnPeek.segments.find(seg => seg.depAirport === 'SFO' && seg.arrAirport === 'LHR');
+assert.ok(sfToLondonSeg, 'peekSegments should expose an SFO-LHR segment for the return');
+assert.strictEqual(sfToLondonSeg.depDate, '16OCT', 'peekSegments should keep Oct 16 for the first inbound segment when header text includes duration');
+
 const outboundAvailability = window.convertTextToAvailability(sampleItinerary, { direction: 'outbound' });
 assert.strictEqual(outboundAvailability, '112APRSEABCN12AORD/MAD¥IB', 'outbound availability should collapse to SEA-BCN with connections');
 
