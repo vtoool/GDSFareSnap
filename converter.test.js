@@ -169,6 +169,27 @@ const journeyBoundaryPeek = window.peekSegments(journeyBoundaryRegression);
 assert.ok(/16OCT/.test(journeyBoundaryLines[1] || ''), 'first return segment should stay on Oct 16 at journey boundary');
 assert.strictEqual(journeyBoundaryPeek.segments[1].depDate, '16OCT', 'return leg should not inherit next-day rollover from prior journey');
 
+const returnHeaderWithInterveningText = [
+  'Depart • Thu, Oct 9',
+  'Austrian Airlines 7857 · Operated by United Airlines',
+  '10:35 am',
+  'London Heathrow (LHR)',
+  '1:40 pm',
+  'San Francisco (SFO)',
+  'Return',
+  'Austrian Airlines',
+  'Thu, Oct 16',
+  'Austrian Airlines 7856 · Operated by United Airlines',
+  '1:05 pm',
+  'San Francisco (SFO)',
+  '7:25 am',
+  'London Heathrow (LHR)',
+  'Arrives Fri, Oct 17'
+].join('\n');
+
+const returnHeaderWithInterveningLines = window.convertTextToI(returnHeaderWithInterveningText).split('\n');
+assert.ok(/16OCT/.test(returnHeaderWithInterveningLines[1] || ''), 'return leg should respect explicit Oct 16 header even when header tokens are split by carrier lines');
+
 const midnightConnection = [
   'Depart • Mon, Nov 3',
   'Flight 1 • Mon, Nov 3',
