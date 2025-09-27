@@ -1020,6 +1020,12 @@
         let segmentDate = currentDate ? cloneDateInfo(currentDate) : null;
         const initialSegmentDate = segmentDate ? cloneDateInfo(segmentDate) : null;
         let shouldInheritArrivalContext = lastArrivalMatches && !isJourneyBoundary;
+        if(shouldInheritArrivalContext && segmentDate && lastArrivalInfo && lastArrivalInfo.date){
+          const dateGap = dateInfoDifferenceInDays(lastArrivalInfo.date, segmentDate);
+          if(dateGap != null && dateGap !== 0){
+            shouldInheritArrivalContext = false;
+          }
+        }
         if(shouldInheritArrivalContext && lastArrivalInfo && lastArrivalInfo.date && initialSegmentDate){
           const diffDays = dateInfoDifferenceInDays(lastArrivalInfo.date, initialSegmentDate);
           if(diffDays != null && Math.abs(diffDays) >= 2){

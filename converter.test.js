@@ -231,6 +231,7 @@ const kayakRmoSfo = [
   'Chișinău Intl (RMO)'
 ].join('\n');
 
+const kayakRmoSfoLines = window.convertTextToI(kayakRmoSfo).split('\n');
 const kayakRmoSfoPeek = window.peekSegments(kayakRmoSfo);
 assert.strictEqual(kayakRmoSfoPeek.segments.length, 4, 'Kayak itinerary should surface all four flight legs');
 assert.strictEqual(kayakRmoSfoPeek.segments[0].depDate, '03OCT', 'Outbound departure should use Oct 3 header date');
@@ -238,6 +239,9 @@ assert.strictEqual(kayakRmoSfoPeek.segments[1].depDate, '03OCT', 'Outbound conne
 assert.strictEqual(kayakRmoSfoPeek.segments[2].depDate, '24OCT', 'Inbound long-haul should keep its Oct 24 departure');
 assert.strictEqual(kayakRmoSfoPeek.segments[2].arrDate, '25OCT J', 'Inbound long-haul should arrive on Oct 25 (Saturday)');
 assert.strictEqual(kayakRmoSfoPeek.segments[3].depDate, '25OCT', 'Inbound connection should inherit the arrival date context');
+assert.ok(/03OCT/.test(kayakRmoSfoLines[0] || ''), 'Outbound long-haul line should print the Oct 3 departure');
+assert.ok(/03OCT/.test(kayakRmoSfoLines[1] || ''), 'Outbound connection line should retain the Oct 3 departure');
+assert.ok(/24OCT/.test(kayakRmoSfoLines[2] || ''), 'Inbound long-haul should print its Oct 24 departure date');
 
 const kayakMissingDepartLabel = [
   'Fri, 3 Oct',
