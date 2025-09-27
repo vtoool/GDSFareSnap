@@ -19,6 +19,10 @@ test('AA + BUSINESS → J', () => {
   assert.strictEqual(getPreferredRBD('AA', 'BUSINESS'), 'J');
 });
 
+test('TP + BUSINESS → C', () => {
+  assert.strictEqual(getPreferredRBD('TP', 'BUSINESS'), 'C');
+});
+
 test('DL + PREMIUM → P', () => {
   assert.strictEqual(getPreferredRBD('DL', 'PREMIUM'), 'P');
 });

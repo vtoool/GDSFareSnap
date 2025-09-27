@@ -27,7 +27,7 @@
     LO: { BUSINESS: ['Z', 'D', 'C'], PREMIUM: ['P', 'A', 'R'], ECONOMY: ['Y', 'B', 'M', 'H', 'K', 'Q', 'T', 'V', 'L', 'S', 'O', 'U'] },
     IB: { BUSINESS: ['J', 'C', 'D', 'I'], PREMIUM: ['W', 'P'], ECONOMY: ['Y', 'B', 'H', 'K', 'M', 'L', 'V', 'S', 'N', 'O', 'Q'] },
     OS: { BUSINESS: ['J', 'C', 'D', 'Z'], PREMIUM: ['G', 'E', 'N'], ECONOMY: ['Y', 'B', 'M', 'H', 'Q', 'V', 'W', 'S', 'T', 'L', 'K', 'E'] },
-    TP: { BUSINESS: ['J', 'C', 'D', 'Z'], ECONOMY: ['Y', 'B', 'M', 'H', 'Q', 'V', 'S', 'K', 'L', 'O', 'G', 'W', 'U'] },
+    TP: { BUSINESS: ['C', 'D', 'Z', 'J', 'R'], ECONOMY: ['Y', 'B', 'M', 'H', 'Q', 'V', 'S', 'K', 'L', 'O', 'G', 'W', 'U'] },
 
     // Middle East / Asia-Pacific (selection)
     QR: { FIRST: ['P', 'F', 'A'], BUSINESS: ['J', 'C', 'D', 'I', 'R'], ECONOMY: ['Y', 'B', 'H', 'K', 'M', 'L', 'V', 'S', 'N', 'Q', 'T', 'O'] },

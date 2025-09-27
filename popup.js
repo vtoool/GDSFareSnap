@@ -4,6 +4,11 @@
   const MONTH_INDEX = { JAN:0, FEB:1, MAR:2, APR:3, MAY:4, JUN:5, JUL:6, AUG:7, SEP:8, OCT:9, NOV:10, DEC:11 };
   const MONTH_NAMES = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   const DOW_CHARS = ['S','M','T','W','Q','F','J'];
+  const ROOT_SCOPE = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this);
+  const PREFERRED_RBD_FN = ROOT_SCOPE && typeof ROOT_SCOPE.getPreferredRBD === 'function' ? ROOT_SCOPE.getPreferredRBD : null;
+  const NORMALIZE_CABIN_FN = ROOT_SCOPE && typeof ROOT_SCOPE.normalizeCabinEnum === 'function' ? ROOT_SCOPE.normalizeCabinEnum : null;
+  const CABIN_FALLBACK_BOOKING = { FIRST: 'F', BUSINESS: 'J', PREMIUM: 'N', ECONOMY: 'Y' };
+  const SHORT_HAUL_FIRST_LIMIT_HOURS = 5;
 
   const bookingInput = document.getElementById('bookingClass');
   const statusInput = document.getElementById('segmentStatus');
@@ -51,6 +56,59 @@
     copyLabelTimer: null,
     copyHoldUntil: 0
   };
+
+  function normalizeCabinValue(value){
+    if (!value && value !== 0) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (NORMALIZE_CABIN_FN){
+      try {
+        const normalized = NORMALIZE_CABIN_FN(raw);
+        if (normalized) return normalized;
+      } catch (err) {}
+    }
+    const upper = raw.toUpperCase();
+    if (upper.includes('FIRST')) return 'FIRST';
+    if (upper.includes('BUS')) return 'BUSINESS';
+    if (upper.includes('PREMIUM')) return 'PREMIUM';
+    if (upper.includes('ECONOMY') || upper.includes('COACH') || upper.includes('MAIN CABIN')) return 'ECONOMY';
+    return null;
+  }
+
+  function resolveCabinForSegment(segment){
+    if (!segment) return null;
+    const normalized = normalizeCabinValue(segment.cabinRaw || segment.cabin);
+    if (!normalized) return null;
+    if (
+      normalized === 'FIRST' &&
+      Number.isFinite(segment.elapsedHours) &&
+      segment.elapsedHours > 0 &&
+      segment.elapsedHours < SHORT_HAUL_FIRST_LIMIT_HOURS
+    ){
+      return 'BUSINESS';
+    }
+    return normalized;
+  }
+
+  function pickPreferredBookingClass(airlineCode, cabinEnum, fallback){
+    const base = (fallback || '').toString().trim().toUpperCase();
+    if (!cabinEnum){
+      return base;
+    }
+    let candidate = '';
+    if (PREFERRED_RBD_FN){
+      try {
+        candidate = PREFERRED_RBD_FN(airlineCode || '', cabinEnum) || '';
+      } catch (err) {
+        candidate = '';
+      }
+    }
+    if (!candidate && Object.prototype.hasOwnProperty.call(CABIN_FALLBACK_BOOKING, cabinEnum)){
+      candidate = CABIN_FALLBACK_BOOKING[cabinEnum] || '';
+    }
+    const cleaned = (candidate || '').toString().trim().toUpperCase();
+    return cleaned || base || CABIN_FALLBACK_BOOKING.ECONOMY;
+  }
 
   const scheduleAutoConvert = debounce((reason) => runConversion(reason || 'auto'), 140);
 
@@ -211,7 +269,11 @@
       if (bookingInput) bookingInput.value = bookingClass;
       if (statusInput) statusInput.value = segmentStatus;
 
-      const conversion = convertViToI(raw, { bookingClass, segmentStatus }) || {};
+      const conversion = convertViToI(raw, {
+        bookingClass,
+        segmentStatus,
+        autoCabin: !state.bookingClassLocked
+      }) || {};
       const itineraryText = typeof conversion.text === 'string' ? conversion.text : '';
       const segments = Array.isArray(conversion.segments) ? conversion.segments : [];
       state.lastInput = raw;
@@ -1022,9 +1084,31 @@
     const segments = [];
     if (!rawText) return segments;
     const lines = rawText.replace(/\r\n/g, '\n').split('\n');
+    let lastSegment = null;
     for (const line of lines){
-      if (!/^\s*\d+\s+/.test(line || '')) continue;
-      const tokens = line.trim().split(/\s+/);
+      const rawLine = line || '';
+      const trimmed = rawLine.trim();
+      if (!trimmed) continue;
+
+      const cabinMatch = trimmed.match(/^CABIN-([A-Z\s]+)/i);
+      if (cabinMatch){
+        if (lastSegment){
+          lastSegment.cabinRaw = cabinMatch[1].replace(/\s+/g, ' ').trim();
+        }
+        continue;
+      }
+
+      const elpdMatch = trimmed.match(/\bELPD\s+(\d+(?:\.\d+)?)/i);
+      if (elpdMatch && lastSegment && !Number.isFinite(lastSegment.elapsedHours)){
+        const value = parseFloat(elpdMatch[1]);
+        if (Number.isFinite(value)){
+          lastSegment.elapsedHours = value;
+        }
+        continue;
+      }
+
+      if (!/^\s*\d+\s+/.test(rawLine)) continue;
+      const tokens = trimmed.split(/\s+/);
       if (tokens.length < 7) continue;
 
       const indexToken = tokens.shift();
@@ -1061,7 +1145,7 @@
       const depParsed = parseTimeToken(depTimeToken);
       const arrParsed = parseTimeToken(arrTimeToken);
 
-      segments.push({
+      const segment = {
         airlineCode,
         flightNumber,
         depAirport,
@@ -1070,10 +1154,31 @@
         depMonth: monthIndex,
         depTime: depParsed.time,
         arrTime: arrParsed.time,
-        arrOffset: arrParsed.offset
-      });
+        arrOffset: arrParsed.offset,
+        cabinRaw: null,
+        elapsedHours: parseElapsedHoursFromTokens(tokens)
+      };
+      segments.push(segment);
+      lastSegment = segment;
     }
     return segments;
+  }
+
+  function parseElapsedHoursFromTokens(tokens){
+    if (!Array.isArray(tokens) || !tokens.length){
+      return null;
+    }
+    for (const token of tokens){
+      const cleaned = (token || '').replace(/[^0-9.]/g, '');
+      if (!cleaned || cleaned === '.') continue;
+      if (cleaned.includes('.')){
+        const value = parseFloat(cleaned);
+        if (Number.isFinite(value) && value > 0 && value < 30){
+          return value;
+        }
+      }
+    }
+    return null;
   }
 
   function parseTimeToken(token){
@@ -1146,13 +1251,30 @@
   }
 
   function formatSegments(segments, options){
-    const bookingClass = sanitizeBookingClass(options.bookingClass);
-    const segmentStatus = sanitizeSegmentStatus(options.segmentStatus);
+    const opts = options || {};
+    const bookingClass = sanitizeBookingClass(opts.bookingClass);
+    const segmentStatus = sanitizeSegmentStatus(opts.segmentStatus);
+    const autoCabinEnabled = !!opts.autoCabin;
     const lines = [];
     for (let i = 0; i < segments.length; i++){
       const seg = segments[i];
+      if (!seg) continue;
       const segNumber = String(i + 1).padStart(2, ' ');
-      const flightField = formatFlightField(seg.airlineCode, seg.flightNumber, bookingClass);
+      let detectedCabin = null;
+      let segmentBookingClass = bookingClass;
+      if (autoCabinEnabled){
+        detectedCabin = resolveCabinForSegment(seg);
+        if (detectedCabin){
+          seg.cabin = detectedCabin;
+          segmentBookingClass = pickPreferredBookingClass(seg.airlineCode, detectedCabin, bookingClass);
+        }
+      }
+      if (!segmentBookingClass){
+        segmentBookingClass = bookingClass || CABIN_FALLBACK_BOOKING.ECONOMY;
+      }
+      seg.detectedCabin = detectedCabin;
+      seg.bookingClass = segmentBookingClass;
+      const flightField = formatFlightField(seg.airlineCode, seg.flightNumber, segmentBookingClass);
       const dateField = seg.depDow ? `${seg.depDateString} ${seg.depDow}` : seg.depDateString;
       const cityField = segmentStatus
         ? `${seg.depAirport}${seg.arrAirport}*${segmentStatus}`
