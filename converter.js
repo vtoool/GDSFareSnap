@@ -1209,19 +1209,81 @@
     return 'outbound';
   }
 
+  function inferHeaderDateFromLines(lines){
+    if(!Array.isArray(lines) || !lines.length) return null;
+    const normalized = lines
+      .map(line => (line || '').replace(/[•·]/g, ' ').replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    if(!normalized.length) return null;
+
+    const attemptParse = (value) => {
+      if(!value) return null;
+      return parseHeaderDate(value) || parseDepartsDate(value) || parseLooseDate(value);
+    };
+
+    const maxWindow = Math.min(normalized.length, 6);
+    for(let span = 1; span <= Math.min(3, maxWindow); span++){
+      for(let start = 0; start + span <= maxWindow; start++){
+        const merged = normalized.slice(start, start + span).join(' ');
+        const parsed = attemptParse(merged);
+        if(parsed) return parsed;
+      }
+    }
+
+    return attemptParse(normalized.join(' '));
+  }
+
+  function hasFlightClues(lines){
+    if(!Array.isArray(lines) || !lines.length) return false;
+    let airportHits = 0;
+    let timeHits = 0;
+    let flightHits = 0;
+    for(const raw of lines){
+      if(!raw) continue;
+      if(extractAirportCode(raw)) airportHits++;
+      const timeInfo = toAmPmMinutes(raw);
+      if(timeInfo && Number.isFinite(timeInfo.mins)) timeHits++;
+      if(extractFlightNumberLine(raw)) flightHits++;
+    }
+    if(flightHits && (airportHits || timeHits)) return true;
+    if(airportHits >= 2 && timeHits >= 1) return true;
+    if(timeHits >= 2 && airportHits >= 1) return true;
+    return false;
+  }
+
   function splitIntoSections(lines){
     // return [{headerDate, lines: [...]}, ...] for Depart and Return
     const indices = [];
     for(let i=0;i<lines.length;i++){
       if(/^(Depart(?:ure)?|Return|Outbound|Inbound)(?:\s*[•·-])?\s+/i.test(lines[i])) indices.push(i);
     }
-    if(indices.length===0) return [];
+    if(indices.length===0){
+      const leadingDate = inferHeaderDateFromLines(lines);
+      return leadingDate || hasFlightClues(lines)
+        ? [{ headerDate: leadingDate, lines: lines.slice(), kind: 'outbound', synthetic: true }]
+        : [];
+    }
     const sections = [];
+    if(indices[0] > 0){
+      const leading = lines.slice(0, indices[0]);
+      if(hasFlightClues(leading)){
+        sections.push({
+          headerDate: inferHeaderDateFromLines(leading),
+          lines: leading,
+          kind: 'outbound',
+          synthetic: true
+        });
+      }
+    }
     for(let s=0; s<indices.length; s++){
       const start = indices[s];
       const end = (s+1<indices.length) ? indices[s+1] : lines.length;
       const headerLine = lines[start];
-      const headerDate = parseHeaderDate(headerLine);
+      let headerDate = parseHeaderDate(headerLine);
+      if(!headerDate){
+        const windowLines = [headerLine].concat(lines.slice(start + 1, Math.min(end, start + 4)));
+        headerDate = inferHeaderDateFromLines(windowLines);
+      }
       const kind = determineSectionKind(headerLine);
       sections.push({ headerDate, lines: lines.slice(start+1, end), kind });
     }
@@ -1457,8 +1519,7 @@
 
   function parseSectionsWithSegments(rawText){
     const lines = sanitize(rawText);
-    const sections = splitIntoSections(lines);
-    if(sections.length === 0){
+    const deriveFromSegments = () => {
       const allSegments = collectSegments(lines, null);
       if(allSegments.length === 0) return [];
       const firstSeg = allSegments[0];
@@ -1488,12 +1549,22 @@
         derived.push({ headerDate: headerFromSeg(firstSeg), kind:'outbound', segments: allSegments });
       }
       return derived;
+    };
+
+    const sections = splitIntoSections(lines);
+    if(sections.length === 0){
+      return deriveFromSegments();
     }
-    return sections.map(sec => ({
+    const mapped = sections.map(sec => ({
       headerDate: sec.headerDate,
       kind: sec.kind,
       segments: collectSegments(sec.lines, sec.headerDate)
     }));
+    const nonEmpty = mapped.filter(sec => sec.segments && sec.segments.length);
+    if(nonEmpty.length > 0){
+      return nonEmpty;
+    }
+    return deriveFromSegments();
   }
 
   function filterSectionsByDirection(sections, desired){

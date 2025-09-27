@@ -186,6 +186,95 @@ const matrixReturnlessPeek = window.peekSegments(matrixReturnless);
 assert.ok(/30OCT/.test(matrixReturnlessLines[2] || ''), 'returnless itinerary should still depart on Oct 30 when a new route header provides the date');
 assert.strictEqual(matrixReturnlessPeek.segments[2].depDate, '30OCT', 'peekSegments should honor the Oct 30 departure for the inbound leg even without a return header');
 
+// Kayak regression: ensure outbound legs and return date context survive durations, pills, and inline change-plane copy.
+const kayakRmoSfo = [
+  'Depart • Fri, 3 Oct',
+  '16h 55m',
+  '*I✓',
+  'Turkish Airlines',
+  'Turkish Airlines 276',
+  'Boeing 737-800 (winglets)',
+  '03:40',
+  'Chișinău Intl (RMO)',
+  '1h 40m',
+  '05:20',
+  'Istanbul (IST)',
+  '1h 50m•Change planes in Istanbul (IST)',
+  'Turkish Airlines',
+  'Turkish Airlines 289',
+  'Airbus A350-900',
+  '07:10',
+  'Istanbul (IST)',
+  '13h 25m',
+  '10:35',
+  'San Francisco (SFO)',
+  'Return • Fri, 24 Oct',
+  '16h 05m',
+  'Turkish Airlines',
+  'Turkish Airlines 290',
+  'Airbus A350-900',
+  '12:40',
+  'San Francisco (SFO)',
+  '12h 55m',
+  'Overnight flight',
+  '11:35',
+  'Istanbul (IST)',
+  'Arrives Sat, 25 Oct',
+  '1h 40m•Change planes in Istanbul (IST)',
+  'Turkish Airlines',
+  'Turkish Airlines 273',
+  'Boeing 737-800 (winglets)',
+  '13:15',
+  'Istanbul (IST)',
+  '1h 30m',
+  '14:45',
+  'Chișinău Intl (RMO)'
+].join('\n');
+
+const kayakRmoSfoPeek = window.peekSegments(kayakRmoSfo);
+assert.strictEqual(kayakRmoSfoPeek.segments.length, 4, 'Kayak itinerary should surface all four flight legs');
+assert.strictEqual(kayakRmoSfoPeek.segments[0].depDate, '03OCT', 'Outbound departure should use Oct 3 header date');
+assert.strictEqual(kayakRmoSfoPeek.segments[1].depDate, '03OCT', 'Outbound connection should remain on Oct 3');
+assert.strictEqual(kayakRmoSfoPeek.segments[2].depDate, '24OCT', 'Inbound long-haul should keep its Oct 24 departure');
+assert.strictEqual(kayakRmoSfoPeek.segments[2].arrDate, '25OCT J', 'Inbound long-haul should arrive on Oct 25 (Saturday)');
+assert.strictEqual(kayakRmoSfoPeek.segments[3].depDate, '25OCT', 'Inbound connection should inherit the arrival date context');
+
+const kayakMissingDepartLabel = [
+  'Fri, 3 Oct',
+  '16h 55m',
+  'Turkish Airlines',
+  'Turkish Airlines 276',
+  '03:40',
+  'Chișinău Intl (RMO)',
+  '05:20',
+  'Istanbul (IST)',
+  'Turkish Airlines',
+  'Turkish Airlines 289',
+  '07:10',
+  'Istanbul (IST)',
+  '10:35',
+  'San Francisco (SFO)',
+  'Return • Fri, 24 Oct',
+  'Turkish Airlines',
+  'Turkish Airlines 290',
+  '12:40',
+  'San Francisco (SFO)',
+  '11:35',
+  'Istanbul (IST)',
+  'Arrives Sat, 25 Oct',
+  'Turkish Airlines',
+  'Turkish Airlines 273',
+  '13:15',
+  'Istanbul (IST)',
+  '14:45',
+  'Chișinău Intl (RMO)'
+].join('\n');
+
+const kayakMissingDepartLines = window.convertTextToI(kayakMissingDepartLabel).split('\n').filter(Boolean);
+assert.strictEqual(kayakMissingDepartLines.length, 4, 'Dropping the Depart label should not remove outbound legs');
+assert.ok(/03OCT/.test(kayakMissingDepartLines[0] || ''), 'Missing Depart label should still infer the Oct 3 outbound date');
+assert.ok(/24OCT/.test(kayakMissingDepartLines[2] || ''), 'Return leg should keep the Oct 24 departure date when Depart label is absent');
+
 const overnightWrap = [
   'Depart • Fri, Mar 1',
   'Flight 1 • Fri, Mar 1',
