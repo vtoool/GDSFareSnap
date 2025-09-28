@@ -1298,4 +1298,13 @@
     const base = num.length < 4 ? `${airlineCode} ${num}` : `${airlineCode}${num}`;
     return `${base}${bookingClass}`;
   }
+
+  if (typeof module !== 'undefined' && module.exports){
+    module.exports = {
+      convertViToI,
+      pickPreferredBookingClass,
+      resolveCabinForSegment,
+      normalizeCabinValue
+    };
+  }
 })();
