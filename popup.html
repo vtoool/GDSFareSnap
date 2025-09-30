@@ -353,86 +353,75 @@
       gap: 12px;
     }
 
-    .availability-preview {
-      display: none;
-      padding: 14px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--color-border);
-      background: linear-gradient(150deg, rgba(75, 107, 255, 0.12), transparent 60%), var(--color-surface);
-      box-shadow: var(--shadow-sm);
-      gap: 10px;
-    }
-
-    .availability-preview__title {
-      font-weight: 700;
-      font-size: 0.9rem;
-      color: var(--color-accent-strong);
-    }
-
-    .availability-preview__list {
-      display: grid;
-      gap: 8px;
-    }
-
-    .availability-preview__item {
-      display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 10px;
-      align-items: center;
-      padding: 8px 10px;
-      border-radius: var(--radius-sm);
-      background: #fff;
-      border: 1px solid rgba(34, 44, 82, 0.08);
-    }
-
-    .availability-preview__label {
-      font-weight: 600;
-      font-size: 0.8rem;
-      color: var(--color-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .availability-preview__command {
-      font: 12px/1.45 "JetBrains Mono", "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
-      color: var(--color-text);
-      white-space: nowrap;
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
       overflow: hidden;
-      text-overflow: ellipsis;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
-    .availability-preview__copy {
-      padding: 0.42rem 0.78rem;
-      font-size: 0.75rem;
-      font-weight: 600;
-      background: #fff;
-      color: var(--color-accent-strong);
-      cursor: pointer;
-      border: 1px solid rgba(75, 107, 255, 0.35);
+    .availability-chips {
+      display: none;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: -6px;
+    }
+
+    .availability-pill {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0.45rem 0.95rem;
       border-radius: 999px;
-      box-shadow: 0 3px 9px rgba(15, 23, 42, 0.08);
-      transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition), background var(--transition);
+      border: none;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, rgba(75, 107, 255, 0.88), rgba(30, 64, 255, 0.95));
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+      transition: transform var(--transition), box-shadow var(--transition), filter var(--transition);
     }
 
-    .availability-preview__copy:hover,
-    .availability-preview__copy:focus {
+    .availability-pill:hover,
+    .availability-pill:focus {
       transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
-      border-color: rgba(75, 107, 255, 0.5);
-      background: rgba(75, 107, 255, 0.06);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+      filter: brightness(1.03);
       outline: none;
     }
 
-    .availability-preview__copy:disabled {
+    .availability-pill:disabled {
       opacity: 0.6;
       cursor: default;
       transform: none;
       box-shadow: none;
+      filter: none;
     }
 
-    .availability-preview__hint {
-      font-size: 0.75rem;
-      color: var(--color-muted);
+    .availability-pill__label {
+      letter-spacing: 0.08em;
+    }
+
+    .availability-pill__code {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     @media (max-width: 420px) {
@@ -499,11 +488,12 @@
         <label class="field__label" for="viInput">VI* itinerary</label>
         <textarea id="viInput" class="field__control field__control--textarea" placeholder="Paste Sabre VI* output here"></textarea>
       </div>
-      <div id="availabilityPreview" class="availability-preview">
-        <div class="availability-preview__title">Availability commands</div>
-        <div id="availabilityList" class="availability-preview__list" role="list"></div>
-        <p class="availability-preview__hint">Generated from the VI* text — tap any command to copy it instantly.</p>
-      </div>
+      <div
+        id="availabilityPreview"
+        class="availability-chips"
+        role="group"
+        aria-label="Availability commands"
+      ></div>
       <div class="converter-actions">
         <button id="convertBtn" type="button" class="btn btn-secondary">Convert to *I</button>
         <button id="copyBtn" type="button" class="btn btn-primary" disabled>Copy result</button>
