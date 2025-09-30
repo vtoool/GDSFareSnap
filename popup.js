@@ -26,7 +26,6 @@
   const bookingStatusNote = document.getElementById('bookingStatusNote');
   const restoreAutoBtn = document.getElementById('restoreAutoBtn');
   const availabilityPreview = document.getElementById('availabilityPreview');
-  const availabilityList = document.getElementById('availabilityList');
 
   const COPY_SUCCESS_LABEL = 'Copied';
   const COPY_RESET_DELAY = 1600;
@@ -40,6 +39,7 @@
   }
   if (availabilityPreview){
     availabilityPreview.style.display = 'none';
+    availabilityPreview.setAttribute('aria-hidden', 'true');
   }
 
   const state = {
@@ -229,9 +229,9 @@
     });
   }
 
-  if (availabilityList){
-    availabilityList.addEventListener('click', (event) => {
-      const button = event.target && event.target.closest ? event.target.closest('.availability-preview__copy') : null;
+  if (availabilityPreview){
+    availabilityPreview.addEventListener('click', (event) => {
+      const button = event.target && event.target.closest ? event.target.closest('.availability-pill') : null;
       if (!button) return;
       event.preventDefault();
       const index = parseInt(button.getAttribute('data-index') || '', 10);
@@ -407,7 +407,7 @@
       triggerButton.focus();
     }
     highlightAvailabilityCommand(index);
-    showError('Clipboard blocked. Command highlighted for manual copy.');
+    showError(`Clipboard blocked. Command: ${commandText}`);
   }
 
   async function copyPlainText(text){
@@ -441,9 +441,9 @@
   }
 
   function highlightAvailabilityCommand(index){
-    if (!availabilityList) return;
+    if (!availabilityPreview) return;
     try {
-      const commandEl = availabilityList.querySelector(`code[data-command-index="${index}"]`);
+      const commandEl = availabilityPreview.querySelector(`.availability-pill__code[data-command-index="${index}"]`);
       if (!commandEl) return;
       const selection = window.getSelection ? window.getSelection() : null;
       if (!selection) return;
@@ -455,15 +455,16 @@
   }
 
   function updateAvailabilityPreview(rawText){
-    if (!availabilityPreview || !availabilityList){
+    if (!availabilityPreview){
       return;
     }
     const trimmed = (rawText || '').trim();
-    availabilityList.innerHTML = '';
+    availabilityPreview.innerHTML = '';
     state.availabilityCommands = [];
     state.lastAvailabilityCopiedIndex = -1;
     if (!trimmed || typeof window.convertTextToAvailability !== 'function'){
       availabilityPreview.style.display = 'none';
+      availabilityPreview.setAttribute('aria-hidden', 'true');
       return;
     }
     let preview = null;
@@ -589,20 +590,38 @@
     }
     if (!commands.length){
       availabilityPreview.style.display = 'none';
+      availabilityPreview.setAttribute('aria-hidden', 'true');
       return;
     }
     state.availabilityCommands = commands;
-    const html = commands.map((entry, idx) => {
-      const label = escapeHtml(entry && entry.label ? entry.label : `Journey ${idx + 1}`);
-      const command = escapeHtml(entry && entry.command ? entry.command : '');
-      return `<div class="availability-preview__item" role="listitem">`
-        + `<span class="availability-preview__label">${label}</span>`
-        + `<code class="availability-preview__command" data-command-index="${idx}" title="${command}">${command}</code>`
-        + `<button type="button" class="availability-preview__copy" data-index="${idx}">Copy</button>`
-        + `</div>`;
-    }).join('');
-    availabilityList.innerHTML = html;
-    availabilityPreview.style.display = 'grid';
+    const fragment = document.createDocumentFragment();
+    commands.forEach((entry, idx) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'availability-pill';
+      button.setAttribute('data-index', String(idx));
+      const label = entry && entry.label ? String(entry.label) : `Journey ${idx + 1}`;
+      const command = entry && entry.command ? String(entry.command) : '';
+      if (command){
+        button.setAttribute('data-command', command);
+        button.title = command;
+      } else {
+        button.removeAttribute('title');
+      }
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'availability-pill__label';
+      labelSpan.textContent = label;
+      const hiddenCode = document.createElement('code');
+      hiddenCode.className = 'availability-pill__code';
+      hiddenCode.setAttribute('data-command-index', String(idx));
+      hiddenCode.textContent = command;
+      button.appendChild(labelSpan);
+      button.appendChild(hiddenCode);
+      fragment.appendChild(button);
+    });
+    availabilityPreview.appendChild(fragment);
+    availabilityPreview.style.display = 'flex';
+    availabilityPreview.setAttribute('aria-hidden', 'false');
   }
 
   function toAirportCode(value){
