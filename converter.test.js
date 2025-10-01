@@ -429,9 +429,34 @@ assert.ok(sfToLondonSeg, 'peekSegments should expose an SFO-LHR segment for the 
 assert.strictEqual(sfToLondonSeg.depDate, '16OCT', 'peekSegments should keep Oct 16 for the first inbound segment when header text includes duration');
 
 const outboundAvailability = window.convertTextToAvailability(sampleItinerary, { direction: 'outbound' });
-assert.strictEqual(outboundAvailability, '112APRSEABCN12AORD/MAD¥IB', 'outbound availability should collapse to SEA-BCN with connections');
+assert.strictEqual(outboundAvailability, '112APRSEABCN12AORD/MAD¥IB¥IB¥IB', 'outbound availability should include all marketing carriers in order');
 
 const inboundAvailability = window.convertTextToAvailability(sampleItinerary, { direction: 'inbound' });
-assert.strictEqual(inboundAvailability, '127APRSVQSEA12AMAD/DFW¥IB', 'inbound availability should collapse to SVQ-SEA with connections');
+assert.strictEqual(inboundAvailability, '127APRSVQSEA12AMAD/DFW¥IB¥IB¥IB', 'inbound availability should include all marketing carriers in order');
+
+const multiCarrierItinerary = [
+  'Depart • Fri, Jun 12',
+  'Scandinavian Airlines 926',
+  '8:20 pm',
+  'Washington, D.C. (IAD)',
+  '10:45 am',
+  'Kastrup Copenhagen (CPH)',
+  'Change planes in Copenhagen (CPH)',
+  'Kenya Airways 1178 · Operated by KLM',
+  '12:30 pm',
+  'Kastrup Copenhagen (CPH)',
+  '2:25 pm',
+  'Amsterdam Schiphol (AMS)',
+  'Long layover',
+  'Kenya Airways 535',
+  '8:35 pm',
+  'Amsterdam Schiphol (AMS)',
+  '6:50 am',
+  'Nairobi Jomo Kenyatta (NBO)',
+  'Arrives Sat, Jun 13'
+].join('\n');
+
+const multiCarrierAvailability = window.convertTextToAvailability(multiCarrierItinerary, { direction: 'outbound' });
+assert.strictEqual(multiCarrierAvailability, '112JUNIADNBO12ACPH/AMS¥SK¥KQ¥KQ', 'availability should list each marketing carrier sequentially');
 
 console.log('✓ converter maintains departure date continuity for connecting segments');
