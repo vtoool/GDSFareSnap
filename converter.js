@@ -1734,50 +1734,40 @@
     return [];
   }
 
-  function selectPreferredCarrier(direction, segments){
-    const carrierCounts = new Map();
-    const order = [];
-    const sourceSegments = [];
+  function collectCarriersForDirection(direction, segments){
+    const carriers = [];
+    const pushCarrier = (value) => {
+      const code = (value || '').trim().toUpperCase();
+      if(code){
+        carriers.push(code);
+      }
+    };
 
     const totalSegments = Array.isArray(segments) ? segments.length : 0;
 
-    if(direction && Array.isArray(direction.range) && direction.range.length === 2){
+    if(direction && Array.isArray(direction.range) && direction.range.length === 2 && totalSegments){
       const [start, end] = direction.range;
-      const safeStart = clampIndex(start, 0, totalSegments ? totalSegments - 1 : 0);
-      const safeEnd = clampIndex(end, safeStart, totalSegments ? totalSegments - 1 : safeStart);
+      const safeStart = clampIndex(start, 0, totalSegments - 1);
+      const safeEnd = clampIndex(end, safeStart, totalSegments - 1);
       for(let idx = safeStart; idx <= safeEnd; idx++){
-        const seg = totalSegments ? segments[idx] : null;
-        if(seg) sourceSegments.push(seg);
+        const seg = segments[idx];
+        if(!seg) continue;
+        pushCarrier(seg.marketingCarrier || seg.airlineCode);
       }
-    } else if(Array.isArray(segments)){
+    }
+
+    if(carriers.length === 0 && direction && direction.carriers instanceof Set && direction.carriers.size){
+      direction.carriers.forEach(pushCarrier);
+    }
+
+    if(carriers.length === 0 && Array.isArray(segments)){
       for(const seg of segments){
-        if(seg) sourceSegments.push(seg);
+        if(!seg) continue;
+        pushCarrier(seg.marketingCarrier || seg.airlineCode);
       }
     }
 
-    for(const seg of sourceSegments){
-      if(!seg) continue;
-      const code = (seg.marketingCarrier || seg.airlineCode || '').trim().toUpperCase();
-      if(!code) continue;
-      carrierCounts.set(code, (carrierCounts.get(code) || 0) + 1);
-      if(order.indexOf(code) === -1){
-        order.push(code);
-      }
-    }
-
-    if(!carrierCounts.size){
-      return '';
-    }
-
-    let best = order[0];
-    let bestCount = carrierCounts.get(best) || 0;
-    for(const [code, count] of carrierCounts.entries()){
-      if(count > bestCount){
-        best = code;
-        bestCount = count;
-      }
-    }
-    return best || '';
+    return carriers;
   }
 
   function buildAvailabilityCommandForDirection(direction, segments){
@@ -1810,9 +1800,11 @@
       command += `12A${connectionList.join('/')}`;
     }
 
-    const carrier = selectPreferredCarrier(direction, segments || []);
-    if(carrier){
-      command += `¥${carrier}`;
+    const carriers = collectCarriersForDirection(direction, segments || []);
+    if(carriers.length){
+      for(const carrier of carriers){
+        command += `¥${carrier}`;
+      }
     }
 
     return command;
