@@ -340,6 +340,20 @@ const midnightPeek = window.peekSegments(midnightConnection);
 assert.ok(/04NOV/.test(midnightLines[1] || ''), 'overnight connection should advance to Nov 4 in output');
 assert.strictEqual(midnightPeek.segments[1].depDate, '04NOV', 'overnight connection within a journey should roll to the next day');
 
+const midnightArrivalEncoding = [
+  'Depart • Thu, Nov 13',
+  'Flight 1 • Thu, Nov 13',
+  'Turkish Airlines 272',
+  '9:35 pm',
+  'Chișinău Intl (RMO)',
+  '12:15 am',
+  'Istanbul (IST)',
+  'Arrives Fri, Nov 14'
+].join('\n');
+
+const midnightArrivalLines = window.convertTextToI(midnightArrivalEncoding);
+assert.ok(/1215A/.test(midnightArrivalLines), 'overnight arrival should encode 12:15 AM as 1215A');
+
 const kayakSplitHeader = [
   'Depart',
   '23h 15m',
