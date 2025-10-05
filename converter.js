@@ -1019,6 +1019,13 @@
         const lastArrivalMatches = lastArrivalInfo && depAirport && lastArrivalInfo.airport === depAirport;
         let segmentDate = currentDate ? cloneDateInfo(currentDate) : null;
         const initialSegmentDate = segmentDate ? cloneDateInfo(segmentDate) : null;
+        if(segmentDate && lastArrivalInfo && lastArrivalInfo.date){
+          const forwardGap = dateInfoDifferenceInDays(segmentDate, lastArrivalInfo.date);
+          if(Number.isFinite(forwardGap) && forwardGap > 0){
+            segmentDate = cloneDateInfo(lastArrivalInfo.date);
+            currentDate = cloneDateInfo(lastArrivalInfo.date);
+          }
+        }
         let shouldInheritArrivalContext = lastArrivalMatches && !isJourneyBoundary;
         if(shouldInheritArrivalContext && segmentDate && lastArrivalInfo && lastArrivalInfo.date){
           const dateGap = dateInfoDifferenceInDays(lastArrivalInfo.date, segmentDate);
@@ -1734,6 +1741,191 @@
     return [];
   }
 
+  function toAirportCode(value){
+    if(!value && value !== 0) return '';
+    return String(value).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  function normalizeDirectionRange(range, total){
+    if(!Array.isArray(range) || range.length !== 2 || !Number.isFinite(total) || total <= 0){
+      return null;
+    }
+    const start = clampIndex(parseInt(range[0], 10), 0, total - 1);
+    const end = clampIndex(parseInt(range[1], 10), start, total - 1);
+    return [start, end];
+  }
+
+  function gdsTimeToMinutes(value){
+    if(!value && value !== 0) return null;
+    const trimmed = String(value).trim().toUpperCase();
+    const match = trimmed.match(/^(\d{2})(\d{2})([AP])$/);
+    if(!match) return null;
+    let hours = parseInt(match[1], 10);
+    const mins = parseInt(match[2], 10);
+    if(!Number.isFinite(hours) || !Number.isFinite(mins) || mins < 0 || mins > 59) return null;
+    const suffix = match[3];
+    if(suffix === 'P' && hours < 12){
+      hours += 12;
+    }else if(suffix === 'A' && hours === 12){
+      hours = 0;
+    }
+    return hours * 60 + mins;
+  }
+
+  function formatAvailabilityTimeToken(value){
+    if(!value && value !== 0) return '';
+    const trimmed = String(value).trim();
+    if(!trimmed) return '';
+    if(/^[0-9]{4}[AP]$/i.test(trimmed)){
+      return trimmed.replace(/^0(?=\d)/, '');
+    }
+    return trimmed;
+  }
+
+  function collectDirectionConnections(direction, segments){
+    const seen = new Set();
+    const connections = [];
+    const origin = toAirportCode(direction && direction.od && direction.od[0]);
+    const destination = toAirportCode(direction && direction.od && direction.od[1]);
+    const raw = [];
+    if(direction){
+      if(Array.isArray(direction.connections)){
+        raw.push(...direction.connections);
+      }else if(direction.connections && typeof direction.connections.forEach === 'function'){
+        direction.connections.forEach((value) => raw.push(value));
+      }
+    }
+    const total = Array.isArray(segments) ? segments.length : 0;
+    const range = normalizeDirectionRange(direction && direction.range, total);
+    if(!raw.length && range){
+      const [start, end] = range;
+      for(let idx = start + 1; idx <= end; idx++){
+        const seg = segments[idx];
+        if(seg && seg.depAirport){
+          raw.push(seg.depAirport);
+        }
+      }
+    }
+    raw.forEach((code) => {
+      const airport = toAirportCode(code);
+      if(!airport || airport === origin || airport === destination) return;
+      if(seen.has(airport)) return;
+      seen.add(airport);
+      connections.push(airport);
+    });
+    return connections;
+  }
+
+  function computeAvailabilityConnectionDetails(direction, segments){
+    const total = Array.isArray(segments) ? segments.length : 0;
+    if(!direction || !total){
+      return { departureTimeToken:'', connections: [] };
+    }
+    const range = normalizeDirectionRange(direction.range, total) || [0, total - 1];
+    const [start, end] = range;
+    if(end <= start){
+      return { departureTimeToken:'', connections: [] };
+    }
+    const subSegments = segments.slice(start, end + 1);
+    const departureOrdinals = [];
+    let ordinalCursor = null;
+    for(let idx = 0; idx < subSegments.length; idx++){
+      ordinalCursor = approximateSegmentOrdinal(subSegments[idx], ordinalCursor);
+      departureOrdinals.push(ordinalCursor);
+    }
+    const departureMinutes = subSegments.map(seg => gdsTimeToMinutes(seg && seg.depGDS));
+    const arrivalMinutes = subSegments.map(seg => gdsTimeToMinutes(seg && seg.arrGDS));
+    const arrivalOrdinals = subSegments.map((seg, idx) => {
+      let ordinal = departureOrdinals[idx];
+      if(seg && seg.arrDate){
+        const info = parseMonthDayFromString(seg.arrDate);
+        if(info){
+          ordinal = adjustOrdinal(info.month, info.day, departureOrdinals[idx]);
+        }
+      }
+      if(!Number.isFinite(ordinal)){
+        ordinal = departureOrdinals[idx];
+      }
+      if((!seg || !seg.arrDate) && Number.isFinite(arrivalMinutes[idx]) && Number.isFinite(departureMinutes[idx]) && arrivalMinutes[idx] < departureMinutes[idx]){
+        if(Number.isFinite(ordinal)){
+          ordinal = ordinal + 1;
+        }
+      }
+      return ordinal;
+    });
+
+    const firstSeg = subSegments[0] || null;
+    const lastSeg = subSegments[subSegments.length - 1] || null;
+    const origin = toAirportCode(firstSeg && firstSeg.depAirport);
+    const destination = toAirportCode(lastSeg && lastSeg.arrAirport);
+    const departureTimeToken = formatAvailabilityTimeToken(firstSeg ? firstSeg.depGDS : '');
+    const seen = new Set();
+    if(origin) seen.add(origin);
+    if(destination) seen.add(destination);
+    const connections = [];
+    for(let idx = 1; idx < subSegments.length; idx++){
+      const seg = subSegments[idx];
+      const airport = toAirportCode(seg && seg.depAirport);
+      if(!airport || airport === origin || airport === destination) continue;
+      if(seen.has(airport)) continue;
+      seen.add(airport);
+      let layoverMinutes = null;
+      const prevArrivalOrdinal = arrivalOrdinals[idx - 1];
+      const prevArrivalMinutes = arrivalMinutes[idx - 1];
+      const nextDepartureOrdinal = departureOrdinals[idx];
+      const nextDepartureMinutes = departureMinutes[idx];
+      if(
+        Number.isFinite(prevArrivalOrdinal) &&
+        Number.isFinite(prevArrivalMinutes) &&
+        Number.isFinite(nextDepartureOrdinal) &&
+        Number.isFinite(nextDepartureMinutes)
+      ){
+        const prevTotal = prevArrivalOrdinal * 1440 + prevArrivalMinutes;
+        const nextTotal = nextDepartureOrdinal * 1440 + nextDepartureMinutes;
+        const diff = nextTotal - prevTotal;
+        if(Number.isFinite(diff) && diff >= 0){
+          layoverMinutes = diff;
+        }
+      }
+      connections.push({ airport, layoverMinutes });
+    }
+
+    return { departureTimeToken: connections.length ? departureTimeToken : '', connections };
+  }
+
+  function buildAvailabilityConnectionSuffix(direction, segments, options){
+    const detailed = !!(options && options.detailed);
+    if(detailed){
+      try {
+        const info = computeAvailabilityConnectionDetails(direction, segments);
+        if(info && Array.isArray(info.connections) && info.connections.length){
+          const parts = info.connections
+            .map((entry) => {
+              if(!entry || !entry.airport) return '';
+              const airport = String(entry.airport).trim().toUpperCase();
+              if(!airport) return '';
+              const layover = Number.isFinite(entry.layoverMinutes)
+                ? Math.max(0, Math.round(entry.layoverMinutes))
+                : null;
+              return layover != null ? `${airport}-${layover}` : airport;
+            })
+            .filter(Boolean);
+          if(parts.length){
+            const prefix = info.departureTimeToken ? String(info.departureTimeToken).trim() : '';
+            return `${prefix}${parts.join('/')}`;
+          }
+        }
+      } catch (err) {
+        console.warn('Detailed availability suffix build failed:', err);
+      }
+    }
+    const basic = collectDirectionConnections(direction, segments);
+    if(basic.length){
+      return `12A${basic.join('/')}`;
+    }
+    return '';
+  }
+
   function collectCarriersForDirection(direction, segments){
     const carriers = [];
     const pushCarrier = (value) => {
@@ -1770,7 +1962,7 @@
     return carriers;
   }
 
-  function buildAvailabilityCommandForDirection(direction, segments){
+  function buildAvailabilityCommandForDirection(direction, segments, options){
     if(!direction){
       throw new Error('Missing required data for availability search.');
     }
@@ -1793,11 +1985,9 @@
 
     let command = `1${dayPart}${month}${origin}${destination}`;
 
-    const connectionList = Array.isArray(direction.connections)
-      ? direction.connections.filter(Boolean)
-      : [];
-    if(connectionList.length){
-      command += `12A${connectionList.join('/')}`;
+    const connectionSuffix = buildAvailabilityConnectionSuffix(direction, segments, options);
+    if(connectionSuffix){
+      command += connectionSuffix;
     }
 
     const carriers = collectCarriersForDirection(direction, segments || []);
@@ -1810,7 +2000,7 @@
     return command;
   }
 
-  function buildAvailabilityCommandFromSegments(segments){
+  function buildAvailabilityCommandFromSegments(segments, options){
     if(!segments || segments.length === 0){
       throw new Error('No segments parsed from itinerary.');
     }
@@ -1822,7 +2012,7 @@
     if(!target){
       throw new Error('Missing required data for availability search.');
     }
-    return buildAvailabilityCommandForDirection(target, segments);
+    return buildAvailabilityCommandForDirection(target, segments, options);
   }
 
   const MONTH_DAY_OFFSETS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
@@ -2312,10 +2502,14 @@
       if(selected.length === 0){
         throw new Error('No segments parsed from itinerary.');
       }
-      return buildAvailabilityCommandFromSegments(selected);
+      return buildAvailabilityCommandFromSegments(selected, opts);
     }
 
-    return buildAvailabilityCommandFromSegments(segments);
+    return buildAvailabilityCommandFromSegments(segments, opts);
+  };
+
+  window.computeAvailabilityConnectionDetails = function(direction, segments){
+    return computeAvailabilityConnectionDetails(direction, segments);
   };
 
   if(false){

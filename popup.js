@@ -13,6 +13,7 @@
   const bookingInput = document.getElementById('bookingClass');
   const statusInput = document.getElementById('segmentStatus');
   const enableDirections = document.getElementById('enableDirections');
+  const detailedAvailabilityToggle = document.getElementById('detailedAvailability');
   const okEl = document.getElementById('ok');
   const saveBtn = document.getElementById('saveBtn');
 
@@ -54,7 +55,8 @@
     availabilityCommands: [],
     lastAvailabilityCopiedIndex: -1,
     copyLabelTimer: null,
-    copyHoldUntil: 0
+    copyHoldUntil: 0,
+    detailedAvailability: false
   };
 
   function normalizeCabinValue(value){
@@ -116,7 +118,8 @@
     'bookingClass',
     'segmentStatus',
     'enableDirectionButtons',
-    'bookingClassLocked'
+    'bookingClassLocked',
+    'detailedAvailability'
   ], (res) => {
     const bookingValue = sanitizeBookingClass(res && res.bookingClass);
     const segmentStatus = sanitizeSegmentStatus(res && res.segmentStatus);
@@ -129,9 +132,14 @@
     if (enableDirections){
       enableDirections.checked = !!(res && res.enableDirectionButtons);
     }
+    const detailedFlag = !!(res && res.detailedAvailability);
+    if (detailedAvailabilityToggle){
+      detailedAvailabilityToggle.checked = detailedFlag;
+    }
     state.originalBookingClass = bookingValue;
     state.bookingClassLocked = !!(res && res.bookingClassLocked);
     state.bookingEdited = false;
+    state.detailedAvailability = detailedFlag;
     updateAutoDetectionNote();
   });
 
@@ -156,6 +164,13 @@
       state.originalBookingClass = nextValue;
       updateAutoDetectionNote();
     }
+    if (changes.detailedAvailability){
+      state.detailedAvailability = !!changes.detailedAvailability.newValue;
+      if (detailedAvailabilityToggle){
+        detailedAvailabilityToggle.checked = state.detailedAvailability;
+      }
+      updateAvailabilityPreview(state.lastInput || '');
+    }
   });
 
   if (saveBtn){
@@ -165,12 +180,14 @@
       if (bookingInput) bookingInput.value = bookingClass;
       if (statusInput) statusInput.value = segmentStatus;
       const enableDir = !!(enableDirections && enableDirections.checked);
+      const detailedAvail = !!(detailedAvailabilityToggle && detailedAvailabilityToggle.checked);
       const shouldLock = state.bookingEdited ? true : state.bookingClassLocked;
       chrome.storage.sync.set({
         bookingClass,
         segmentStatus,
         enableDirectionButtons: enableDir,
-        bookingClassLocked: shouldLock
+        bookingClassLocked: shouldLock,
+        detailedAvailability: detailedAvail
       }, () => {
         if (okEl){
           okEl.textContent = 'Saved';
@@ -179,6 +196,7 @@
         state.bookingClassLocked = shouldLock;
         state.originalBookingClass = bookingClass;
         state.bookingEdited = false;
+        state.detailedAvailability = detailedAvail;
         updateAutoDetectionNote();
         setTimeout(() => { window.close(); }, 600);
       });
@@ -198,6 +216,13 @@
         updateAutoDetectionNote();
         restoreAutoBtn.disabled = false;
       });
+    });
+  }
+
+  if (detailedAvailabilityToggle){
+    detailedAvailabilityToggle.addEventListener('change', () => {
+      state.detailedAvailability = !!detailedAvailabilityToggle.checked;
+      updateAvailabilityPreview(state.lastInput || '');
     });
   }
 
@@ -459,6 +484,7 @@
       return;
     }
     const trimmed = (rawText || '').trim();
+    const useDetailed = !!state.detailedAvailability;
     availabilityPreview.innerHTML = '';
     state.availabilityCommands = [];
     state.lastAvailabilityCopiedIndex = -1;
@@ -539,7 +565,11 @@
           : null;
         if (!range) return;
         try {
-          const command = window.convertTextToAvailability(trimmed, { direction: 'all', segmentRange: range });
+          const command = window.convertTextToAvailability(trimmed, {
+            direction: 'all',
+            segmentRange: range,
+            detailed: useDetailed
+          });
           if (command){
             commands.push({ label: formatDirectionLabel(direction, idx), command });
           }
@@ -552,7 +582,11 @@
       journeys.forEach((journey, idx) => {
         if (!journey) return;
         try {
-          const command = window.convertTextToAvailability(trimmed, { journeyIndex: idx, direction: 'all' });
+          const command = window.convertTextToAvailability(trimmed, {
+            journeyIndex: idx,
+            direction: 'all',
+            detailed: useDetailed
+          });
           if (command){
             const label = isMultiCity ? formatJourneyLabel(journey, idx) : formatDirectionLabel(null, idx);
             commands.push({ label, command });
@@ -564,7 +598,10 @@
     }
     if (!commands.length){
       try {
-        const fallback = window.convertTextToAvailability(trimmed, { direction: 'all' });
+        const fallback = window.convertTextToAvailability(trimmed, {
+          direction: 'all',
+          detailed: useDetailed
+        });
         if (fallback){
           commands.push({ label: 'All segments', command: fallback });
         }
@@ -887,9 +924,9 @@
     }
     const monthPart = dateToken.slice(2);
     let command = `1${dayValue}${monthPart}${origin}${destination}`;
-    const connections = collectDirectionConnections(direction, segments);
-    if (connections.length){
-      command += `12A${connections.join('/')}`;
+    const connectionSuffix = renderAvailabilityConnectionSuffix(direction, segments, state.detailedAvailability);
+    if (connectionSuffix){
+      command += connectionSuffix;
     }
     const carrier = selectViPreferredCarrier(direction, segments);
     if (carrier){
@@ -929,6 +966,39 @@
       connections.push(airport);
     });
     return connections;
+  }
+
+  function renderAvailabilityConnectionSuffix(direction, segments, detailed){
+    const useDetailed = !!detailed;
+    if (useDetailed && typeof window.computeAvailabilityConnectionDetails === 'function'){
+      try {
+        const info = window.computeAvailabilityConnectionDetails(direction, segments);
+        if (info && Array.isArray(info.connections) && info.connections.length){
+          const parts = info.connections
+            .map((entry) => {
+              if (!entry || !entry.airport) return '';
+              const airport = String(entry.airport).trim().toUpperCase();
+              if (!airport) return '';
+              const layover = Number.isFinite(entry.layoverMinutes)
+                ? Math.max(0, Math.round(entry.layoverMinutes))
+                : null;
+              return layover != null ? `${airport}-${layover}` : airport;
+            })
+            .filter(Boolean);
+          if (parts.length){
+            const prefix = info.departureTimeToken ? String(info.departureTimeToken).trim() : '';
+            return `${prefix}${parts.join('/')}`;
+          }
+        }
+      } catch (err) {
+        console.warn('Detailed availability rendering failed:', err);
+      }
+    }
+    const basic = collectDirectionConnections(direction, segments);
+    if (basic.length){
+      return `12A${basic.join('/')}`;
+    }
+    return '';
   }
 
   function selectViPreferredCarrier(direction, segments){

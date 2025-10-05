@@ -459,4 +459,40 @@ const multiCarrierItinerary = [
 const multiCarrierAvailability = window.convertTextToAvailability(multiCarrierItinerary, { direction: 'outbound' });
 assert.strictEqual(multiCarrierAvailability, '112JUNIADNBO12ACPH/AMS¥SK¥KQ¥KQ', 'availability should list each marketing carrier sequentially');
 
+const detailedAvailabilitySample = [
+  'Depart • Wed, Nov 13',
+  'Turkish Airlines 272',
+  '9:35 pm',
+  'Chișinău Intl (RMO)',
+  '12:15 am',
+  'Istanbul (IST)',
+  'Arrives Thu, Nov 14',
+  'Turkish Airlines 44',
+  '1:55 am',
+  'Istanbul (IST)',
+  '11:50 am',
+  'Cape Town (CPT)',
+  'Return • Tue, Nov 26',
+  'Turkish Airlines 45',
+  '5:15 pm',
+  'Cape Town (CPT)',
+  '5:35 am',
+  'Istanbul (IST)',
+  'Arrives Wed, Nov 27',
+  'Turkish Airlines 271',
+  '8:15 pm',
+  'Istanbul (IST)',
+  '8:45 pm',
+  'Chișinău Intl (RMO)'
+].join('\n');
+
+const detailedAvailabilityBasic = window.convertTextToAvailability(detailedAvailabilitySample, { direction: 'outbound' });
+assert.strictEqual(detailedAvailabilityBasic, '113NOVRMOCPT12AIST¥TK¥TK', 'baseline availability should retain legacy format when detailed mode is off');
+
+const detailedAvailabilityEnhanced = window.convertTextToAvailability(detailedAvailabilitySample, {
+  direction: 'outbound',
+  detailed: true
+});
+assert.strictEqual(detailedAvailabilityEnhanced, '113NOVRMOCPT935PIST-100¥TK¥TK', 'detailed availability should include departure time and layover minutes');
+
 console.log('✓ converter maintains departure date continuity for connecting segments');

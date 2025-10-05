@@ -94,8 +94,20 @@
   }
 
   // settings cache
-  let SETTINGS = { bookingClass:'J', segmentStatus:'SS1', enableDirectionButtons:false, bookingClassLocked:false };
-  chrome.storage.sync.get(['bookingClass','segmentStatus','enableDirectionButtons','bookingClassLocked'], (res)=>{
+  let SETTINGS = {
+    bookingClass:'J',
+    segmentStatus:'SS1',
+    enableDirectionButtons:false,
+    bookingClassLocked:false,
+    detailedAvailability:false
+  };
+  chrome.storage.sync.get([
+    'bookingClass',
+    'segmentStatus',
+    'enableDirectionButtons',
+    'bookingClassLocked',
+    'detailedAvailability'
+  ], (res)=>{
     if (res && res.bookingClass)  SETTINGS.bookingClass  = String(res.bookingClass || 'J').toUpperCase();
     if (res && res.segmentStatus) SETTINGS.segmentStatus = String(res.segmentStatus || 'SS1').toUpperCase();
     if (res && typeof res.bookingClassLocked === 'boolean') {
@@ -112,6 +124,17 @@
         scheduleItaDetailEnsure(true);
       } else {
         SETTINGS.enableDirectionButtons = storedDirections;
+      }
+      const storedDetailed = typeof res.detailedAvailability === 'boolean'
+        ? !!res.detailedAvailability
+        : SETTINGS.detailedAvailability;
+      if(storedDetailed !== SETTINGS.detailedAvailability){
+        SETTINGS.detailedAvailability = storedDetailed;
+        buttonConfigVersion++;
+        refreshExistingGroups();
+        scheduleItaDetailEnsure(true);
+      } else {
+        SETTINGS.detailedAvailability = storedDetailed;
       }
     }
     if(!SETTINGS.bookingClassLocked){
@@ -130,6 +153,12 @@
     if(chg.segmentStatus) SETTINGS.segmentStatus = String(chg.segmentStatus.newValue || 'SS1').toUpperCase();
     if(chg.enableDirectionButtons){
       SETTINGS.enableDirectionButtons = !!chg.enableDirectionButtons.newValue;
+      buttonConfigVersion++;
+      refreshExistingGroups();
+      scheduleItaDetailEnsure(true);
+    }
+    if(chg.detailedAvailability){
+      SETTINGS.detailedAvailability = !!chg.detailedAvailability.newValue;
       buttonConfigVersion++;
       refreshExistingGroups();
       scheduleItaDetailEnsure(true);
@@ -1131,6 +1160,9 @@
             converted = window.convertTextToI(raw, convertOpts);
           }else{
             const availOpts = { direction };
+            if(SETTINGS && Object.prototype.hasOwnProperty.call(SETTINGS, 'detailedAvailability')){
+              availOpts.detailed = !!SETTINGS.detailedAvailability;
+            }
             if(Array.isArray(config.segmentRange) && config.segmentRange.length === 2){
               availOpts.segmentRange = [
                 Number(config.segmentRange[0]),

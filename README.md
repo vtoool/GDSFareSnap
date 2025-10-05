@@ -11,6 +11,8 @@ This repository contains an unpacked Chromium extension that adds a “*I” cop
 5. Select the folder that contains `manifest.json`.
 
 Once loaded, open the popup to adjust booking class or segment status defaults.
+You can also enable the **Detailed availability search** toggle to include departure
+times and layover minutes in copied availability commands.
 
 ## Development
 
