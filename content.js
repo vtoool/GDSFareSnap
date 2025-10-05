@@ -3484,6 +3484,31 @@
     while (walker.nextNode()) tokens.push(walker.currentNode.nodeValue.replace(/\s+/g,' ').trim());
 
     const keep = [];
+    const resolveAirlineNameToken = (raw) => {
+      const cleaned = (raw || '')
+        .replace(/[•·]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if(!cleaned) return null;
+      const tryLookup = (name) => {
+        if(!name) return false;
+        if(typeof lookupAirlineCodeByName === 'function'){
+          try {
+            if(lookupAirlineCodeByName(name)) return true;
+          } catch (err) {
+            return false;
+          }
+        } else if(typeof AIRLINE_CODES !== 'undefined'){
+          const key = name.toUpperCase();
+          if(Object.prototype.hasOwnProperty.call(AIRLINE_CODES, key)) return true;
+        }
+        return false;
+      };
+      if(tryLookup(cleaned)) return cleaned;
+      const stripped = cleaned.replace(/\s+\d{1,4}\b.*$/, '').trim();
+      if(stripped && tryLookup(stripped)) return stripped;
+      return null;
+    };
     const airlineLike   = /(Airlines?|Airways|Aviation|Virgin Atlantic|British Airways|United|Delta|KLM|Air Canada|American|Lufthansa|SWISS|Austrian|TAP|Aer Lingus|Iberia|Finnair|SAS|Turkish|Emirates|Qatar|Etihad|JetBlue|Alaska|Hawaiian|Frontier|Spirit|Condor|Icelandair|Air Transat|Porter|Sun Country|Eurowings|TUI Fly)/i;
     const aircraftLike  = /(Boeing|Airbus|Embraer|Bombardier|CRJ|E-?Jet|Dreamliner|neo|MAX|777|787|737|A3\d{2}|A220|A321|A320|A319|A330|A350)/i;
     const timeLike      = /^(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?$/i;
@@ -3517,6 +3542,11 @@
         if(bookingClassLike.test(t)){
           keep.push(t);
         }
+        continue;
+      }
+
+      if (resolveAirlineNameToken(t)){
+        keep.push(t);
         continue;
       }
 

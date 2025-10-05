@@ -459,4 +459,58 @@ const multiCarrierItinerary = [
 const multiCarrierAvailability = window.convertTextToAvailability(multiCarrierItinerary, { direction: 'outbound' });
 assert.strictEqual(multiCarrierAvailability, '112JUNIADNBO12ACPH/AMS¥SK¥KQ¥KQ', 'availability should list each marketing carrier sequentially');
 
+const airSerbiaSample = [
+  'Depart • Thu, Jan 22',
+  '11h 45m',
+  '*I✓',
+  '',
+  'ZRH-BEG',
+  '✓',
+  'Air Serbia',
+  'Air Serbia 501',
+  'Airbus A330-200',
+  '3:00 pm',
+  'New York John F Kennedy Intl (JFK)',
+  '8h 40m',
+  'Overnight flight',
+  '5:40 am',
+  'Belgrade Nikola Tesla (BEG)',
+  'Arrives Fri, Jan 23',
+  '1h 15m•Change planes in Belgrade (BEG)',
+  'Air Serbia',
+  'Air Serbia 330',
+  'Airbus A319',
+  '6:55 am',
+  'Belgrade Nikola Tesla (BEG)',
+  '1h 50m',
+  '8:45 am',
+  'Zurich (ZRH)',
+  'Return • Sun, Feb 1',
+  '13h 50m',
+  'Air Serbia',
+  'Air Serbia 331 · Operated by Bulgaria Air For Air Serbia',
+  'Embraer 190',
+  '9:30 am',
+  'Zurich (ZRH)',
+  '1h 40m',
+  '11:10 am',
+  'Belgrade Nikola Tesla (BEG)',
+  '2h 00m•Change planes in Belgrade (BEG)',
+  'Air Serbia',
+  'Air Serbia 500',
+  'Airbus A330-200',
+  '1:10 pm',
+  'Belgrade Nikola Tesla (BEG)',
+  '10h 10m',
+  '5:20 pm',
+  'New York John F Kennedy Intl (JFK)'
+].join('\n');
+
+const airSerbiaPeek = window.peekSegments(airSerbiaSample);
+assert.strictEqual(airSerbiaPeek.segments.length, 4, 'Air Serbia itinerary should produce four segments');
+assert.deepStrictEqual(airSerbiaPeek.segments.map(seg => seg.airlineCode), ['JU','JU','JU','JU'], 'each Air Serbia segment should retain JU designator');
+
+const airSerbiaLines = window.convertTextToI(airSerbiaSample).split('\n').filter(Boolean);
+assert.ok(airSerbiaLines.some(line => /JU\s?501J/.test(line)), 'converted output should include the JFK-BEG segment');
+
 console.log('✓ converter maintains departure date continuity for connecting segments');
