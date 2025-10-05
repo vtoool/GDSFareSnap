@@ -881,13 +881,22 @@
         }
       }
       if(referenceDate){
-        const prevDow = currentDate ? currentDate.dow : '';
-        const nextDow = referenceDate.dow || prevDow || '';
-        currentDate = {
-          day: referenceDate.day,
-          mon: referenceDate.mon,
-          dow: nextDow
-        };
+        let shouldOverrideCurrent = true;
+        if(currentDate){
+          const diff = dateInfoDifferenceInDays(currentDate, referenceDate);
+          if(diff != null && diff < 0){
+            shouldOverrideCurrent = false;
+          }
+        }
+        if(shouldOverrideCurrent){
+          const prevDow = currentDate ? currentDate.dow : '';
+          const nextDow = referenceDate.dow || prevDow || '';
+          currentDate = {
+            day: referenceDate.day,
+            mon: referenceDate.mon,
+            dow: nextDow
+          };
+        }
       }
 
       for(; k < lines.length; k++){
@@ -1145,6 +1154,9 @@
     const formatGdsTime = (value) => {
       if(!value) return '';
       const trimmed = String(value).trim();
+      if(/^00(\d{2}[AP])$/i.test(trimmed)){
+        return trimmed.replace(/^00/, '12');
+      }
       return trimmed.replace(/^0+(\d)/, '$1');
     };
 
