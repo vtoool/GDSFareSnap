@@ -57,6 +57,62 @@ assert.ok(lines[1].includes('12APR'), 'second line should show original departur
 assert.ok(lines[1].includes('13APR M'), 'second line should include arrival date suffix');
 assert.ok(/13APR\s+M\s+MADBCN/.test(lines[2]), 'third line should use Apr 13 for MAD-BCN leg');
 
+const airSerbiaSample = [
+  'Depart • Thu, Jan 22',
+  '11h 45m',
+  '*I✓',
+  'ZRH-BEG',
+  '✓',
+  'Air Serbia',
+  'Air Serbia 501',
+  'Airbus A330-200',
+  '3:00 pm',
+  'New York John F Kennedy Intl (JFK)',
+  '8h 40m',
+  'Overnight flight',
+  '5:40 am',
+  'Belgrade Nikola Tesla (BEG)',
+  'Arrives Fri, Jan 23',
+  '1h 15m•Change planes in Belgrade (BEG)',
+  'Air Serbia',
+  'Air Serbia 330',
+  'Airbus A319',
+  '6:55 am',
+  'Belgrade Nikola Tesla (BEG)',
+  '1h 50m',
+  '8:45 am',
+  'Zurich (ZRH)',
+  'Limited seats remaining at this price',
+  'Meal provided',
+  'Return • Sun, Feb 1',
+  '13h 50m',
+  'Air Serbia',
+  'Air Serbia 331 · Operated by Bulgaria Air For Air Serbia',
+  'Embraer 190',
+  '9:30 am',
+  'Zurich (ZRH)',
+  '1h 40m',
+  '11:10 am',
+  'Belgrade Nikola Tesla (BEG)',
+  'Limited seats remaining at this price',
+  'Meal provided',
+  '2h 00m•Change planes in Belgrade (BEG)',
+  'Air Serbia',
+  'Air Serbia 500',
+  'Airbus A330-200',
+  '1:10 pm',
+  'Belgrade Nikola Tesla (BEG)',
+  '10h 10m',
+  '5:20 pm',
+  'New York John F Kennedy Intl (JFK)',
+  'Limited seats remaining at this price'
+].join('\n');
+
+const airSerbiaLines = window.convertTextToI(airSerbiaSample).split('\n');
+assert.strictEqual(airSerbiaLines.length, 4, 'Air Serbia itinerary should produce four segments');
+assert.ok(/JU 501/.test(airSerbiaLines[0]), 'outbound nonstop should keep JU 501');
+assert.ok(/JU 500/.test(airSerbiaLines[3]), 'return nonstop should keep JU 500');
+
 const interleavedOrder = [
   'Flight 1 • Thu, Jun 4',
   'Turkish Airlines 32',
