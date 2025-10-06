@@ -21,7 +21,8 @@
     BA: { FIRST: ['F', 'A'], BUSINESS: ['J', 'C', 'D', 'I', 'R'], PREMIUM: ['W', 'E', 'T'], ECONOMY: ['Y', 'B', 'H', 'K', 'L', 'M', 'N', 'S', 'V', 'Q', 'O', 'G'] },
     AF: { FIRST: ['F', 'P'], BUSINESS: ['J', 'C', 'D', 'I', 'Z'], PREMIUM: ['W', 'A', 'T'], ECONOMY: ['Y', 'B', 'M', 'H', 'K', 'Q', 'V', 'N', 'R', 'L', 'G', 'E'] },
     KL: { BUSINESS: ['J', 'C', 'D', 'I', 'Z'], PREMIUM: ['W', 'O', 'Z'], ECONOMY: ['Y', 'B', 'M', 'H', 'K', 'Q', 'L', 'T', 'E', 'U', 'N'] },
-    TK: { BUSINESS: ['J', 'C', 'D', 'K', 'Z'], ECONOMY: ['Y', 'B', 'M', 'H', 'A', 'E', 'S', 'L', 'O', 'Q', 'T', 'V'] },
+    TK: { BUSINESS: ['C', 'D', 'K', 'Z', 'J'], ECONOMY: ['Y', 'B', 'M', 'H', 'A', 'E', 'S', 'L', 'O', 'Q', 'T', 'V'] },
+    SK: { BUSINESS: ['C', 'D', 'J', 'Z'] },
     LX: { FIRST: ['F', 'A'], BUSINESS: ['J', 'C', 'D', 'Z', 'P'], PREMIUM: ['N', 'E', 'G'], ECONOMY: ['Y', 'B', 'H', 'K', 'M', 'Q', 'S', 'T', 'U', 'V', 'W'] },
     SN: { BUSINESS: ['J', 'C', 'D', 'Z'], PREMIUM: ['G', 'E', 'N'], ECONOMY: ['Y', 'B', 'M', 'H', 'Q', 'V', 'U', 'W', 'S', 'T', 'L', 'K'] },
     LO: { BUSINESS: ['Z', 'D', 'C'], PREMIUM: ['P', 'A', 'R'], ECONOMY: ['Y', 'B', 'M', 'H', 'K', 'Q', 'T', 'V', 'L', 'S', 'O', 'U'] },
@@ -95,25 +96,65 @@
     return 'ECONOMY';
   }
 
-  function getPreferredRBD(airlineCode, cabin) {
-    const cabinEnum = normalizeCabinEnum(cabin);
+  function toDurationMinutes(value){
+    if (value == null) return null;
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+    return null;
+  }
+
+  function getPreferredRBD(input, legacyCabin, legacyDuration) {
+    let airlineCode = '';
+    let marketedCabin = null;
+    let durationMinutes = null;
+
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      airlineCode = input.airlineCode;
+      marketedCabin = input.marketedCabin;
+      durationMinutes = input.durationMinutes;
+    } else {
+      airlineCode = input;
+      marketedCabin = legacyCabin;
+      durationMinutes = legacyDuration;
+    }
+
+    const cabinEnum = normalizeCabinEnum(marketedCabin);
     if (!cabinEnum) return null;
+
+    const durationValue = toDurationMinutes(durationMinutes);
+    let effectiveCabin = cabinEnum;
+    if (cabinEnum === 'FIRST' && durationValue != null && durationValue <= 360) {
+      effectiveCabin = 'BUSINESS';
+    }
+
     const code = typeof airlineCode === 'string' ? airlineCode.trim().toUpperCase() : '';
     const map = code && Object.prototype.hasOwnProperty.call(RBD_BY_AIRLINE, code)
       ? RBD_BY_AIRLINE[code]
       : undefined;
-    const list = map && map[cabinEnum] ? map[cabinEnum] : null;
+    const list = map && map[effectiveCabin] ? map[effectiveCabin] : null;
     if (list && list.length) {
       return list[0] || null;
     }
     if (map && !list) {
+      if (effectiveCabin !== cabinEnum && effectiveCabin === 'BUSINESS') {
+        const genericBusiness = GENERIC_RBD_BY_CABIN.BUSINESS || [];
+        if (genericBusiness.length) {
+          return genericBusiness[0];
+        }
+        return CABIN_FALLBACK.BUSINESS || null;
+      }
       return null;
     }
-    const generic = GENERIC_RBD_BY_CABIN[cabinEnum] || [];
+    const generic = GENERIC_RBD_BY_CABIN[effectiveCabin] || [];
     if (generic.length) {
       return generic[0];
     }
-    return CABIN_FALLBACK[cabinEnum] || null;
+    return CABIN_FALLBACK[effectiveCabin] || null;
   }
 
   if (root) {

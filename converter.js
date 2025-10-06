@@ -1182,7 +1182,18 @@
       if(!bookingClass){
         if(preferredRbdFn && autoCabinEnum){
           try {
-            const candidate = preferredRbdFn(s ? s.airlineCode || '' : '', autoCabinEnum);
+            const durationMinutes = (() => {
+              if (!s) return null;
+              if (Number.isFinite(s.durationMinutes)) return s.durationMinutes;
+              if (Number.isFinite(s.elapsedMinutes)) return s.elapsedMinutes;
+              if (Number.isFinite(s.elapsedHours)) return Math.round(s.elapsedHours * 60);
+              return null;
+            })();
+            const candidate = preferredRbdFn({
+              airlineCode: s ? s.airlineCode || '' : '',
+              marketedCabin: autoCabinEnum,
+              durationMinutes
+            });
             if(candidate){
               bookingClass = String(candidate).trim().toUpperCase();
             }
