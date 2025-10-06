@@ -2065,7 +2065,7 @@
     const monthOffset = MONTH_DAY_OFFSETS[monthIndex] != null ? MONTH_DAY_OFFSETS[monthIndex] : (monthIndex * 31);
     let ordinal = monthOffset + dayValue;
     if(prevOrdinal != null){
-      while(ordinal <= prevOrdinal){
+      while(ordinal < prevOrdinal){
         ordinal += ORDINAL_YEAR_SPAN;
       }
     }

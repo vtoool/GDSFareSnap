@@ -565,4 +565,40 @@ const detailedAvailabilityEnhanced = window.convertTextToAvailability(detailedAv
 });
 assert.strictEqual(detailedAvailabilityEnhanced, '113NOVRMOCPT935PIST-100¥TK¥TK', 'detailed availability should include departure time and layover minutes');
 
+const tapPortugalSample = [
+  'Depart • Tue, Nov 19',
+  'TAP Portugal 244',
+  '7:10 pm',
+  'Chicago (ORD)',
+  '9:05 am',
+  'Lisbon (LIS)',
+  'Arrives Wed, Nov 20',
+  'TAP Portugal 572',
+  '12:45 pm',
+  'Lisbon (LIS)',
+  '4:55 pm',
+  'Frankfurt (FRA)',
+  'Return • Sat, Dec 7',
+  'TAP Portugal 575',
+  '6:00 am',
+  'Frankfurt (FRA)',
+  '8:15 am',
+  'Lisbon (LIS)',
+  'TAP Portugal 243',
+  '11:10 am',
+  'Lisbon (LIS)',
+  '2:45 pm',
+  'Chicago (ORD)'
+].join('\n');
+
+const tapPortugalDetailedInbound = window.convertTextToAvailability(tapPortugalSample, {
+  direction: 'inbound',
+  detailed: true
+});
+assert.strictEqual(
+  tapPortugalDetailedInbound,
+  '17DECFRAORD600ALIS-175¥TP¥TP',
+  'detailed availability should keep same-day layovers within the current year'
+);
+
 console.log('✓ converter maintains departure date continuity for connecting segments');
