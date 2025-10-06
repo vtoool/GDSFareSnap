@@ -841,7 +841,9 @@
     const getPreferred = (typeof window !== 'undefined' && typeof window.getPreferredRBD === 'function')
       ? window.getPreferredRBD
       : null;
-    let bookingClass = getPreferred ? getPreferred('', cabinEnum) : null;
+    let bookingClass = getPreferred
+      ? getPreferred({ airlineCode: '', marketedCabin: cabinEnum, durationMinutes: null })
+      : null;
     if(!bookingClass){
       bookingClass = CABIN_DEFAULT_BOOKING[cabinEnum] || null;
     }

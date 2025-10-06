@@ -8,7 +8,7 @@
   const PREFERRED_RBD_FN = ROOT_SCOPE && typeof ROOT_SCOPE.getPreferredRBD === 'function' ? ROOT_SCOPE.getPreferredRBD : null;
   const NORMALIZE_CABIN_FN = ROOT_SCOPE && typeof ROOT_SCOPE.normalizeCabinEnum === 'function' ? ROOT_SCOPE.normalizeCabinEnum : null;
   const CABIN_FALLBACK_BOOKING = { FIRST: 'F', BUSINESS: 'J', PREMIUM: 'N', ECONOMY: 'Y' };
-  const SHORT_HAUL_FIRST_LIMIT_HOURS = 5;
+  const SHORT_HAUL_FIRST_LIMIT_HOURS = 6;
 
   const bookingInput = document.getElementById('bookingClass');
   const statusInput = document.getElementById('segmentStatus');
@@ -85,14 +85,22 @@
       normalized === 'FIRST' &&
       Number.isFinite(segment.elapsedHours) &&
       segment.elapsedHours > 0 &&
-      segment.elapsedHours < SHORT_HAUL_FIRST_LIMIT_HOURS
+      segment.elapsedHours <= SHORT_HAUL_FIRST_LIMIT_HOURS
     ){
       return 'BUSINESS';
     }
     return normalized;
   }
 
-  function pickPreferredBookingClass(airlineCode, cabinEnum, fallback){
+  function segmentDurationToMinutes(segment){
+    if (!segment) return null;
+    if (Number.isFinite(segment.durationMinutes)) return segment.durationMinutes;
+    if (Number.isFinite(segment.elapsedMinutes)) return segment.elapsedMinutes;
+    if (Number.isFinite(segment.elapsedHours)) return Math.round(segment.elapsedHours * 60);
+    return null;
+  }
+
+  function pickPreferredBookingClass(airlineCode, cabinEnum, fallback, segment){
     const base = (fallback || '').toString().trim().toUpperCase();
     if (!cabinEnum){
       return base;
@@ -100,7 +108,11 @@
     let candidate = '';
     if (PREFERRED_RBD_FN){
       try {
-        candidate = PREFERRED_RBD_FN(airlineCode || '', cabinEnum) || '';
+        candidate = PREFERRED_RBD_FN({
+          airlineCode: airlineCode || '',
+          marketedCabin: cabinEnum,
+          durationMinutes: segmentDurationToMinutes(segment)
+        }) || '';
       } catch (err) {
         candidate = '';
       }
@@ -1355,7 +1367,7 @@
         detectedCabin = resolveCabinForSegment(seg);
         if (detectedCabin){
           seg.cabin = detectedCabin;
-          segmentBookingClass = pickPreferredBookingClass(seg.airlineCode, detectedCabin, bookingClass);
+          segmentBookingClass = pickPreferredBookingClass(seg.airlineCode, detectedCabin, bookingClass, seg);
         }
       }
       if (!segmentBookingClass){
