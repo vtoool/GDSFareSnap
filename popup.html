@@ -86,6 +86,136 @@
       gap: 14px;
     }
 
+    .card--layout {
+      gap: 18px;
+    }
+
+    .layout-board {
+      position: relative;
+      border-radius: calc(var(--radius-md) - 2px);
+      border: 1px solid rgba(75, 107, 255, 0.14);
+      background: radial-gradient(circle at top right, rgba(75, 107, 255, 0.12), transparent 60%),
+        radial-gradient(circle at bottom left, rgba(75, 107, 255, 0.08), transparent 62%),
+        rgba(244, 246, 255, 0.9);
+      min-height: 260px;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+    }
+
+    .layout-board--panning {
+      cursor: grabbing;
+    }
+
+    .layout-board canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
+    }
+
+    .layout-board__card {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: top left;
+      width: 280px;
+      height: 190px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 22px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 20px 44px rgba(15, 23, 42, 0.18);
+      backdrop-filter: saturate(1.08) blur(10px);
+      border: 1px solid rgba(75, 107, 255, 0.18);
+    }
+
+    .layout-board__card--resizing {
+      box-shadow: 0 24px 54px rgba(30, 64, 255, 0.3);
+      border-color: rgba(75, 107, 255, 0.32);
+    }
+
+    .layout-board__pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, rgba(248, 249, 255, 1) 0%, rgba(232, 236, 255, 1) 100%);
+      border: 2px solid rgba(64, 86, 217, 0.78);
+      color: #3146c9;
+      font-weight: 700;
+      font-size: 1.05rem;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16);
+    }
+
+    .layout-board__meta {
+      display: grid;
+      gap: 4px;
+    }
+
+    .layout-board__meta strong {
+      font-size: 0.92rem;
+      color: var(--color-text);
+    }
+
+    .layout-board__meta small {
+      font-size: 0.74rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: rgba(91, 96, 114, 0.7);
+    }
+
+    .layout-board__handle {
+      position: absolute;
+      right: -18px;
+      bottom: -18px;
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      border: none;
+      padding: 0;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.92) 0%, rgba(75, 107, 255, 0.92) 86%, rgba(30, 64, 255, 0.95) 100%);
+      box-shadow: 0 12px 24px rgba(30, 64, 255, 0.32);
+      border: 3px solid rgba(255, 255, 255, 0.85);
+      cursor: nwse-resize;
+      transition: transform var(--transition), box-shadow var(--transition), filter var(--transition);
+    }
+
+    .layout-board__handle::after {
+      content: '';
+      position: absolute;
+      inset: 14px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95) 0%, rgba(133, 152, 255, 0.95) 100%);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+    }
+
+    .layout-board__handle:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 4px rgba(75, 107, 255, 0.3);
+    }
+
+    .layout-board__handle:hover,
+    .layout-board__handle:active {
+      transform: translate(1px, 1px) scale(1.04);
+      box-shadow: 0 16px 30px rgba(30, 64, 255, 0.36);
+      filter: brightness(1.03);
+    }
+
+    .layout-board__card-body {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
     .card__header {
       display: grid;
       gap: 5px;
@@ -449,6 +579,10 @@
       .toggle-help {
         margin-left: 0;
       }
+
+      .layout-board {
+        min-height: 220px;
+      }
     }
   </style>
 </head>
@@ -517,6 +651,37 @@
       <div class="field">
         <label class="field__label" for="iOutput">*I result</label>
         <textarea id="iOutput" class="field__control field__control--textarea" readonly placeholder="Converted *I output will appear here"></textarea>
+      </div>
+    </section>
+
+    <section class="card card--layout">
+      <header class="card__header">
+        <span class="card__eyebrow">Canvas</span>
+        <h2 class="card__title">Layout sandbox</h2>
+        <p class="card__subtitle">Drag to pan, scroll to zoom, and resize the preview card with the glowing corner handle.</p>
+      </header>
+      <div id="layoutBoard" class="layout-board" role="application" aria-label="Layout sandbox canvas">
+        <canvas id="layoutCanvas" aria-hidden="true"></canvas>
+        <div
+          id="layoutCard"
+          class="layout-board__card"
+          role="group"
+          aria-label="Resizable card preview"
+        >
+          <div class="layout-board__card-body">
+            <span class="layout-board__pill" aria-hidden="true">*I</span>
+            <div class="layout-board__meta">
+              <strong>Clipboard ready</strong>
+              <small>Visual grid preview</small>
+            </div>
+          </div>
+          <button
+            id="layoutCardHandle"
+            type="button"
+            class="layout-board__handle"
+            aria-label="Resize preview card"
+          ></button>
+        </div>
       </div>
     </section>
   </main>
