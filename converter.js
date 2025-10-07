@@ -441,7 +441,7 @@
       .trim();
     if(!cleaned) return null;
     if(isLikelyEquipmentLine(cleaned)) return null;
-    const m = cleaned.match(/^([A-Za-z][A-Za-z\s'&.-]*?)\s+(\d{1,4})\b/);
+    const m = cleaned.match(/^([A-Za-z][A-Za-z\s'&.()/-]*?)\s+(\d{1,4})\b/);
     if(!m) return null;
     const airlineName = m[1].trim();
     if(/\bOPERATED BY\b/i.test(airlineName)) return null;

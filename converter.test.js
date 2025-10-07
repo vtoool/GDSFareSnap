@@ -4,6 +4,48 @@ global.window = global;
 require('./airlines.js');
 require('./converter.js');
 
+assert.strictEqual(
+  window.lookupAirlineCodeByName('Saudia (SV)'),
+  'SV',
+  'Saudia alias with trailing code should resolve to SV'
+);
+assert.strictEqual(
+  window.lookupAirlineCodeByName('Saudia (SV) 20'),
+  'SV',
+  'Saudia line with flight number should resolve to SV'
+);
+
+const saudiaSample = [
+  'Depart • Wed, Nov 19',
+  'Flight 1 • Wed, Nov 19',
+  '11h 30m',
+  'Saudia',
+  'Saudia (SV) 20',
+  'Boeing 777-300',
+  '11:00 am',
+  'New York John F Kennedy Intl (JFK)',
+  'Overnight flight',
+  '6:30 am',
+  'Jeddah King Abdulaziz Intl (JED)',
+  'Arrives Thu, Nov 20',
+  'Return • Wed, Apr 8',
+  'Flight 2 • Wed, Apr 8',
+  '12h 55m',
+  'Saudia',
+  'Saudia (SV) 21',
+  'Boeing 777-300',
+  '3:05 am',
+  'Jeddah King Abdulaziz Intl (JED)',
+  '9:50 am',
+  'New York John F Kennedy Intl (JFK)',
+  'Arrives Wed, Apr 8'
+].join('\n');
+
+const saudiaLines = window.convertTextToI(saudiaSample).split('\n');
+assert.strictEqual(saudiaLines.length, 2, 'Saudia sample should produce two segments');
+assert.ok(/SV\s+20/.test(saudiaLines[0]), 'Outbound Saudia segment should use SV 20');
+assert.ok(/SV\s+21/.test(saudiaLines[1]), 'Inbound Saudia segment should use SV 21');
+
 const sampleItinerary = [
   'Depart • Sun, Apr 12',
   'Flight 1 • Sun, Apr 12',
