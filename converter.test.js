@@ -601,4 +601,27 @@ assert.strictEqual(
   'detailed availability should keep same-day layovers within the current year'
 );
 
+const gulfAirSample = [
+  'Depart • Wed, Nov 19',
+  'Gulf Air (GF) 90',
+  '11:55 am',
+  'New York John F Kennedy Intl (JFK)',
+  '12h 25m',
+  'Overnight flight',
+  '3:20 pm',
+  'Manama Bahrain Intl (BAH)',
+  'Arrives Thu, Nov 20',
+  '1h 45m • Change planes in Manama (BAH)',
+  'Gulf Air (GF) 171',
+  '5:05 pm',
+  'Manama Bahrain Intl (BAH)',
+  '7:55 pm',
+  'Jeddah King Abdulaziz Intl (JED)'
+].join('\n');
+
+const gulfAirLines = window.convertTextToI(gulfAirSample).split('\n');
+assert.strictEqual(gulfAirLines.length, 2, 'Gulf Air itinerary should yield two flight segments');
+assert.ok(/GF 90/.test(gulfAirLines[0]), 'first Gulf Air segment should retain GF 90');
+assert.ok(/GF 171/.test(gulfAirLines[1]), 'second Gulf Air segment should retain GF 171');
+
 console.log('✓ converter maintains departure date continuity for connecting segments');

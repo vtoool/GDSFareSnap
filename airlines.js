@@ -448,13 +448,30 @@ Object.keys(AIRLINE_CODES).forEach((key) => {
 
 function lookupAirlineCodeByName(name){
     if(!name && name !== 0) return null;
-    const directKey = String(name).trim().toUpperCase();
+    const rawValue = String(name);
+    const directKey = rawValue.trim().toUpperCase();
     if(directKey && Object.prototype.hasOwnProperty.call(AIRLINE_CODES, directKey)){
         return AIRLINE_CODES[directKey];
+    }
+    const parentheticalStripped = rawValue
+        .replace(/\((?:[A-Z0-9]{1,3})\)/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if(parentheticalStripped){
+        const parentheticalKey = parentheticalStripped.toUpperCase();
+        if(parentheticalKey !== directKey && Object.prototype.hasOwnProperty.call(AIRLINE_CODES, parentheticalKey)){
+            return AIRLINE_CODES[parentheticalKey];
+        }
     }
     const normalized = normalizeAirlineNameKey(name);
     if(normalized && Object.prototype.hasOwnProperty.call(AIRLINE_NORMALIZED_CODES, normalized)){
         return AIRLINE_NORMALIZED_CODES[normalized];
+    }
+    if(parentheticalStripped){
+        const normalizedStripped = normalizeAirlineNameKey(parentheticalStripped);
+        if(normalizedStripped && Object.prototype.hasOwnProperty.call(AIRLINE_NORMALIZED_CODES, normalizedStripped)){
+            return AIRLINE_NORMALIZED_CODES[normalizedStripped];
+        }
     }
     return null;
 }
