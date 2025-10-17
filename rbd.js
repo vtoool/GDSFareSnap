@@ -184,7 +184,7 @@
     if (originRegion && destinationRegion) {
       return originRegion === destinationRegion;
     }
-    return false;
+    return true;
   }
 
   function getPreferredRBD(input, legacyCabin, legacyDuration) {

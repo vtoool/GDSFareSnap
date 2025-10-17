@@ -94,6 +94,24 @@ test('Short-haul helper matches expected heuristics', () => {
   assert.strictEqual(shouldTreatSegmentAsShortHaul({ durationMinutes: 540, origin: 'JFK', destination: 'LHR' }), false);
 });
 
+test('Short-haul helper falls back to duration when regions unknown', () => {
+  assert.strictEqual(
+    shouldTreatSegmentAsShortHaul({ durationMinutes: 240, origin: 'BOI', destination: 'JFK' }),
+    true
+  );
+});
+
+test('Premium cabin downgrades when duration is short but region unknown', () => {
+  const result = getPreferredRBD({
+    airlineCode: 'AA',
+    marketedCabin: 'PREMIUM',
+    durationMinutes: 240,
+    origin: 'BOI',
+    destination: 'JFK'
+  });
+  assert.strictEqual(result, 'Y');
+});
+
 test('normalizeCabinEnum handles lowercase business', () => {
   assert.strictEqual(normalizeCabinEnum('business'), 'BUSINESS');
 });
