@@ -189,6 +189,35 @@ assert.ok(/05JUN/.test(interleavedLines[1]), 'outbound connection should carry a
 assert.ok(/05JUN\s+F/.test(interleavedLines[0]), 'overnight arrival should include next-day date context');
 assert.strictEqual(interleavedPeek.segments[1].depDate, '05JUN', 'peekSegments should advance outbound connection date');
 
+const baPremiumSample = [
+  'Depart • Sat, Nov 8',
+  'Flight 1 • Sat, Nov 8',
+  'British Airways 228',
+  '8:35 pm',
+  'Baltimore/Washington (BWI)',
+  'Overnight flight',
+  '8:40 am',
+  'London Heathrow (LHR)',
+  'Arrives Sun, Nov 9',
+  '1h 50m • Change planes in London (LHR)',
+  'British Airways 594',
+  '10:30 am',
+  'London Heathrow (LHR)',
+  '1:45 pm',
+  'Venice Marco Polo (VCE)'
+].join('\n');
+
+const baPremiumPeek = window.peekSegments(baPremiumSample);
+assert.strictEqual(baPremiumPeek.segments.length, 2, 'BA itinerary should produce two segments');
+assert.strictEqual(
+  baPremiumPeek.segments[1].durationMinutes,
+  195,
+  'short-haul BA segment should compute duration in minutes'
+);
+
+const baPremiumLines = window.convertTextToI(baPremiumSample, { bookingClass: '', autoCabin: 'premium' }).split('\n');
+assert.ok(/BA\s+594Y/.test(baPremiumLines[1] || ''), 'short-haul premium cabin should fall back to economy booking class');
+
 const matrixDateRegression = [
   'Flight 1 • Sun, Sep 28',
   'Los Angeles (LAX) to Munich (MUC) on Sun, Sep 28',

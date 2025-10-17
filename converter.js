@@ -1088,6 +1088,43 @@
         const arrDateString = arrivesDate
           ? `${arrivesDate.day}${arrivesDate.mon}${arrivesDate.dow ? ` ${arrivesDate.dow}` : ''}`
           : "";
+        const depDateInfo = segmentDate ? cloneDateInfo(segmentDate) : null;
+        let nextDateContext = null;
+        if(arrivesDate){
+          nextDateContext = {
+            day: arrivesDate.day,
+            mon: arrivesDate.mon,
+            dow: arrivesDate.dow || (segmentDate ? segmentDate.dow : '')
+          };
+        } else if(segmentDate){
+          nextDateContext = cloneDateInfo(segmentDate);
+          if(arrTime && arrTime.mins != null && depTime && depTime.mins != null && arrTime.mins < depTime.mins){
+            nextDateContext = addDaysToDateInfo(nextDateContext, 1, nextDateContext.dow || (segmentDate ? segmentDate.dow : ''));
+          }
+        }
+        const arrivalDateInfo = nextDateContext ? cloneDateInfo(nextDateContext) : (currentDate ? cloneDateInfo(currentDate) : null);
+        let durationMinutes = null;
+        const depMinutes = depTime && Number.isFinite(depTime.mins) ? depTime.mins : null;
+        const arrMinutes = arrTime && Number.isFinite(arrTime.mins) ? arrTime.mins : null;
+        if(depMinutes != null && arrMinutes != null){
+          let dayOffset = null;
+          if(depDateInfo && arrivalDateInfo){
+            const diffDays = dateInfoDifferenceInDays(depDateInfo, arrivalDateInfo);
+            if(Number.isFinite(diffDays)){
+              dayOffset = diffDays;
+            }
+          }
+          if(dayOffset == null){
+            dayOffset = arrMinutes < depMinutes ? 1 : 0;
+          }
+          let candidate = (arrMinutes + dayOffset * (24 * 60)) - depMinutes;
+          if(candidate < 0 && arrMinutes < depMinutes){
+            candidate += 24 * 60;
+          }
+          if(candidate >= 0 && candidate <= 7 * 24 * 60){
+            durationMinutes = candidate;
+          }
+        }
         segs.push({
           airlineCode,
           number: flightNumber,
@@ -1102,7 +1139,8 @@
           headerRef: segmentDate ? cloneDateInfo(segmentDate) : (currentDate ? cloneDateInfo(currentDate) : null),
           bookingClass,
           arrDate: arrDateString,
-          direction: inboundActive ? 'inbound' : 'outbound'
+          direction: inboundActive ? 'inbound' : 'outbound',
+          durationMinutes
         });
         if(currentJourney){
           if(!currentJourney.origin) currentJourney.origin = depAirport || currentJourney.origin || null;
@@ -1112,19 +1150,6 @@
           if(currentJourney){
             if(!currentJourney.origin) currentJourney.origin = depAirport || currentJourney.origin || null;
             currentJourney.dest = arrAirport || currentJourney.dest || null;
-          }
-        }
-        let nextDateContext = null;
-        if(arrivesDate){
-          nextDateContext = {
-            day: arrivesDate.day,
-            mon: arrivesDate.mon,
-            dow: arrivesDate.dow || (segmentDate ? segmentDate.dow : '')
-          };
-        } else if(segmentDate){
-          nextDateContext = cloneDateInfo(segmentDate);
-          if(arrTime && arrTime.mins != null && depTime && depTime.mins != null && arrTime.mins < depTime.mins){
-            nextDateContext = addDaysToDateInfo(nextDateContext, 1, nextDateContext.dow || (segmentDate ? segmentDate.dow : ''));
           }
         }
         if(nextDateContext){
