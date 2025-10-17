@@ -6,6 +6,9 @@
   const DOW_CHARS = ['S','M','T','W','Q','F','J'];
   const ROOT_SCOPE = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this);
   const PREFERRED_RBD_FN = ROOT_SCOPE && typeof ROOT_SCOPE.getPreferredRBD === 'function' ? ROOT_SCOPE.getPreferredRBD : null;
+  const SHORT_HAUL_CHECK_FN = ROOT_SCOPE && typeof ROOT_SCOPE.shouldTreatSegmentAsShortHaul === 'function'
+    ? ROOT_SCOPE.shouldTreatSegmentAsShortHaul
+    : null;
   const NORMALIZE_CABIN_FN = ROOT_SCOPE && typeof ROOT_SCOPE.normalizeCabinEnum === 'function' ? ROOT_SCOPE.normalizeCabinEnum : null;
   const CABIN_FALLBACK_BOOKING = { FIRST: 'F', BUSINESS: 'J', PREMIUM: 'N', ECONOMY: 'Y' };
   const SHORT_HAUL_LIMIT_MINUTES = 360;
@@ -96,7 +99,21 @@
     const normalized = normalizeCabinValue(segment.cabinRaw || segment.cabin);
     if (!normalized) return null;
     const minutes = segmentDurationToMinutes(segment);
-    if (minutes != null && minutes <= SHORT_HAUL_LIMIT_MINUTES){
+    let treatAsShort = false;
+    if (SHORT_HAUL_CHECK_FN){
+      try {
+        treatAsShort = !!SHORT_HAUL_CHECK_FN({
+          durationMinutes: minutes,
+          origin: segment ? (segment.depAirport || segment.origin) : '',
+          destination: segment ? (segment.arrAirport || segment.dest) : ''
+        });
+      } catch (err) {
+        treatAsShort = false;
+      }
+    } else if (minutes != null && minutes <= SHORT_HAUL_LIMIT_MINUTES){
+      treatAsShort = true;
+    }
+    if (treatAsShort){
       if (normalized === 'FIRST'){
         return 'BUSINESS';
       }
@@ -126,7 +143,9 @@
         candidate = PREFERRED_RBD_FN({
           airlineCode: airlineCode || '',
           marketedCabin: cabinEnum,
-          durationMinutes: segmentDurationToMinutes(segment)
+          durationMinutes: segmentDurationToMinutes(segment),
+          origin: segment ? toAirportCode(segment.depAirport || segment.origin) : '',
+          destination: segment ? toAirportCode(segment.arrAirport || segment.dest) : ''
         }) || '';
       } catch (err) {
         candidate = '';
