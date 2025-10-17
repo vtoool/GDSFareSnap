@@ -170,6 +170,23 @@
     return { mins:null, gds:s };
   }
 
+  function extractSegmentDurationMinutes(segment){
+    if(!segment) return null;
+    if(Number.isFinite(segment.durationMinutes)) return segment.durationMinutes;
+    if(Number.isFinite(segment.elapsedMinutes)) return segment.elapsedMinutes;
+    if(Number.isFinite(segment.elapsedHours)) return Math.round(segment.elapsedHours * 60);
+    return null;
+  }
+
+  function normalizeShortHaulCabin(cabinEnum, durationMinutes){
+    if(!cabinEnum) return cabinEnum;
+    if(durationMinutes != null && durationMinutes <= 360){
+      if(cabinEnum === 'FIRST') return 'BUSINESS';
+      if(cabinEnum === 'PREMIUM') return 'ECONOMY';
+    }
+    return cabinEnum;
+  }
+
   function parseHeaderDate(line){
     // "Depart • Sat, Oct 4" -> {dow:'J', day:'04', mon:'OCT'}
     const cleaned = line.replace(/\(.*?\)/g, ' ').replace(/\s+/g,' ').trim();
@@ -1180,27 +1197,22 @@
       const segNumber = String(idx + 1).padStart(2, ' ');
       let bookingClass = (s && s.bookingClass) ? String(s.bookingClass).trim().toUpperCase() : '';
       if(!bookingClass){
+        const segmentDurationMinutes = extractSegmentDurationMinutes(s);
         if(preferredRbdFn && autoCabinEnum){
           try {
-            const durationMinutes = (() => {
-              if (!s) return null;
-              if (Number.isFinite(s.durationMinutes)) return s.durationMinutes;
-              if (Number.isFinite(s.elapsedMinutes)) return s.elapsedMinutes;
-              if (Number.isFinite(s.elapsedHours)) return Math.round(s.elapsedHours * 60);
-              return null;
-            })();
             const candidate = preferredRbdFn({
               airlineCode: s ? s.airlineCode || '' : '',
               marketedCabin: autoCabinEnum,
-              durationMinutes
+              durationMinutes: segmentDurationMinutes
             });
             if(candidate){
               bookingClass = String(candidate).trim().toUpperCase();
             }
           } catch (err) {}
         }
-        if(!bookingClass && autoCabinEnum && CABIN_FALLBACK_BOOKING[autoCabinEnum]){
-          bookingClass = CABIN_FALLBACK_BOOKING[autoCabinEnum];
+        const fallbackCabin = normalizeShortHaulCabin(autoCabinEnum, segmentDurationMinutes);
+        if(!bookingClass && fallbackCabin && CABIN_FALLBACK_BOOKING[fallbackCabin]){
+          bookingClass = CABIN_FALLBACK_BOOKING[fallbackCabin];
         }
         if(!bookingClass && baseBookingClass){
           bookingClass = baseBookingClass;

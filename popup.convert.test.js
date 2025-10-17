@@ -76,7 +76,7 @@ global.chrome = {
 require('./airlines.js');
 require('./rbd.js');
 
-const { convertViToI } = require('./popup.js');
+const { convertViToI, resolveCabinForSegment, pickPreferredBookingClass } = require('./popup.js');
 
 const sampleText = `FLIGHT  DATE  SEGMENT DPTR  ARVL    MLS  EQP  ELPD MILES SM\n 1 AA  293 22OCT DEL JFK 1130P  605A¥1 LS   789 16.05  7318  N\nDEP-TERMINAL 3                 ARR-TERMINAL 8                 \nONEWORLD\nCABIN-PREMIUM ECONOMY\n 2 AA 2813 23OCT JFK AUS 1132A  237P   F    738  4.05  1521  N\nDEP-TERMINAL 8                 \nONEWORLD\nCABIN-ECONOMY`;
 
@@ -89,5 +89,15 @@ assert.ok(/AA\s?293W/.test(firstLine), 'AA premium economy segment should use W 
 
 assert.ok(Array.isArray(result.segments), 'segments should be returned');
 assert.strictEqual(result.segments[0].bookingClass, 'W', 'first segment booking class should be W');
+
+const shortPremiumSegment = {
+  cabinRaw: 'Premium Economy',
+  durationMinutes: 150,
+  airlineCode: 'AA'
+};
+const normalizedCabin = resolveCabinForSegment({ ...shortPremiumSegment });
+assert.strictEqual(normalizedCabin, 'ECONOMY', 'short-haul premium segment should downgrade to economy cabin');
+const shortPremiumBooking = pickPreferredBookingClass('AA', normalizedCabin, '', shortPremiumSegment);
+assert.strictEqual(shortPremiumBooking, 'Y', 'short-haul premium segment should use Y booking class');
 
 console.log('All tests passed.');
