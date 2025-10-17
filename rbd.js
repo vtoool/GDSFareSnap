@@ -128,8 +128,12 @@
 
     const durationValue = toDurationMinutes(durationMinutes);
     let effectiveCabin = cabinEnum;
-    if (cabinEnum === 'FIRST' && durationValue != null && durationValue <= 360) {
-      effectiveCabin = 'BUSINESS';
+    if (durationValue != null && durationValue <= 360) {
+      if (cabinEnum === 'FIRST') {
+        effectiveCabin = 'BUSINESS';
+      } else if (cabinEnum === 'PREMIUM') {
+        effectiveCabin = 'ECONOMY';
+      }
     }
 
     const code = typeof airlineCode === 'string' ? airlineCode.trim().toUpperCase() : '';
@@ -141,12 +145,21 @@
       return list[0] || null;
     }
     if (map && !list) {
-      if (effectiveCabin !== cabinEnum && effectiveCabin === 'BUSINESS') {
-        const genericBusiness = GENERIC_RBD_BY_CABIN.BUSINESS || [];
-        if (genericBusiness.length) {
-          return genericBusiness[0];
+      if (effectiveCabin !== cabinEnum) {
+        if (effectiveCabin === 'BUSINESS') {
+          const genericBusiness = GENERIC_RBD_BY_CABIN.BUSINESS || [];
+          if (genericBusiness.length) {
+            return genericBusiness[0];
+          }
+          return CABIN_FALLBACK.BUSINESS || null;
         }
-        return CABIN_FALLBACK.BUSINESS || null;
+        if (effectiveCabin === 'ECONOMY') {
+          const genericEconomy = GENERIC_RBD_BY_CABIN.ECONOMY || [];
+          if (genericEconomy.length) {
+            return genericEconomy[0];
+          }
+          return CABIN_FALLBACK.ECONOMY || null;
+        }
       }
       return null;
     }

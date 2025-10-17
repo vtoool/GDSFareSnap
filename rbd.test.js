@@ -24,7 +24,7 @@ test('TP + BUSINESS → C', () => {
 });
 
 test('DL + PREMIUM → P', () => {
-  assert.strictEqual(getPreferredRBD({ airlineCode: 'DL', marketedCabin: 'PREMIUM', durationMinutes: 200 }), 'P');
+  assert.strictEqual(getPreferredRBD({ airlineCode: 'DL', marketedCabin: 'PREMIUM', durationMinutes: 480 }), 'P');
 });
 
 test('UA + ECONOMY → Y', () => {
@@ -53,6 +53,10 @@ test('SK business uses C', () => {
 
 test('Short-haul First converts to Business', () => {
   assert.strictEqual(getPreferredRBD({ airlineCode: 'AA', marketedCabin: 'FIRST', durationMinutes: 220 }), 'J');
+});
+
+test('Short-haul Premium converts to Economy', () => {
+  assert.strictEqual(getPreferredRBD({ airlineCode: 'AA', marketedCabin: 'PREMIUM', durationMinutes: 180 }), 'Y');
 });
 
 test('Long-haul First stays First', () => {

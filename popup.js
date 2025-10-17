@@ -8,7 +8,7 @@
   const PREFERRED_RBD_FN = ROOT_SCOPE && typeof ROOT_SCOPE.getPreferredRBD === 'function' ? ROOT_SCOPE.getPreferredRBD : null;
   const NORMALIZE_CABIN_FN = ROOT_SCOPE && typeof ROOT_SCOPE.normalizeCabinEnum === 'function' ? ROOT_SCOPE.normalizeCabinEnum : null;
   const CABIN_FALLBACK_BOOKING = { FIRST: 'F', BUSINESS: 'J', PREMIUM: 'N', ECONOMY: 'Y' };
-  const SHORT_HAUL_FIRST_LIMIT_HOURS = 6;
+  const SHORT_HAUL_LIMIT_MINUTES = 360;
 
   const bookingInput = document.getElementById('bookingClass');
   const statusInput = document.getElementById('segmentStatus');
@@ -95,13 +95,14 @@
     if (!segment) return null;
     const normalized = normalizeCabinValue(segment.cabinRaw || segment.cabin);
     if (!normalized) return null;
-    if (
-      normalized === 'FIRST' &&
-      Number.isFinite(segment.elapsedHours) &&
-      segment.elapsedHours > 0 &&
-      segment.elapsedHours <= SHORT_HAUL_FIRST_LIMIT_HOURS
-    ){
-      return 'BUSINESS';
+    const minutes = segmentDurationToMinutes(segment);
+    if (minutes != null && minutes <= SHORT_HAUL_LIMIT_MINUTES){
+      if (normalized === 'FIRST'){
+        return 'BUSINESS';
+      }
+      if (normalized === 'PREMIUM'){
+        return 'ECONOMY';
+      }
     }
     return normalized;
   }
