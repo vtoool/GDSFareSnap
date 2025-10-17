@@ -8,6 +8,49 @@
     ECONOMY: ['Y', 'B', 'M', 'H', 'Q', 'K', 'L', 'V', 'S', 'N', 'O', 'T', 'U', 'E', 'G', 'X']
   };
 
+  const AIRPORT_REGION_HINTS = {
+    // North America
+    ABQ: 'NAM', ANC: 'NAM', ATL: 'NAM', AUS: 'NAM', BHM: 'NAM', BNA: 'NAM', BOS: 'NAM', BQN: 'NAM',
+    BUF: 'NAM', BUR: 'NAM', BWI: 'NAM', CLE: 'NAM', CLT: 'NAM', CMH: 'NAM', CVG: 'NAM', CUN: 'NAM',
+    DAL: 'NAM', DCA: 'NAM', DEN: 'NAM', DFW: 'NAM', DTW: 'NAM', ELP: 'NAM', EWR: 'NAM', FLL: 'NAM',
+    GDL: 'NAM', GUA: 'NAM', HNL: 'NAM', HOU: 'NAM', IAD: 'NAM', IAH: 'NAM', IND: 'NAM', JAX: 'NAM',
+    JFK: 'NAM', LAS: 'NAM', LAX: 'NAM', LGB: 'NAM', LIH: 'NAM', LIR: 'NAM', LGA: 'NAM', MCI: 'NAM',
+    MCO: 'NAM', MEX: 'NAM', MIA: 'NAM', MKE: 'NAM', MSP: 'NAM', MSY: 'NAM', MTY: 'NAM', OAK: 'NAM',
+    OGG: 'NAM', OKC: 'NAM', ORD: 'NAM', PAP: 'NAM', PDX: 'NAM', PHL: 'NAM', PHX: 'NAM', PIT: 'NAM',
+    PTY: 'NAM', PVR: 'NAM', RDU: 'NAM', RIC: 'NAM', SAN: 'NAM', SAT: 'NAM', SAV: 'NAM', SDQ: 'NAM',
+    SEA: 'NAM', SFO: 'NAM', SJC: 'NAM', SJD: 'NAM', SJU: 'NAM', SLC: 'NAM', SNA: 'NAM', STI: 'NAM',
+    STL: 'NAM', TPA: 'NAM', YEG: 'NAM', YOW: 'NAM', YUL: 'NAM', YVR: 'NAM', YYC: 'NAM', YYZ: 'NAM',
+
+    // South America
+    ASU: 'SAM', BOG: 'SAM', CCS: 'SAM', CLO: 'SAM', COR: 'SAM', EZE: 'SAM', FOR: 'SAM', GIG: 'SAM',
+    GRU: 'SAM', LIM: 'SAM', MVD: 'SAM', REC: 'SAM', ROS: 'SAM', SCL: 'SAM', SSA: 'SAM', UIO: 'SAM',
+
+    // Europe
+    AMS: 'EUR', ARN: 'EUR', ATH: 'EUR', BCN: 'EUR', BEG: 'EUR', BER: 'EUR', BOD: 'EUR', BRS: 'EUR',
+    BRU: 'EUR', BUD: 'EUR', CDG: 'EUR', CPH: 'EUR', DME: 'EUR', DUB: 'EUR', DUS: 'EUR', EMA: 'EUR',
+    EDI: 'EUR', FAO: 'EUR', FCO: 'EUR', FRA: 'EUR', GLA: 'EUR', GVA: 'EUR', HAM: 'EUR', HEL: 'EUR',
+    IBZ: 'EUR', IST: 'EUR', KEF: 'EUR', KBP: 'EUR', KIV: 'EUR', KRK: 'EUR', LGW: 'EUR', LHR: 'EUR',
+    LIS: 'EUR', LUX: 'EUR', MAD: 'EUR', MAN: 'EUR', MLA: 'EUR', MRS: 'EUR', MUC: 'EUR', MXP: 'EUR',
+    NCE: 'EUR', NAP: 'EUR', OPO: 'EUR', OSL: 'EUR', OTP: 'EUR', PMI: 'EUR', PRG: 'EUR', RIX: 'EUR',
+    SKG: 'EUR', SOF: 'EUR', STR: 'EUR', TFS: 'EUR', TLL: 'EUR', TXL: 'EUR', VCE: 'EUR', VIE: 'EUR',
+    VNO: 'EUR', WAW: 'EUR', ZRH: 'EUR',
+
+    // Middle East & Africa
+    ACC: 'MEA', ADD: 'MEA', AMM: 'MEA', AUH: 'MEA', CAI: 'MEA', CMN: 'MEA', CPT: 'MEA', DAR: 'MEA',
+    DOH: 'MEA', DXB: 'MEA', JED: 'MEA', JNB: 'MEA', KRT: 'MEA', LOS: 'MEA', NBO: 'MEA', RUH: 'MEA',
+
+    // Asia-Pacific
+    ADL: 'APAC', AKL: 'APAC', BKK: 'APAC', BLR: 'APAC', BOM: 'APAC', BNE: 'APAC', CAN: 'APAC', CCU: 'APAC',
+    CGK: 'APAC', CHC: 'APAC', CNS: 'APAC', CTU: 'APAC', CTS: 'APAC', DEL: 'APAC', DMK: 'APAC', DPS: 'APAC',
+    FUK: 'APAC', GMP: 'APAC', HAN: 'APAC', HGH: 'APAC', HKG: 'APAC', HKT: 'APAC', HND: 'APAC', HYD: 'APAC',
+    ICN: 'APAC', ITM: 'APAC', KHH: 'APAC', KIX: 'APAC', KMG: 'APAC', KUL: 'APAC', MEL: 'APAC', MNL: 'APAC',
+    NGO: 'APAC', NKG: 'APAC', NRT: 'APAC', OKA: 'APAC', PEK: 'APAC', PER: 'APAC', PKX: 'APAC', PVG: 'APAC',
+    SGN: 'APAC', SHA: 'APAC', SIN: 'APAC', SYD: 'APAC', SZX: 'APAC', TAO: 'APAC', TPE: 'APAC', XIY: 'APAC'
+  };
+
+  const SHORT_HAUL_LIMIT_MINUTES = 360;
+  const STRICT_SHORT_HAUL_MINUTES = 210;
+
   const RBD_BY_AIRLINE = {
     // North America
     AA: { FIRST: ['F', 'A'], BUSINESS: ['J', 'I', 'C', 'D', 'R'], PREMIUM: ['W', 'P'], ECONOMY: ['Y', 'B', 'M', 'H', 'Q', 'K', 'L', 'V', 'S', 'N', 'O', 'T', 'U', 'E', 'G', 'X'] },
@@ -108,15 +151,55 @@
     return null;
   }
 
+  function normalizeAirportCode(value){
+    if (!value && value !== 0) return '';
+    const raw = String(value).trim().toUpperCase();
+    if (!raw) return '';
+    if (/^[A-Z]{3}$/.test(raw)) return raw;
+    const match = raw.match(/\b([A-Z]{3})\b/);
+    return match ? match[1] : '';
+  }
+
+  function getAirportRegion(code){
+    const normalized = normalizeAirportCode(code);
+    if (!normalized) return '';
+    if (Object.prototype.hasOwnProperty.call(AIRPORT_REGION_HINTS, normalized)) {
+      return AIRPORT_REGION_HINTS[normalized];
+    }
+    return '';
+  }
+
+  function shouldTreatSegmentAsShortHaul(input){
+    if (!input || typeof input !== 'object') return false;
+    const durationValue = toDurationMinutes(input.durationMinutes);
+    if (durationValue == null) return false;
+    if (durationValue <= STRICT_SHORT_HAUL_MINUTES) {
+      return true;
+    }
+    if (durationValue > SHORT_HAUL_LIMIT_MINUTES) {
+      return false;
+    }
+    const originRegion = getAirportRegion(input.origin || input.departure || input.depAirport);
+    const destinationRegion = getAirportRegion(input.destination || input.arrival || input.arrAirport);
+    if (originRegion && destinationRegion) {
+      return originRegion === destinationRegion;
+    }
+    return true;
+  }
+
   function getPreferredRBD(input, legacyCabin, legacyDuration) {
     let airlineCode = '';
     let marketedCabin = null;
     let durationMinutes = null;
+    let originCode = '';
+    let destinationCode = '';
 
     if (input && typeof input === 'object' && !Array.isArray(input)) {
       airlineCode = input.airlineCode;
       marketedCabin = input.marketedCabin;
       durationMinutes = input.durationMinutes;
+      originCode = input.origin || input.departure || input.depAirport || '';
+      destinationCode = input.destination || input.arrival || input.arrAirport || '';
     } else {
       airlineCode = input;
       marketedCabin = legacyCabin;
@@ -128,7 +211,12 @@
 
     const durationValue = toDurationMinutes(durationMinutes);
     let effectiveCabin = cabinEnum;
-    if (durationValue != null && durationValue <= 360) {
+    const treatAsShortHaul = shouldTreatSegmentAsShortHaul({
+      durationMinutes: durationValue,
+      origin: originCode,
+      destination: destinationCode
+    });
+    if (treatAsShortHaul) {
       if (cabinEnum === 'FIRST') {
         effectiveCabin = 'BUSINESS';
       } else if (cabinEnum === 'PREMIUM') {
@@ -174,6 +262,7 @@
     root.RBD_BY_AIRLINE = RBD_BY_AIRLINE;
     root.getPreferredRBD = getPreferredRBD;
     root.normalizeCabinEnum = normalizeCabinEnum;
+    root.shouldTreatSegmentAsShortHaul = shouldTreatSegmentAsShortHaul;
   }
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -181,7 +270,8 @@
       RBD_BY_AIRLINE,
       getPreferredRBD,
       normalizeCabinEnum,
-      GENERIC_RBD_BY_CABIN
+      GENERIC_RBD_BY_CABIN,
+      shouldTreatSegmentAsShortHaul
     };
   }
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

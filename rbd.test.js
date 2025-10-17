@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { getPreferredRBD, normalizeCabinEnum } = require('./rbd.js');
+const { getPreferredRBD, normalizeCabinEnum, shouldTreatSegmentAsShortHaul } = require('./rbd.js');
 
 function test(description, fn){
   try {
@@ -52,7 +52,10 @@ test('SK business uses C', () => {
 });
 
 test('Short-haul First converts to Business', () => {
-  assert.strictEqual(getPreferredRBD({ airlineCode: 'AA', marketedCabin: 'FIRST', durationMinutes: 220 }), 'J');
+  assert.strictEqual(
+    getPreferredRBD({ airlineCode: 'AA', marketedCabin: 'FIRST', durationMinutes: 220, origin: 'DFW', destination: 'AUS' }),
+    'J'
+  );
 });
 
 test('Short-haul Premium converts to Economy', () => {
@@ -61,6 +64,52 @@ test('Short-haul Premium converts to Economy', () => {
 
 test('Long-haul First stays First', () => {
   assert.strictEqual(getPreferredRBD({ airlineCode: 'AA', marketedCabin: 'FIRST', durationMinutes: 420 }), 'F');
+});
+
+test('Cross-continent premium segment stays premium despite short local clock', () => {
+  const result = getPreferredRBD({
+    airlineCode: 'IB',
+    marketedCabin: 'PREMIUM',
+    durationMinutes: 275,
+    origin: 'MIA',
+    destination: 'BCN'
+  });
+  assert.strictEqual(result, 'W');
+});
+
+test('Intra-Europe premium segment downgrades to economy', () => {
+  const result = getPreferredRBD({
+    airlineCode: 'IB',
+    marketedCabin: 'PREMIUM',
+    durationMinutes: 110,
+    origin: 'MAD',
+    destination: 'BCN'
+  });
+  assert.strictEqual(result, 'Y');
+});
+
+test('Short-haul helper matches expected heuristics', () => {
+  assert.strictEqual(shouldTreatSegmentAsShortHaul({ durationMinutes: 150, origin: 'LAX', destination: 'SFO' }), true);
+  assert.strictEqual(shouldTreatSegmentAsShortHaul({ durationMinutes: 275, origin: 'MIA', destination: 'BCN' }), false);
+  assert.strictEqual(shouldTreatSegmentAsShortHaul({ durationMinutes: 540, origin: 'JFK', destination: 'LHR' }), false);
+});
+
+test('Short-haul helper falls back to duration when regions unknown', () => {
+  assert.strictEqual(
+    shouldTreatSegmentAsShortHaul({ durationMinutes: 240, origin: 'BOI', destination: 'JFK' }),
+    true
+  );
+});
+
+test('Premium cabin downgrades when duration is short but region unknown', () => {
+  const result = getPreferredRBD({
+    airlineCode: 'AA',
+    marketedCabin: 'PREMIUM',
+    durationMinutes: 240,
+    origin: 'BOI',
+    destination: 'JFK'
+  });
+  assert.strictEqual(result, 'Y');
 });
 
 test('normalizeCabinEnum handles lowercase business', () => {

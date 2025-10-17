@@ -178,9 +178,26 @@
     return null;
   }
 
-  function normalizeShortHaulCabin(cabinEnum, durationMinutes){
+  function normalizeShortHaulCabin(cabinEnum, durationMinutes, depAirport, arrAirport){
     if(!cabinEnum) return cabinEnum;
-    if(durationMinutes != null && durationMinutes <= 360){
+    const shortHaulFn = GLOBAL_ROOT && typeof GLOBAL_ROOT.shouldTreatSegmentAsShortHaul === 'function'
+      ? GLOBAL_ROOT.shouldTreatSegmentAsShortHaul
+      : null;
+    let treatAsShort = false;
+    if(shortHaulFn){
+      try {
+        treatAsShort = !!shortHaulFn({
+          durationMinutes,
+          origin: depAirport,
+          destination: arrAirport
+        });
+      } catch (err) {
+        treatAsShort = false;
+      }
+    } else if(durationMinutes != null && durationMinutes <= 360){
+      treatAsShort = true;
+    }
+    if(treatAsShort){
       if(cabinEnum === 'FIRST') return 'BUSINESS';
       if(cabinEnum === 'PREMIUM') return 'ECONOMY';
     }
@@ -1228,14 +1245,16 @@
             const candidate = preferredRbdFn({
               airlineCode: s ? s.airlineCode || '' : '',
               marketedCabin: autoCabinEnum,
-              durationMinutes: segmentDurationMinutes
+              durationMinutes: segmentDurationMinutes,
+              origin: s ? s.depAirport || '' : '',
+              destination: s ? s.arrAirport || '' : ''
             });
             if(candidate){
               bookingClass = String(candidate).trim().toUpperCase();
             }
           } catch (err) {}
         }
-        const fallbackCabin = normalizeShortHaulCabin(autoCabinEnum, segmentDurationMinutes);
+        const fallbackCabin = normalizeShortHaulCabin(autoCabinEnum, segmentDurationMinutes, s && s.depAirport, s && s.arrAirport);
         if(!bookingClass && fallbackCabin && CABIN_FALLBACK_BOOKING[fallbackCabin]){
           bookingClass = CABIN_FALLBACK_BOOKING[fallbackCabin];
         }
