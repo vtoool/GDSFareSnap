@@ -299,6 +299,72 @@
     return pageIndicatesReview();
   }
 
+  const AD_PROMO_TOKEN_SET = new Set([
+    'ad','ads','adunit','adunits','adslot','adslots','adbanner','adbanners','adbox','adboxes','adcontainer','admodule','admodules',
+    'adlabel','adlabels','adbadge','adbadges','adpromo','adpromos','adplacement','adplacements','adfeature','adfeatures','adlisting',
+    'adlistings','advert','advertise','advertised','advertiser','advertisers','advertising','advertisement','advertisements',
+    'promo','promos','promoted','promotion','promotions','promotional','sponsor','sponsored','sponsoring','sponsorship','sponsorships',
+    'advertorial','advertorials'
+  ]);
+
+  function valueHasAdOrPromoSignature(val){
+    if(!val && val !== 0) return false;
+    const raw = String(val).toLowerCase();
+    if(!raw) return false;
+    if(raw.includes('sponsor') || raw.includes('promo') || raw.includes('advert')) return true;
+    const tokens = raw.split(/[^a-z0-9]+/i).filter(Boolean);
+    if(!tokens.length){
+      return false;
+    }
+    for(const tokenRaw of tokens){
+      const token = tokenRaw.toLowerCase();
+      if(AD_PROMO_TOKEN_SET.has(token)) return true;
+      if(/^ad(?:slot|slots|unit|units|banner|banners|box|boxes|tile|tiles|module|modules|container|containers|card|cards|rail|rails|label|labels|badge|badges|wrapper|wrappers|row|rows|panel|panels|cell|cells|section|sections|widget|widgets)/.test(token)){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function elementHasAdOrPromoSignature(el){
+    if(!el || el.nodeType !== 1) return false;
+    const attrNames = ['data-testid','data-test','id','name','class'];
+    for(const attr of attrNames){
+      let val = null;
+      try {
+        val = el.getAttribute ? el.getAttribute(attr) : null;
+      } catch (err) {
+        val = null;
+      }
+      if(val && valueHasAdOrPromoSignature(val)){
+        return true;
+      }
+    }
+    if(el.dataset){
+      for(const key of Object.keys(el.dataset)){
+        const dataVal = el.dataset[key];
+        if(dataVal && valueHasAdOrPromoSignature(dataVal)){
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function hasAdOrPromoAncestor(el){
+    if(!el || !el.closest) return false;
+    let current = el;
+    let depth = 0;
+    while(current && depth < 12){
+      if(elementHasAdOrPromoSignature(current)){
+        return true;
+      }
+      current = current.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
   function shouldIgnoreCard(card){
     if(!card) return true;
     if(card === overlayRoot) return true;
@@ -319,8 +385,7 @@
     if(isWithinRightRail(card)) return true;
     if(card.closest('.CRPe-main-banner-content')) return true;
     if(card.closest('.h_nb')) return true;
-    const disqualifier = card.closest('[data-testid*="ad" i], [data-test*="ad" i], [data-testid*="promo" i], [data-test*="promo" i]');
-    if(disqualifier) return true;
+    if(hasAdOrPromoAncestor(card)) return true;
     if(cardLooksLikeAd(card)) return true;
     return false;
   }
