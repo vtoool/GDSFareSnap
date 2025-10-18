@@ -110,6 +110,8 @@ Non-structural labels: Overnight flight, Long layover, Change planes in (AAA) �
 
 Arrival date hints: “Arrives Wed, Dec 24” adjusts the arrival calendar date for the active segment.
 
+Explicit duration lines (e.g., “11h 20m”) belong to the active segment. Capture them while scanning and prefer them over raw clock math so westbound long-haul flights retain their true cabin length (and premium booking classes).
+
 Route headers (“AAA to BBB on …”) are optional; assemble from nearby time/airport lines.
 
 Journey buttons
