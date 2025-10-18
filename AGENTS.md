@@ -1,6 +1,8 @@
 Project guide for AI coding agents working on the Kayak / ITA Matrix copy-pill Chrome extension (MV3).
 Goal: inject small red action pills (*I, and when applicable leg/availability pills) onto search results and itinerary pages, extract the visible itinerary text, and output GDS-style strings reliably—with zero regressions.
 
+Meta-note for future me: when a user gives a new instruction, pause to restate it against this goal before touching files. Interpret "add" / "remove" requests literally, but assume they still expect the core extension behavior above to hold—no clever misreads.
+
 0) Ground rules
 
 No new dependencies; plain JS/DOM only. Keep the footprint small and fast.
@@ -49,6 +51,8 @@ ITA Matrix
 Results list: one pill group per itinerary row.
 
 Itinerary Details page (after choosing an option): a single *I pill top-right in the main itinerary block (not the right sidebar).
+
+Passenger counts: prefer reading the live values from the search form inputs (`formcontrolname="adults"`, `seniors`, `youth`, `children`, `infantsInSeat`, `infantsInLap`). If that fails, fall back to the price cell tooltip math—never hard-code a static SS1 on Matrix.
 
 3) Injection, page detection & de-dup
 SPA & navigation

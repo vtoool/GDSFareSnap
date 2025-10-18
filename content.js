@@ -18,6 +18,14 @@
   const MAX_CLIMB   = 12;
   const SELECT_RX   = /\b(?:Select(?:\s+Flight)?|Choose|View\s+(?:Deal|Flight|Offer)|See\s+(?:Deal|Offer)|Book|Continue(?:\s+to\s+Airline)?|Go\s+to\s+(?:Site|Airline)|Visit\s+(?:Airline|Site)|Check\s+Price|View\s+Offer)\b/i;
   const CTA_ATTR_HINTS = ['select','book','booking','cta','result-select','provider','price-link','price','offer','deal'];
+  const ITA_PASSENGER_INPUT_SELECTORS = [
+    'input[formcontrolname="adults"]',
+    'input[formcontrolname="seniors"]',
+    'input[formcontrolname="youth"]',
+    'input[formcontrolname="children"]',
+    'input[formcontrolname="infantsInSeat"]',
+    'input[formcontrolname="infantsInLap"]'
+  ];
   const CTA_MIN_WIDTH = 90;
   const CTA_MIN_HEIGHT = 32;
   const CTA_MIN_AREA = CTA_MIN_WIDTH * CTA_MIN_HEIGHT;
@@ -73,6 +81,7 @@
   const itaGroupsByKey = new Map();
   let modalDimScheduled = false;
   let modalDimState = false;
+  let itaPassengerSnapshot = { count: null, time: 0 };
 
   let itaResultsObserver = null;
   let itaObservedRoot = null;
@@ -913,6 +922,144 @@
     });
   }
 
+  function parseNumericValue(value){
+    if(value == null) return null;
+    const cleaned = String(value).replace(/[^0-9-]/g, '');
+    if(!cleaned) return null;
+    const parsed = parseInt(cleaned, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function extractCurrencyBounds(str){
+    if(!str) return null;
+    const matches = String(str).match(/-?\d[\d.,]*/g);
+    if(!matches || !matches.length) return null;
+    let min = null;
+    let max = null;
+    for(const token of matches){
+      const numeric = parseNumericValue(token);
+      if(!Number.isFinite(numeric)) continue;
+      if(min == null || numeric < min) min = numeric;
+      if(max == null || numeric > max) max = numeric;
+    }
+    if(min == null || max == null) return null;
+    return { min, max };
+  }
+
+  function readInputPassengerValue(input){
+    if(!input) return null;
+    let raw = typeof input.value === 'string' ? input.value : null;
+    if(raw == null || raw === ''){
+      raw = input.getAttribute ? input.getAttribute('value') : null;
+    }
+    if((raw == null || raw === '') && input.getAttribute){
+      raw = input.getAttribute('ng-reflect-model') || input.getAttribute('ng-reflect-value');
+    }
+    return parseNumericValue(raw);
+  }
+
+  function detectItaPassengerCountFromPrice(card){
+    if(!IS_ITA) return null;
+    let summaryRow = null;
+    if(card && card.closest){
+      const detailRow = card.closest('tr.detail-row');
+      if(detailRow){
+        summaryRow = getItaSummaryRowFromDetail(detailRow);
+      }
+      if(!summaryRow){
+        summaryRow = card.closest('tr.row');
+      }
+    }
+    if(!summaryRow){
+      try {
+        summaryRow = document.querySelector('tr.row.expanded-row') || document.querySelector('tr.row');
+      } catch (err) {
+        summaryRow = null;
+      }
+    }
+    if(!summaryRow) return null;
+    let priceCell = null;
+    try {
+      priceCell = summaryRow.querySelector('td.price, td.price-cell, td.fare, [data-column="price"], [class*="price" i]');
+    } catch (err) {
+      priceCell = null;
+    }
+    if(!priceCell) return null;
+    const priceText = priceCell.textContent || '';
+    const attrParts = [];
+    if(priceCell.getAttribute){
+      const attrNames = ['aria-label','title','data-title','data-tooltip','ng-reflect-message'];
+      for(const name of attrNames){
+        const val = priceCell.getAttribute(name);
+        if(val){
+          attrParts.push(val);
+        }
+      }
+    }
+    const combined = `${priceText} ${attrParts.join(' ')}`;
+    const explicit = combined.match(/(\d+)\s+(?:passengers?|pax)\b/i);
+    if(explicit){
+      const pax = parseInt(explicit[1], 10);
+      if(Number.isFinite(pax) && pax > 0){
+        return pax;
+      }
+    }
+    const perBounds = extractCurrencyBounds(priceText);
+    let totalValue = null;
+    for(const part of attrParts){
+      const bounds = extractCurrencyBounds(part);
+      if(bounds && Number.isFinite(bounds.max)){
+        if(totalValue == null || bounds.max > totalValue){
+          totalValue = bounds.max;
+        }
+      }
+    }
+    const perValue = perBounds && Number.isFinite(perBounds.min) ? perBounds.min : null;
+    if(Number.isFinite(perValue) && perValue > 0 && Number.isFinite(totalValue) && totalValue >= perValue){
+      const ratio = totalValue / perValue;
+      const rounded = Math.round(ratio);
+      if(rounded > 0 && Math.abs(ratio - rounded) <= 0.05){
+        return rounded;
+      }
+    }
+    return null;
+  }
+
+  function detectItaPassengerCount(card){
+    if(!IS_ITA) return null;
+    const now = Date.now();
+    if(itaPassengerSnapshot && (now - itaPassengerSnapshot.time) < 600){
+      return itaPassengerSnapshot.count;
+    }
+    let total = 0;
+    let found = false;
+    for(const selector of ITA_PASSENGER_INPUT_SELECTORS){
+      let input = null;
+      try {
+        input = document.querySelector(selector);
+      } catch (err) {
+        input = null;
+      }
+      if(!input) continue;
+      const val = readInputPassengerValue(input);
+      if(Number.isFinite(val) && val > 0){
+        total += val;
+        found = true;
+      }
+    }
+    let count = null;
+    if(found && total > 0){
+      count = total;
+    }else{
+      const fallback = detectItaPassengerCountFromPrice(card);
+      if(Number.isFinite(fallback) && fallback > 0){
+        count = fallback;
+      }
+    }
+    itaPassengerSnapshot = { count, time: now };
+    return count;
+  }
+
   function computeButtonConfigsForCard(card){
     const baseConfig = {
       key: 'all',
@@ -1134,9 +1281,24 @@
         if(!raw || !raw.trim()){
           throw new Error('No itinerary details found');
         }
+        let segmentStatus = SETTINGS.segmentStatus;
+        if(IS_ITA){
+          const paxCount = detectItaPassengerCount(card);
+          if(Number.isFinite(paxCount) && paxCount > 0){
+            const stored = typeof segmentStatus === 'string' ? segmentStatus.trim() : '';
+            const statusMatch = stored.match(/^([A-Z]{1,2})(\d+)$/i);
+            if(statusMatch){
+              segmentStatus = `${statusMatch[1].toUpperCase()}${paxCount}`;
+            } else if(/^[A-Z]{1,2}$/i.test(stored)){
+              segmentStatus = `${stored.toUpperCase()}${paxCount}`;
+            } else if(!stored || /^SS\d*/i.test(stored)){
+              segmentStatus = `SS${paxCount}`;
+            }
+          }
+        }
         const baseOpts = {
           bookingClass: SETTINGS.bookingClass,
-          segmentStatus: SETTINGS.segmentStatus
+          segmentStatus
         };
         if(!SETTINGS.bookingClassLocked && cabinDetectionState && cabinDetectionState.cabin){
           const detectedEnum = toCabinEnum(cabinDetectionState.cabin);
