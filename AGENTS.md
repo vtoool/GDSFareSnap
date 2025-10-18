@@ -226,3 +226,6 @@ Tip: If DOM shapes drift, prefer resilient heuristics (times + airports + presen
 - The popup auto-converts VI* text on input and attempts an automatic clipboard write (guarded by the `autoCopyOnConvert` flag). Respect the toggle stored in sync storage.
 - Manual booking class edits must set `bookingClassLocked` to `true`; the “Restore auto cabin detection” action clears that flag so content scripts can resume detection.
 - The legacy start-year field is gone; date logic infers years automatically. Do not reintroduce the field or depend on manual year entry.
+12) Recent implementation notes
+- Kayak passenger detection: `content.js` derives the passenger count from URL parameters and DOM traveler badges. It only overrides the stored segment status when the saved value matches `SS*` to keep custom codes intact.
+- The popup no longer includes the layout/canvas sandbox demo. Avoid re-adding heavy preview UIs to keep the popup lightweight.

@@ -28,6 +28,8 @@
   const CABIN_LABELS = { first:'First', business:'Business', premium:'Premium Economy', economy:'Economy' };
   const CABIN_ENUM_MAP = { first: 'FIRST', business: 'BUSINESS', premium: 'PREMIUM', economy: 'ECONOMY' };
   const CABIN_DEFAULT_BOOKING = { FIRST: 'F', BUSINESS: 'J', PREMIUM: 'N', ECONOMY: 'Y' };
+  const PASSENGER_WORD_TO_NUMBER = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12 };
+  const PASSENGER_WORD_PATTERN = Object.keys(PASSENGER_WORD_TO_NUMBER).join('|');
   const DEFAULT_OVERLAY_BASE_Z = 1400;
   const STABLE_CARD_ATTRS = [
     'data-resultid',
@@ -63,6 +65,8 @@
   let lastStoredAutoBookingClass = null;
   let cabinDetectionState = { cabin:null, bookingClass:null, mixed:false, label:'', source:'' };
   let cabinDetectionScheduled = false;
+  let passengerDetectionState = { count:null, status:null, source:'' };
+  let passengerDetectionScheduled = false;
   let reviewHeadingCacheTime = 0;
   let reviewHeadingCacheValue = false;
 
@@ -141,6 +145,7 @@
       lastStoredAutoBookingClass = SETTINGS.bookingClass;
     }
     scheduleCabinDetection(true);
+    schedulePassengerDetection(true);
   });
   chrome.storage.onChanged.addListener((chg, area)=>{
     if(area!=='sync') return;
@@ -913,6 +918,330 @@
     });
   }
 
+  function parsePassengerCountValue(token){
+    if(!token) return null;
+    const digits = String(token).match(/\d+/);
+    if(digits && digits.length){
+      const num = parseInt(digits[0], 10);
+      return Number.isFinite(num) && num > 0 ? num : null;
+    }
+    const normalized = String(token).trim().toLowerCase();
+    if(!normalized) return null;
+    if(Object.prototype.hasOwnProperty.call(PASSENGER_WORD_TO_NUMBER, normalized)){
+      return PASSENGER_WORD_TO_NUMBER[normalized] || null;
+    }
+    return null;
+  }
+
+  function parsePassengerSummary(text){
+    if(!text) return null;
+    const normalized = String(text).replace(/\s+/g, ' ').trim().toLowerCase();
+    if(!normalized) return null;
+    if(!/\d/.test(normalized)){
+      let hasWordNumber = false;
+      for(const word in PASSENGER_WORD_TO_NUMBER){
+        if(Object.prototype.hasOwnProperty.call(PASSENGER_WORD_TO_NUMBER, word) && normalized.includes(word)){
+          hasWordNumber = true;
+          break;
+        }
+      }
+      if(!hasWordNumber) return null;
+    }
+
+    const categories = { adults:0, children:0, infants:0, seniors:0, youths:0 };
+    const generalTotals = [];
+    const usedIndexes = new Set();
+    const numberPattern = PASSENGER_WORD_PATTERN ? `${PASSENGER_WORD_PATTERN}` : '';
+    const leadingNumberRx = numberPattern
+      ? new RegExp(`\\b(\\d+|${numberPattern})\\s*(adults?|traveler|traveller|travellers|travelers|children|child|kids?|infants?|lap\\s*infants?|lap\\s*child(?:ren)?|senior|seniors|youth|youths|student|students|teen|teens|passenger|passengers|pax|people|persons)`, 'gi')
+      : /\b(\d+)\s*(adults?|traveler|traveller|travellers|travelers|children|child|kids?|infants?|lap\s*infants?|lap\s*child(?:ren)?|senior|seniors|youth|youths|student|students|teen|teens|passenger|passengers|pax|people|persons)/gi;
+    let match;
+    while((match = leadingNumberRx.exec(normalized))){
+      const idx = match.index;
+      if(usedIndexes.has(idx)) continue;
+      usedIndexes.add(idx);
+      const numToken = match[1];
+      const labelToken = match[2] || '';
+      const count = parsePassengerCountValue(numToken);
+      if(!count) continue;
+      assignCount(labelToken, count);
+    }
+
+    const trailingNumberRx = numberPattern
+      ? new RegExp(`(adults?|children|kids?|infants?|lap\\s*infants?|lap\\s*child(?:ren)?|senior|seniors|youth|youths|student|students|teen|teens|traveler|traveller|travellers|travelers|passenger|passengers|pax|people|persons)\\s*(?:[:=]\\s*|\\s+)(\\d+|${numberPattern})`, 'gi')
+      : /(adults?|children|kids?|infants?|lap\s*infants?|lap\s*child(?:ren)?|senior|seniors|youth|youths|student|students|teen|teens|traveler|traveller|travellers|travelers|passenger|passengers|pax|people|persons)\s*(?:[:=]\s*|\s+)(\d+)/gi;
+    while((match = trailingNumberRx.exec(normalized))){
+      const idx = match.index;
+      if(usedIndexes.has(idx)) continue;
+      usedIndexes.add(idx);
+      const labelToken = match[1] || '';
+      const numToken = match[2] || '';
+      const count = parsePassengerCountValue(numToken);
+      if(!count) continue;
+      assignCount(labelToken, count);
+    }
+
+    const specificTotal = categories.adults + categories.children + categories.infants + categories.seniors + categories.youths;
+    const nonInfantSpecific = categories.adults + categories.children + categories.seniors + categories.youths;
+    let total = specificTotal;
+    if(generalTotals.length){
+      const generalMax = Math.max(...generalTotals);
+      if(generalMax > 0){
+        if(total > 0){
+          const withInfants = nonInfantSpecific + categories.infants;
+          if(nonInfantSpecific === 0 && categories.infants > 0){
+            total = generalMax + categories.infants;
+          } else {
+            total = Math.max(total, generalMax, withInfants);
+          }
+        } else if(categories.infants > 0){
+          total = generalMax + categories.infants;
+        } else {
+          total = generalMax;
+        }
+      }
+    }
+
+    if(!total || total <= 0) return null;
+    return { count: total, status: `SS${total}` };
+
+    function assignCount(labelToken, count){
+      const label = String(labelToken || '').replace(/\s+/g, '').toLowerCase();
+      if(!label) return;
+      if(/adult/.test(label)){
+        categories.adults += count;
+      } else if(/child|kid/.test(label) && !/infant/.test(label)){
+        categories.children += count;
+      } else if(/infant|lapchild/.test(label)){
+        categories.infants += count;
+      } else if(/senior/.test(label)){
+        categories.seniors += count;
+      } else if(/youth|student|teen/.test(label)){
+        categories.youths += count;
+      } else if(/passenger|pax|people|person/.test(label) || /traveler|traveller/.test(label)){
+        generalTotals.push(count);
+      }
+    }
+  }
+
+  function extractCountsFromParams(params){
+    if(!params) return null;
+    const categories = { adults:0, children:0, infants:0, seniors:0, youths:0 };
+    const generalTotals = [];
+    const mapping = {
+      adults:'adults', adult:'adults', adt:'adults', adts:'adults',
+      children:'children', child:'children', chd:'children', chds:'children', kid:'children', kids:'children',
+      infants:'infants', infant:'infants', inf:'infants', infs:'infants', lapinfants:'infants', lapinfant:'infants', lapinf:'infants', lapchild:'infants', lapchildren:'infants', lapkids:'infants',
+      seniors:'seniors', senior:'seniors', sen:'seniors', sens:'seniors',
+      youth:'youths', youths:'youths', student:'youths', students:'youths', teen:'youths', teens:'youths',
+      travelers:'general', traveller:'general', travellers:'general', traveler:'general', pax:'general', passengers:'general', passenger:'general', people:'general', persons:'general', seats:'general'
+    };
+    const keys = Array.from(params.keys());
+    keys.forEach(key => {
+      const lowerKey = String(key || '').trim().toLowerCase();
+      if(!lowerKey) return;
+      const category = mapping[lowerKey];
+      const values = params.getAll(key);
+      if(!category || !values || !values.length) return;
+      values.forEach(value => {
+        const parts = String(value || '').toLowerCase().match(/\d+/g);
+        let totalValue = 0;
+        if(parts && parts.length){
+          parts.forEach(part => {
+            const num = parseInt(part, 10);
+            if(Number.isFinite(num) && num > 0){
+              totalValue += num;
+            }
+          });
+        }
+        if(totalValue <= 0){
+          if(PASSENGER_WORD_PATTERN){
+            const wordRx = new RegExp(`\\b(${PASSENGER_WORD_PATTERN})\\b`, 'g');
+            let m;
+            while((m = wordRx.exec(String(value || '').toLowerCase()))){
+              const mapped = PASSENGER_WORD_TO_NUMBER[m[1]];
+              if(Number.isFinite(mapped)){
+                totalValue += mapped;
+              }
+            }
+          }
+        }
+        if(totalValue <= 0) return;
+        if(category === 'general'){
+          generalTotals.push(totalValue);
+        } else {
+          categories[category] += totalValue;
+        }
+      });
+    });
+    const specificTotal = categories.adults + categories.children + categories.infants + categories.seniors + categories.youths;
+    const nonInfantSpecific = categories.adults + categories.children + categories.seniors + categories.youths;
+    let total = specificTotal;
+    if(generalTotals.length){
+      const generalMax = Math.max(...generalTotals);
+      if(generalMax > 0){
+        if(total > 0){
+          const withInfants = nonInfantSpecific + categories.infants;
+          if(nonInfantSpecific === 0 && categories.infants > 0){
+            total = generalMax + categories.infants;
+          } else {
+            total = Math.max(total, generalMax, withInfants);
+          }
+        } else if(categories.infants > 0){
+          total = generalMax + categories.infants;
+        } else {
+          total = generalMax;
+        }
+      }
+    }
+    if(!total || total <= 0) return null;
+    return { count: total, status: `SS${total}` };
+  }
+
+  function detectPassengersFromLocation(){
+    if(typeof location === 'undefined') return null;
+    try {
+      const url = new URL(location.href);
+      const searchInfo = extractCountsFromParams(url.searchParams);
+      let hashInfo = null;
+      if(url.hash && url.hash.length > 1){
+        try {
+          hashInfo = extractCountsFromParams(new URLSearchParams(url.hash.slice(1)));
+        } catch (err) {
+          hashInfo = null;
+        }
+      }
+      const candidates = [];
+      if(searchInfo) candidates.push(Object.assign({ priority: 2, source: 'url' }, searchInfo));
+      if(hashInfo) candidates.push(Object.assign({ priority: 2, source: 'hash' }, hashInfo));
+      if(!candidates.length) return null;
+      candidates.sort((a, b) => {
+        if(a.count !== b.count) return b.count - a.count;
+        return 0;
+      });
+      return candidates[0];
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function detectPassengersFromDom(){
+    if(typeof document === 'undefined' || !document.querySelectorAll) return [];
+    const selectors = [
+      '[data-testid*="traveler" i]',
+      '[data-test*="traveler" i]',
+      '[data-testid*="passenger" i]',
+      '[data-test*="passenger" i]',
+      '[aria-label*="traveler" i]',
+      '[aria-label*="passenger" i]',
+      '[class*="traveler" i]',
+      '[class*="Traveler" i]',
+      '[class*="passenger" i]',
+      '[class*="Passenger" i]'
+    ];
+    const seenNodes = new Set();
+    const seenTexts = new Set();
+    const results = [];
+    selectors.forEach(sel => {
+      try {
+        document.querySelectorAll(sel).forEach(el => {
+          if(!el || seenNodes.has(el)) return;
+          seenNodes.add(el);
+          let rect = null;
+          try { rect = el.getBoundingClientRect(); } catch (err) { rect = null; }
+          if(rect && rect.bottom > 520) return;
+          const texts = [];
+          const textContent = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+          if(textContent) texts.push(textContent);
+          if(el.getAttribute){
+            const aria = (el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+            if(aria && aria !== textContent) texts.push(aria);
+            const title = (el.getAttribute('title') || '').replace(/\s+/g, ' ').trim();
+            if(title && title !== textContent) texts.push(title);
+          }
+          if(typeof el.value === 'string'){
+            const valueText = el.value.replace(/\s+/g, ' ').trim();
+            if(valueText && valueText !== textContent) texts.push(valueText);
+          }
+          texts.forEach(txt => {
+            const key = txt.toLowerCase();
+            if(!txt || seenTexts.has(key)) return;
+            const parsed = parsePassengerSummary(txt);
+            if(parsed && parsed.count > 0){
+              seenTexts.add(key);
+              results.push(Object.assign({ priority: 1, source: 'dom' }, parsed));
+            }
+          });
+        });
+      } catch (err) {}
+    });
+    return results;
+  }
+
+  function detectKayakPassengerInfo(){
+    if(IS_ITA) return null;
+    const candidates = [];
+    const fromLocation = detectPassengersFromLocation();
+    if(fromLocation) candidates.push(fromLocation);
+    const domHints = detectPassengersFromDom();
+    if(domHints && domHints.length){
+      candidates.push(...domHints);
+    }
+    if(!candidates.length) return null;
+    candidates.sort((a, b) => {
+      if(a.priority !== b.priority) return a.priority - b.priority;
+      if(a.count !== b.count) return b.count - a.count;
+      return (a.source || '').length - (b.source || '').length;
+    });
+    const best = candidates[0];
+    if(!best || !best.count || best.count <= 0) return null;
+    return { count: best.count, status: `SS${best.count}`, source: best.source || '' };
+  }
+
+  function runPassengerDetection(){
+    if(IS_ITA) return;
+    const detected = detectKayakPassengerInfo();
+    if(!detected){
+      if(passengerDetectionState.count != null || passengerDetectionState.status){
+        passengerDetectionState = { count:null, status:null, source:'' };
+      }
+      return;
+    }
+    if(passengerDetectionState.count === detected.count && passengerDetectionState.status === detected.status){
+      return;
+    }
+    passengerDetectionState = {
+      count: detected.count,
+      status: detected.status,
+      source: detected.source || ''
+    };
+  }
+
+  function schedulePassengerDetection(immediate){
+    if(IS_ITA) return;
+    if(immediate){
+      passengerDetectionScheduled = false;
+      runPassengerDetection();
+      return;
+    }
+    if(passengerDetectionScheduled) return;
+    passengerDetectionScheduled = true;
+    requestAnimationFrame(() => {
+      passengerDetectionScheduled = false;
+      runPassengerDetection();
+    });
+  }
+
+  function getEffectiveSegmentStatus(){
+    const stored = (SETTINGS.segmentStatus || '').toUpperCase().trim() || 'SS1';
+    if(IS_ITA) return stored;
+    const detectedStatus = passengerDetectionState && passengerDetectionState.status;
+    if(detectedStatus && /^SS\d*$/.test(stored)){
+      return detectedStatus;
+    }
+    return stored;
+  }
+
   function computeButtonConfigsForCard(card){
     const baseConfig = {
       key: 'all',
@@ -1136,7 +1465,7 @@
         }
         const baseOpts = {
           bookingClass: SETTINGS.bookingClass,
-          segmentStatus: SETTINGS.segmentStatus
+          segmentStatus: getEffectiveSegmentStatus()
         };
         if(!SETTINGS.bookingClassLocked && cabinDetectionState && cabinDetectionState.cabin){
           const detectedEnum = toCabinEnum(cabinDetectionState.cabin);
@@ -3682,6 +4011,7 @@
     }
     schedulePositionSync();
     scheduleCabinDetection();
+    schedulePassengerDetection();
     scheduleModalDimUpdate();
   });
   mo.observe(document.documentElement || document.body, {
@@ -3694,6 +4024,7 @@
   const handleNavigationEvent = () => {
     invalidateReviewHeadingCache();
     scheduleCabinDetection();
+    schedulePassengerDetection();
     scheduleModalDimUpdate();
   };
   window.addEventListener('popstate', handleNavigationEvent);
@@ -3743,5 +4074,6 @@
     }
   })();
 
+  schedulePassengerDetection();
   scheduleModalDimUpdate();
 })();
