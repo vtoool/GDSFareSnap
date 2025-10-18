@@ -178,6 +178,32 @@
     return null;
   }
 
+  function extractDurationMinutesFromLine(line){
+    const cleaned = (line || '')
+      .replace(/[•·]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if(!cleaned) return null;
+    if(/\b(layover|change\s+planes|stopover|connection)\b/i.test(cleaned)) return null;
+    const lower = cleaned.toLowerCase();
+    const hourMatch = lower.match(/(\d{1,2})\s*h(?:ours?)?(?:\s*(\d{1,2})\s*m(?:in(?:ute)?s?)?)?/);
+    if(hourMatch){
+      const hours = parseInt(hourMatch[1], 10);
+      const minutes = hourMatch[2] != null ? parseInt(hourMatch[2], 10) : 0;
+      if(Number.isFinite(hours) && Number.isFinite(minutes)){
+        return (hours * 60) + minutes;
+      }
+    }
+    const minuteMatch = lower.match(/(\d{1,3})\s*m(?:in(?:ute)?s?)?/);
+    if(minuteMatch){
+      const mins = parseInt(minuteMatch[1], 10);
+      if(Number.isFinite(mins)){
+        return mins;
+      }
+    }
+    return null;
+  }
+
   function normalizeShortHaulCabin(cabinEnum, durationMinutes, depAirport, arrAirport){
     if(!cabinEnum) return cabinEnum;
     const shortHaulFn = GLOBAL_ROOT && typeof GLOBAL_ROOT.shouldTreatSegmentAsShortHaul === 'function'
@@ -874,6 +900,7 @@
       let arrAirport = null;
       let arrivesDate = null;
       let k = flightInfo.index + 1;
+      let explicitDurationMinutes = null;
 
       const isNextFlightBoundary = (idx) => {
         if(idx == null || idx <= flightInfo.index || idx >= lines.length) return false;
@@ -962,6 +989,11 @@
         if(applyDepartsOverride(lines[k])) continue;
         if(parseRouteHeaderLine(lines[k])) break;
         if(isNextFlightBoundary(k)) break;
+        const durCandidate = extractDurationMinutesFromLine(lines[k]);
+        if(durCandidate != null){
+          explicitDurationMinutes = durCandidate;
+          continue;
+        }
         const t = toAmPmMinutes(lines[k]);
         if(t.mins != null){ arrTime = t; k++; break; }
       }
@@ -973,6 +1005,11 @@
           if(applyDepartsOverride(lines[k])) continue;
           if(parseRouteHeaderLine(lines[k])) break;
           if(isNextFlightBoundary(k)) break;
+          const durCandidate = extractDurationMinutesFromLine(lines[k]);
+          if(durCandidate != null){
+            explicitDurationMinutes = durCandidate;
+            continue;
+          }
           const code = extractAirportCode(lines[k]);
           if(code){ arrAirport = code; k++; break; }
         }
@@ -1140,6 +1177,11 @@
           }
           if(candidate >= 0 && candidate <= 7 * 24 * 60){
             durationMinutes = candidate;
+          }
+        }
+        if(explicitDurationMinutes != null){
+          if(!Number.isFinite(durationMinutes) || Math.abs(explicitDurationMinutes - durationMinutes) >= 30){
+            durationMinutes = explicitDurationMinutes;
           }
         }
         segs.push({

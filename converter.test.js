@@ -2,6 +2,7 @@ const assert = require('assert');
 
 global.window = global;
 require('./airlines.js');
+require('./rbd.js');
 require('./converter.js');
 
 assert.strictEqual(
@@ -217,6 +218,31 @@ assert.strictEqual(
 
 const baPremiumLines = window.convertTextToI(baPremiumSample, { bookingClass: '', autoCabin: 'premium' }).split('\n');
 assert.ok(/BA\s+594Y/.test(baPremiumLines[1] || ''), 'short-haul premium cabin should fall back to economy booking class');
+
+const baPremiumLongSample = [
+  'Return • Thu, Dec 4',
+  '16h 20m',
+  'British Airways',
+  'British Airways 551',
+  'Airbus A319',
+  '11:10 am',
+  'Rome Fiumicino (FCO)',
+  '2h 55m',
+  '1:05 pm',
+  'London Heathrow (LHR)',
+  '2h 05m • Change planes in London (LHR)',
+  'British Airways',
+  'British Airways 269',
+  'Airbus A380-800',
+  '3:10 pm',
+  'London Heathrow (LHR)',
+  '11h 20m',
+  '6:30 pm',
+  'Los Angeles (LAX)'
+].join('\n');
+
+const baPremiumLongLines = window.convertTextToI(baPremiumLongSample, { bookingClass: '', autoCabin: 'premium' }).split('\n');
+assert.ok(/BA\s+269W/.test(baPremiumLongLines[1] || baPremiumLongLines[0] || ''), 'long-haul premium cabin should keep premium booking class');
 
 const matrixDateRegression = [
   'Flight 1 • Sun, Sep 28',
