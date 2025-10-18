@@ -3,6 +3,8 @@ Goal: inject small red action pills (*I, and when applicable leg/availability pi
 
 Meta-note for future me: when a user gives a new instruction, pause to restate it against this goal before touching files. Interpret "add" / "remove" requests literally, but assume they still expect the core extension behavior above to hold—no clever misreads.
 
+xPrompt reminder: restate the user's ask (including host-specific nuances like passenger-count automation) in your own words before acting so you don't wander away from their intent.
+
 0) Ground rules
 
 No new dependencies; plain JS/DOM only. Keep the footprint small and fast.
@@ -52,7 +54,7 @@ Results list: one pill group per itinerary row.
 
 Itinerary Details page (after choosing an option): a single *I pill top-right in the main itinerary block (not the right sidebar).
 
-Passenger counts: prefer reading the live values from the search form inputs (`formcontrolname="adults"`, `seniors`, `youth`, `children`, `infantsInSeat`, `infantsInLap`). If that fails, fall back to the price cell tooltip math—never hard-code a static SS1 on Matrix.
+Passenger counts: On Kayak, sniff the traveler totals from the active search UI (or its query params/data attributes) so the copied SS token matches the real party size. On Matrix, prefer reading the live values from the search form inputs (`formcontrolname="adults"`, `seniors`, `youth`, `children`, `infantsInSeat`, `infantsInLap`). If that fails, fall back to the price cell tooltip math—never hard-code a static SS1 on Matrix.
 
 3) Injection, page detection & de-dup
 SPA & navigation

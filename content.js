@@ -26,6 +26,38 @@
     'input[formcontrolname="infantsInSeat"]',
     'input[formcontrolname="infantsInLap"]'
   ];
+  const PASSENGER_KEYWORD_RX = /\b(?:passengers?|travell?ers?|travelers?|pax|people|guests|adults?|children|kids?|infants?|seniors?|youths?)\b/i;
+  const KAYAK_PASSENGER_TOKENS = ['traveler','traveller','passenger','people','adult','child','kid','infant','senior','youth'];
+  const KAYAK_PASSENGER_INPUT_SELECTORS = (() => {
+    const selectors = [];
+    const attrPairs = [
+      ['name', 'input'],
+      ['id', 'input'],
+      ['data-testid', 'input'],
+      ['data-test', 'input'],
+      ['name', 'select'],
+      ['id', 'select'],
+      ['data-testid', 'select'],
+      ['data-test', 'select']
+    ];
+    attrPairs.forEach(([attr, tag]) => {
+      KAYAK_PASSENGER_TOKENS.forEach(token => {
+        selectors.push(`${tag}[${attr}*="${token}" i]`);
+      });
+    });
+    return selectors;
+  })();
+  const KAYAK_PASSENGER_NODE_SELECTOR = (() => {
+    const selectors = [];
+    const attrTargets = ['data-testid','data-test','class','aria-label','id'];
+    const nodeTokens = ['traveler','traveller','passenger','people'];
+    attrTargets.forEach(attr => {
+      nodeTokens.forEach(token => {
+        selectors.push(`[${attr}*="${token}" i]`);
+      });
+    });
+    return selectors.join(', ');
+  })();
   const CTA_MIN_WIDTH = 90;
   const CTA_MIN_HEIGHT = 32;
   const CTA_MIN_AREA = CTA_MIN_WIDTH * CTA_MIN_HEIGHT;
@@ -82,6 +114,7 @@
   let modalDimScheduled = false;
   let modalDimState = false;
   let itaPassengerSnapshot = { count: null, time: 0 };
+  let kayakPassengerSnapshot = { count: null, time: 0 };
 
   let itaResultsObserver = null;
   let itaObservedRoot = null;
@@ -1060,6 +1093,338 @@
     return count;
   }
 
+  function gatherSearchRoots(card){
+    if(typeof document === 'undefined') return [];
+    const roots = [];
+    const seen = new Set();
+    const push = (el) => {
+      if(!el || seen.has(el)) return;
+      if(el.nodeType !== 1) return;
+      seen.add(el);
+      roots.push(el);
+    };
+    if(card && card.closest){
+      try {
+        const local = card.closest(SEARCH_LIKE_SELECTOR);
+        if(local) push(local);
+      } catch (err) {}
+    }
+    try {
+      document.querySelectorAll(SEARCH_LIKE_SELECTOR).forEach(el => {
+        if(roots.length >= 6) return;
+        push(el);
+      });
+    } catch (err) {}
+    if(!roots.length && document.body){
+      push(document.body);
+    }
+    return roots;
+  }
+
+  function readPassengerControlValue(control){
+    if(!control) return null;
+    if(control.tagName && control.tagName.toUpperCase() === 'INPUT'){
+      const direct = readInputPassengerValue(control);
+      if(Number.isFinite(direct)) return direct;
+    }
+    let raw = null;
+    if(typeof control.value === 'string' && control.value !== ''){
+      raw = control.value;
+    }
+    if((raw == null || raw === '') && control.getAttribute){
+      const attrNames = ['value','data-value','aria-valuenow','data-count','data-passengers','data-passenger','data-travelers','data-travellers'];
+      for(const name of attrNames){
+        const val = control.getAttribute(name);
+        if(val != null && val !== ''){
+          raw = val;
+          break;
+        }
+      }
+    }
+    if((raw == null || raw === '') && control.textContent && control.tagName && control.tagName.toUpperCase() === 'OPTION'){
+      raw = control.textContent;
+    }
+    return parseNumericValue(raw);
+  }
+
+  function parsePassengerSummary(text){
+    const cleaned = (text || '').replace(/\s+/g, ' ').trim();
+    if(!cleaned) return null;
+    const direct = cleaned.match(/(\d+)\s*(?:total\s+)?(?:passengers?|travell?ers?|travelers?|pax|people|guests)\b/i);
+    if(direct){
+      const num = parseInt(direct[1], 10);
+      if(Number.isFinite(num) && num > 0){
+        return num;
+      }
+    }
+    const seenSpans = new Set();
+    let total = 0;
+    let matched = false;
+    const addMatch = (start, end, value) => {
+      const num = parseInt(value, 10);
+      if(!Number.isFinite(num) || num <= 0) return;
+      const key = `${start}:${end}`;
+      if(seenSpans.has(key)) return;
+      seenSpans.add(key);
+      total += num;
+      matched = true;
+    };
+    const forwardRx = /(?:adults?|children|kids?|infants?(?:\s*(?:in\s*(?:seat|lap))?)?|seniors?|youths?|lap\s*infants?|seat\s*infants?)[^0-9]*([0-9]+)/gi;
+    let m;
+    while((m = forwardRx.exec(cleaned))){
+      addMatch(m.index, forwardRx.lastIndex, m[1]);
+    }
+    const reverseRx = /([0-9]+)[^a-z0-9]+(?:adults?|children|kids?|infants?(?:\s*(?:in\s*(?:seat|lap))?)?|seniors?|youths?)/gi;
+    while((m = reverseRx.exec(cleaned))){
+      addMatch(m.index, reverseRx.lastIndex, m[1]);
+    }
+    if(matched && total > 0){
+      return total;
+    }
+    const bare = cleaned.match(/^([0-9]{1,2})$/);
+    if(bare){
+      const num = parseInt(bare[1], 10);
+      if(Number.isFinite(num) && num > 0){
+        return num;
+      }
+    }
+    return null;
+  }
+
+  function detectKayakPassengerCountFromUrl(){
+    if(!IS_KAYAK) return null;
+    if(typeof location === 'undefined') return null;
+    let url;
+    try {
+      url = new URL(location.href);
+    } catch (err) {
+      return null;
+    }
+    const aggregatorKeys = ['travelers','travellers','traveler','traveller','passengers','passenger','pax','people'];
+    for(const key of aggregatorKeys){
+      const values = url.searchParams.getAll(key);
+      for(const value of values){
+        const parsed = parsePassengerSummary(value);
+        if(Number.isFinite(parsed) && parsed > 0){
+          return parsed;
+        }
+      }
+    }
+    let sum = 0;
+    let found = false;
+    const categoryKeys = ['adult','adults','child','children','kid','kids','infant','infants','lapinfants','seatinfants','senior','seniors','youth','youths'];
+    categoryKeys.forEach(key => {
+      const values = url.searchParams.getAll(key);
+      values.forEach(value => {
+        const parsed = parseNumericValue(value);
+        if(Number.isFinite(parsed) && parsed >= 0){
+          sum += parsed;
+          found = true;
+        }
+      });
+    });
+    if(found && sum > 0){
+      return sum;
+    }
+    const extras = [url.search || '', url.hash || '', url.pathname || ''];
+    for(const chunk of extras){
+      if(!chunk) continue;
+      const parsed = parsePassengerSummary(chunk);
+      if(Number.isFinite(parsed) && parsed > 0){
+        return parsed;
+      }
+      const rx = /(?:adults?|children|kids?|infants?(?:in(?:seat|lap)?)?|seniors?|youths?|passengers?|travell?ers?)[^0-9]*([0-9]+)/gi;
+      let match;
+      let total = 0;
+      let matched = false;
+      while((match = rx.exec(chunk))){
+        const num = parseInt(match[1], 10);
+        if(Number.isFinite(num)){
+          total += num;
+          matched = true;
+        }
+      }
+      if(matched && total > 0){
+        return total;
+      }
+    }
+    return null;
+  }
+
+  function detectKayakPassengerCountFromInputs(searchRoots){
+    if(typeof document === 'undefined') return null;
+    const roots = (Array.isArray(searchRoots) && searchRoots.length) ? searchRoots : gatherSearchRoots(null);
+    const seenControls = new Set();
+    let total = 0;
+    let found = false;
+    roots.forEach(root => {
+      if(!root || !root.querySelectorAll) return;
+      KAYAK_PASSENGER_INPUT_SELECTORS.forEach(selector => {
+        let controls;
+        try {
+          controls = root.querySelectorAll(selector);
+        } catch (err) {
+          controls = null;
+        }
+        if(!controls || !controls.length) return;
+        controls.forEach(control => {
+          if(!control || seenControls.has(control)) return;
+          seenControls.add(control);
+          const val = readPassengerControlValue(control);
+          if(Number.isFinite(val) && val > 0){
+            total += val;
+            found = true;
+          }
+        });
+      });
+      let spinControls = null;
+      try {
+        spinControls = root.querySelectorAll('[role="spinbutton"][aria-valuenow]');
+      } catch (err) {
+        spinControls = null;
+      }
+      if(spinControls){
+        spinControls.forEach(control => {
+          if(!control || seenControls.has(control)) return;
+          const label = (control.getAttribute && ((control.getAttribute('aria-label') || control.getAttribute('aria-valuetext') || control.getAttribute('title')) || '')) || '';
+          if(!PASSENGER_KEYWORD_RX.test(label)) return;
+          seenControls.add(control);
+          const val = parseNumericValue(control.getAttribute('aria-valuenow'));
+          if(Number.isFinite(val) && val > 0){
+            total += val;
+            found = true;
+          }
+        });
+      }
+    });
+    if(found && total > 0){
+      return total;
+    }
+    return null;
+  }
+
+  function detectKayakPassengerCountFromDom(searchRoots){
+    if(typeof document === 'undefined') return null;
+    const nodes = [];
+    const seenNodes = new Set();
+    const pushNode = (node) => {
+      if(!node || seenNodes.has(node)) return;
+      if(node.nodeType !== 1) return;
+      seenNodes.add(node);
+      nodes.push(node);
+    };
+    const roots = (Array.isArray(searchRoots) && searchRoots.length) ? searchRoots : gatherSearchRoots(null);
+    roots.forEach(root => {
+      pushNode(root);
+      if(!root || !root.querySelectorAll) return;
+      try {
+        root.querySelectorAll(KAYAK_PASSENGER_NODE_SELECTOR).forEach(pushNode);
+      } catch (err) {}
+    });
+    if(nodes.length < 6){
+      try {
+        document.querySelectorAll(KAYAK_PASSENGER_NODE_SELECTOR).forEach(el => {
+          if(nodes.length >= 40) return;
+          pushNode(el);
+        });
+      } catch (err) {}
+    }
+    const seenStrings = new Set();
+    for(const node of nodes){
+      if(!node) continue;
+      const candidates = [];
+      const textVal = node.innerText || '';
+      const textContent = node.textContent || '';
+      if(textVal && textVal.length <= 180 && PASSENGER_KEYWORD_RX.test(textVal)){
+        candidates.push({ text: textVal, hint: 'text' });
+      }
+      if(textContent && textContent !== textVal && textContent.length <= 180 && PASSENGER_KEYWORD_RX.test(textContent)){
+        candidates.push({ text: textContent, hint: 'content' });
+      }
+      if(node.getAttribute){
+        const attrNames = ['aria-label','aria-valuetext','title','data-title','data-content','data-tooltip','data-passengers','data-passenger','data-travelers','data-travellers','data-people','data-count','data-value'];
+        attrNames.forEach(name => {
+          const val = node.getAttribute(name);
+          if(!val) return;
+          const lowerName = name.toLowerCase();
+          if((lowerName === 'aria-label' || lowerName === 'aria-valuetext' || lowerName === 'title') && val.length <= 200){
+            if(PASSENGER_KEYWORD_RX.test(val)){
+              candidates.push({ text: val, hint: lowerName });
+            }
+            return;
+          }
+          if(val.length > 200) return;
+          if(PASSENGER_KEYWORD_RX.test(lowerName) || PASSENGER_KEYWORD_RX.test(val)){
+            candidates.push({ text: val, hint: lowerName });
+          }
+        });
+      }
+      if(node.dataset){
+        Object.keys(node.dataset).forEach(key => {
+          const val = node.dataset[key];
+          if(!val) return;
+          const keyLower = key.toLowerCase();
+          if(!PASSENGER_KEYWORD_RX.test(keyLower) && !PASSENGER_KEYWORD_RX.test(val)) return;
+          candidates.push({ text: val, hint: `data-${keyLower}` });
+        });
+      }
+      if(typeof node.value === 'string' && node.value){
+        const val = node.value;
+        if(PASSENGER_KEYWORD_RX.test(val)){
+          candidates.push({ text: val, hint: 'value' });
+        }
+      }
+      for(const candidate of candidates){
+        const cleaned = (candidate.text || '').replace(/\s+/g, ' ').trim();
+        if(!cleaned || cleaned.length > 220) continue;
+        if(!PASSENGER_KEYWORD_RX.test(cleaned) && !PASSENGER_KEYWORD_RX.test(candidate.hint || '')){
+          continue;
+        }
+        const key = `${candidate.hint}:${cleaned}`;
+        if(seenStrings.has(key)) continue;
+        seenStrings.add(key);
+        const parsed = parsePassengerSummary(cleaned);
+        if(Number.isFinite(parsed) && parsed > 0){
+          return parsed;
+        }
+      }
+    }
+    return null;
+  }
+
+  function detectKayakPassengerCount(card){
+    if(!IS_KAYAK) return null;
+    const now = Date.now();
+    if(kayakPassengerSnapshot && (now - kayakPassengerSnapshot.time) < 600){
+      return kayakPassengerSnapshot.count;
+    }
+    const roots = gatherSearchRoots(card);
+    let count = detectKayakPassengerCountFromUrl();
+    if(!Number.isFinite(count) || count <= 0){
+      const fromInputs = detectKayakPassengerCountFromInputs(roots);
+      if(Number.isFinite(fromInputs) && fromInputs > 0){
+        count = fromInputs;
+      }
+    }
+    if(!Number.isFinite(count) || count <= 0){
+      const fromDom = detectKayakPassengerCountFromDom(roots);
+      if(Number.isFinite(fromDom) && fromDom > 0){
+        count = fromDom;
+      }
+    }
+    kayakPassengerSnapshot = {
+      count: (Number.isFinite(count) && count > 0) ? count : null,
+      time: now
+    };
+    return kayakPassengerSnapshot.count;
+  }
+
+  function detectPassengerCount(card){
+    if(IS_ITA) return detectItaPassengerCount(card);
+    if(IS_KAYAK) return detectKayakPassengerCount(card);
+    return null;
+  }
+
   function computeButtonConfigsForCard(card){
     const baseConfig = {
       key: 'all',
@@ -1282,18 +1647,16 @@
           throw new Error('No itinerary details found');
         }
         let segmentStatus = SETTINGS.segmentStatus;
-        if(IS_ITA){
-          const paxCount = detectItaPassengerCount(card);
-          if(Number.isFinite(paxCount) && paxCount > 0){
-            const stored = typeof segmentStatus === 'string' ? segmentStatus.trim() : '';
-            const statusMatch = stored.match(/^([A-Z]{1,2})(\d+)$/i);
-            if(statusMatch){
-              segmentStatus = `${statusMatch[1].toUpperCase()}${paxCount}`;
-            } else if(/^[A-Z]{1,2}$/i.test(stored)){
-              segmentStatus = `${stored.toUpperCase()}${paxCount}`;
-            } else if(!stored || /^SS\d*/i.test(stored)){
-              segmentStatus = `SS${paxCount}`;
-            }
+        const paxCount = detectPassengerCount(card);
+        if(Number.isFinite(paxCount) && paxCount > 0){
+          const stored = typeof segmentStatus === 'string' ? segmentStatus.trim() : '';
+          const statusMatch = stored.match(/^([A-Z]{1,2})(\d+)$/i);
+          if(statusMatch){
+            segmentStatus = `${statusMatch[1].toUpperCase()}${paxCount}`;
+          } else if(/^[A-Z]{1,2}$/i.test(stored)){
+            segmentStatus = `${stored.toUpperCase()}${paxCount}`;
+          } else if(!stored || /^SS\d*/i.test(stored)){
+            segmentStatus = `SS${paxCount}`;
           }
         }
         const baseOpts = {
