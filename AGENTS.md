@@ -232,3 +232,5 @@ Tip: If DOM shapes drift, prefer resilient heuristics (times + airports + presen
 - Kayak passenger detection: `content.js` derives the passenger count from URL parameters and DOM traveler badges. It only overrides the stored segment status when the saved value matches `SS*` to keep custom codes intact.
 - Matrix passenger detection: `content.js` now decodes the Matrix `search=` payload (URL-safe Base64 JSON) to infer passenger counts, falling back to DOM text hints. The shared override rule (`SS*` only) applies on both hosts—don’t break the parity.
 - The popup no longer includes the layout/canvas sandbox demo. Avoid re-adding heavy preview UIs to keep the popup lightweight.
+- Kayak adds "Self-transfer" banners on some itineraries. Treat them like other connection labels (Long layover, Change planes)
+  so they never break parsing. Update the noise filter when new variants appear.
