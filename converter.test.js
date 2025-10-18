@@ -15,6 +15,16 @@ assert.strictEqual(
   'SV',
   'Saudia line with flight number should resolve to SV'
 );
+assert.strictEqual(
+  window.lookupAirlineCodeByName('French Bee'),
+  'BF',
+  'French Bee marketing name should resolve to BF'
+);
+assert.strictEqual(
+  window.lookupAirlineCodeByName('French Bee Airlines'),
+  'BF',
+  'French Bee variant with Airlines suffix should resolve to BF'
+);
 
 const saudiaSample = [
   'Depart • Wed, Nov 19',
