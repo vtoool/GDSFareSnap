@@ -1,6 +1,8 @@
 Project guide for AI coding agents working on the Kayak / ITA Matrix copy-pill Chrome extension (MV3).
 Goal: inject small red action pills (*I, and when applicable leg/availability pills) onto search results and itinerary pages, extract the visible itinerary text, and output GDS-style strings reliably—with zero regressions.
 
+Future-self reminder (xPrompt): when the user asks for a change, restate it mentally in terms of this extension’s mission (Matrix/Kayak pill injection, parser integrity) before coding. Stay aligned with the request—clarify open questions in the summary instead of reinterpretations.
+
 0) Ground rules
 
 No new dependencies; plain JS/DOM only. Keep the footprint small and fast.
@@ -228,4 +230,5 @@ Tip: If DOM shapes drift, prefer resilient heuristics (times + airports + presen
 - The legacy start-year field is gone; date logic infers years automatically. Do not reintroduce the field or depend on manual year entry.
 12) Recent implementation notes
 - Kayak passenger detection: `content.js` derives the passenger count from URL parameters and DOM traveler badges. It only overrides the stored segment status when the saved value matches `SS*` to keep custom codes intact.
+- Matrix passenger detection: `content.js` now decodes the Matrix `search=` payload (URL-safe Base64 JSON) to infer passenger counts, falling back to DOM text hints. The shared override rule (`SS*` only) applies on both hosts—don’t break the parity.
 - The popup no longer includes the layout/canvas sandbox demo. Avoid re-adding heavy preview UIs to keep the popup lightweight.

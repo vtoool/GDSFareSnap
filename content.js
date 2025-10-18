@@ -30,6 +30,7 @@
   const CABIN_DEFAULT_BOOKING = { FIRST: 'F', BUSINESS: 'J', PREMIUM: 'N', ECONOMY: 'Y' };
   const PASSENGER_WORD_TO_NUMBER = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12 };
   const PASSENGER_WORD_PATTERN = Object.keys(PASSENGER_WORD_TO_NUMBER).join('|');
+  const PASSENGER_KEY_PATTERN = /adult|child|kid|infant|lap|senior|youth|student|teen|traveler|traveller|passenger|pax|people|person|seat|guest/i;
   const DEFAULT_OVERLAY_BASE_Z = 1400;
   const STABLE_CARD_ATTRS = [
     'data-resultid',
@@ -1178,6 +1179,138 @@
     return results;
   }
 
+  function getMatrixSearchParamValue(){
+    if(typeof location === 'undefined') return null;
+    try {
+      const url = new URL(location.href);
+      let raw = url.searchParams ? url.searchParams.get('search') : null;
+      if((!raw || !raw.length) && url.hash && url.hash.length > 1){
+        try {
+          const hashParams = new URLSearchParams(url.hash.slice(1));
+          raw = hashParams.get('search') || raw;
+        } catch (err) {
+          raw = raw || null;
+        }
+      }
+      return raw || null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function decodeMatrixSearchPayload(raw){
+    if(!raw || typeof raw !== 'string') return null;
+    let sanitized = raw.trim();
+    if(!sanitized) return null;
+    sanitized = sanitized.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    const padLength = (4 - (sanitized.length % 4)) % 4;
+    const padded = padLength ? sanitized + '='.repeat(padLength) : sanitized;
+    if(typeof atob !== 'function') return null;
+    let decoded;
+    try {
+      decoded = atob(padded);
+    } catch (err) {
+      return null;
+    }
+    if(!decoded) return null;
+    try {
+      const payload = JSON.parse(decoded);
+      return payload && typeof payload === 'object' ? payload : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function coerceMatrixPassengerCount(value, depth){
+    if(value == null) return 0;
+    if(depth > 6) return 0;
+    if(typeof value === 'number'){
+      if(!Number.isFinite(value) || value <= 0) return 0;
+      return Math.floor(value);
+    }
+    if(typeof value === 'string'){
+      const match = value.match(/-?\d+/);
+      if(!match || !match.length) return 0;
+      const num = parseInt(match[0], 10);
+      if(!Number.isFinite(num) || num <= 0) return 0;
+      return num;
+    }
+    if(Array.isArray(value)){
+      return value.reduce((sum, entry) => sum + coerceMatrixPassengerCount(entry, depth + 1), 0);
+    }
+    if(typeof value === 'object'){
+      let total = 0;
+      for(const key in value){
+        if(!Object.prototype.hasOwnProperty.call(value, key)) continue;
+        if(/count|qty|quantity|num|number/i.test(key) || PASSENGER_KEY_PATTERN.test(key)){
+          total += coerceMatrixPassengerCount(value[key], depth + 1);
+        }
+      }
+      return total;
+    }
+    return 0;
+  }
+
+  function extractMatrixPassengersFromSearchPayload(payload){
+    if(!payload || typeof payload !== 'object') return null;
+    const pax = payload.pax || payload.passengers || null;
+    if(!pax || typeof pax !== 'object') return null;
+    let total = 0;
+    let sawPassengerKey = false;
+    for(const key in pax){
+      if(!Object.prototype.hasOwnProperty.call(pax, key)) continue;
+      const value = pax[key];
+      if(value == null) continue;
+      const keyMatches = PASSENGER_KEY_PATTERN.test(key);
+      const count = coerceMatrixPassengerCount(value, 0);
+      if(keyMatches || count > 0){
+        sawPassengerKey = sawPassengerKey || keyMatches;
+      }
+      if(count > 0){
+        total += count;
+      }
+    }
+    if(!sawPassengerKey || total <= 0){
+      return null;
+    }
+    return { count: total, status: `SS${total}`, source: 'matrix-search' };
+  }
+
+  function detectItaPassengerInfo(){
+    if(!IS_ITA) return null;
+    const rawSearch = getMatrixSearchParamValue();
+    if(rawSearch){
+      const payload = decodeMatrixSearchPayload(rawSearch);
+      const fromSearch = extractMatrixPassengersFromSearchPayload(payload);
+      if(fromSearch && fromSearch.count > 0){
+        return fromSearch;
+      }
+    }
+    const domHints = detectPassengersFromDom();
+    if(domHints && domHints.length){
+      const candidates = domHints.map(entry => Object.assign({}, entry, {
+        priority: typeof entry.priority === 'number' ? entry.priority + 2 : 3
+      }));
+      candidates.sort((a, b) => {
+        if(a.priority !== b.priority) return a.priority - b.priority;
+        if(a.count !== b.count) return b.count - a.count;
+        return (a.source || '').length - (b.source || '').length;
+      });
+      const best = candidates[0];
+      if(best && best.count > 0){
+        return { count: best.count, status: `SS${best.count}`, source: best.source || 'dom' };
+      }
+    }
+    return null;
+  }
+
+  function detectPassengerInfo(){
+    if(IS_ITA){
+      return detectItaPassengerInfo();
+    }
+    return detectKayakPassengerInfo();
+  }
+
   function detectKayakPassengerInfo(){
     if(IS_ITA) return null;
     const candidates = [];
@@ -1199,8 +1332,7 @@
   }
 
   function runPassengerDetection(){
-    if(IS_ITA) return;
-    const detected = detectKayakPassengerInfo();
+    const detected = detectPassengerInfo();
     if(!detected){
       if(passengerDetectionState.count != null || passengerDetectionState.status){
         passengerDetectionState = { count:null, status:null, source:'' };
@@ -1218,7 +1350,6 @@
   }
 
   function schedulePassengerDetection(immediate){
-    if(IS_ITA) return;
     if(immediate){
       passengerDetectionScheduled = false;
       runPassengerDetection();
@@ -1234,7 +1365,6 @@
 
   function getEffectiveSegmentStatus(){
     const stored = (SETTINGS.segmentStatus || '').toUpperCase().trim() || 'SS1';
-    if(IS_ITA) return stored;
     const detectedStatus = passengerDetectionState && passengerDetectionState.status;
     if(detectedStatus && /^SS\d*$/.test(stored)){
       return detectedStatus;
