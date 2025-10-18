@@ -1433,6 +1433,7 @@
     if(/^Overnight flight\b/i.test(normalized)) return true;
     if(/^Long layover\b/i.test(normalized)) return true;
     if(/^Change planes in\b/i.test(normalized)) return true;
+    if(/^Self[-\s]?transfer\b/i.test(normalized)) return true;
     if(/^Operated by\b/i.test(normalized)) return true;
     if(!/\([A-Z]{3}\)/.test(normalized) && isLikelyEquipmentLine(normalized)) return true;
     return false;

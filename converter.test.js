@@ -200,6 +200,36 @@ assert.ok(/05JUN/.test(interleavedLines[1]), 'outbound connection should carry a
 assert.ok(/05JUN\s+F/.test(interleavedLines[0]), 'overnight arrival should include next-day date context');
 assert.strictEqual(interleavedPeek.segments[1].depDate, '05JUN', 'peekSegments should advance outbound connection date');
 
+const selfTransferSample = [
+  'Depart • Wed, Feb 11',
+  'French Bee',
+  'French Bee 721',
+  'Airbus A350-900',
+  '11:00 pm',
+  'Newark (EWR)',
+  '7h 10m',
+  'Overnight flight',
+  '12:10 pm',
+  'Paris Orly (ORY)',
+  'Arrives Thu, Feb 12',
+  '19h 00m•Change planes in Paris (ORY)',
+  'Long layover',
+  'Self-transfer',
+  'Vueling',
+  'Vueling 6944',
+  'Airbus A320-100/200',
+  '7:10 am',
+  'Paris Orly (ORY)',
+  '1h 10m',
+  '7:20 am',
+  'London Gatwick (LGW)'
+].join('\n');
+
+const selfTransferLines = window.convertTextToI(selfTransferSample).split('\n');
+assert.strictEqual(selfTransferLines.length, 2, 'self-transfer itinerary should still produce two segments');
+assert.ok(/BF\s+721/.test(selfTransferLines[0]), 'French Bee segment should parse before the self-transfer label');
+assert.ok(/VY\s*6944/.test(selfTransferLines[1]), 'Vueling segment should parse after the self-transfer label');
+
 const baPremiumSample = [
   'Depart • Sat, Nov 8',
   'Flight 1 • Sat, Nov 8',
