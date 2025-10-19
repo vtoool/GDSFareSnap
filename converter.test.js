@@ -196,9 +196,158 @@ const interleavedLines = window.convertTextToI(interleavedOrder).split('\n');
 const interleavedPeek = window.peekSegments(interleavedOrder);
 assert.ok(/15JUN/.test(interleavedLines[2] || ''), 'first inbound segment should use Jun 15 header date');
 assert.ok(/15JUN/.test(interleavedLines[3] || ''), 'final inbound segment should use Jun 15 header date');
-assert.ok(/05JUN/.test(interleavedLines[1]), 'outbound connection should carry arrival date to next leg');
+assert.ok(/15JUN/.test(interleavedLines[1] || ''), 'second outbound leg should align with Jun 15 header date');
 assert.ok(/05JUN\s+F/.test(interleavedLines[0]), 'overnight arrival should include next-day date context');
-assert.strictEqual(interleavedPeek.segments[1].depDate, '05JUN', 'peekSegments should advance outbound connection date');
+assert.strictEqual(interleavedPeek.segments[1].depDate, '15JUN', 'peekSegments should align second segment with Jun 15 header');
+
+const fraHnlBkkLhr = [
+  'Flight 1 • Thu, Jul 16',
+  '20h 07m',
+  '*I✓',
+  'United Airlines',
+  'United Airlines 59',
+  'Boeing 777',
+  '1:35 pm',
+  'Frankfurt am Main (FRA)',
+  '11h 20m',
+  '3:55 pm',
+  'San Francisco (SFO)',
+  'Limited seats remaining at this price',
+  'Wi-Fi available',
+  '3h 15m•Change planes in San Francisco (SFO)',
+  'Long layover',
+  'United Airlines',
+  'United Airlines 638',
+  'Boeing 757-300',
+  '7:10 pm',
+  'San Francisco (SFO)',
+  '5h 32m',
+  '9:42 pm',
+  'Honolulu (HNL)',
+  'Limited seats remaining at this price',
+  'Flight 2 • Wed, Aug 26',
+  '15h 55m',
+  'ANA',
+  'ANA 181',
+  'Airbus A380-800',
+  '1:00 pm',
+  'Honolulu (HNL)',
+  '8h 15m',
+  '4:15 pm',
+  'Tokyo Narita (NRT)',
+  'Arrives Thu, Aug 27',
+  'Limited seats remaining at this price',
+  'Wi-Fi available',
+  '1h 10m•Change planes in Tokyo (NRT)',
+  'Thai Airways',
+  'Thai Airways 677',
+  'Boeing 777-300ER',
+  '5:25 pm',
+  'Tokyo Narita (NRT)',
+  '6h 30m',
+  '9:55 pm',
+  'Bangkok Suvarnabhumi (BKK)',
+  'Limited seats remaining at this price',
+  'Flight 3 • Wed, Sep 16',
+  '12h 35m',
+  'EVA Air',
+  'EVA Air 67',
+  'Boeing 777-300ER',
+  '12:45 pm',
+  'Bangkok Suvarnabhumi (BKK)',
+  '12h 35m',
+  '7:20 pm',
+  'London Heathrow (LHR)'
+].join('\n');
+
+const fraHnlLines = window.convertTextToI(fraHnlBkkLhr).split('\n');
+assert.strictEqual(fraHnlLines.length, 5, 'FRA-HNL-BKK-LHR sample should produce five segments');
+assert.ok(/UA\s+59/.test(fraHnlLines[0] || ''), 'FRA departure should include UA 59');
+assert.ok(/NH\s+181/.test(fraHnlLines[2] || ''), 'Honolulu to Narita leg should include NH 181');
+assert.ok(/BR\s+67/.test(fraHnlLines[4] || ''), 'Final EVA Air leg should include BR 67');
+assert.ok(/16SEP/.test(fraHnlLines[4] || ''), 'Final leg should carry Sep 16 departure date');
+
+const fraHnlPeek = window.peekSegments(fraHnlBkkLhr);
+assert.ok(fraHnlPeek && Array.isArray(fraHnlPeek.journeys), 'peekSegments should expose journeys for FRA-HNL-BKK-LHR sample');
+assert.strictEqual(fraHnlPeek.journeys.length, 3, 'FRA-HNL-BKK-LHR sample should expose three journeys');
+assert.deepStrictEqual(
+  fraHnlPeek.journeys.map(j => [j.origin, j.dest]),
+  [
+    ['FRA', 'HNL'],
+    ['HNL', 'BKK'],
+    ['BKK', 'LHR']
+  ],
+  'Journeys should split by each Flight header'
+);
+
+const fraYvrBkkLhr = [
+  'Flight 1 • Thu, Jul 16',
+  '19h 10m',
+  '*I✓',
+  'Condor',
+  'Condor 2454',
+  'Airbus A330-900neo',
+  '2:25 pm',
+  'Frankfurt am Main (FRA)',
+  '10h 25m',
+  '3:50 pm',
+  'Vancouver Intl (YVR)',
+  'Wi-Fi available',
+  '2h 35m•Change planes in Vancouver (YVR)',
+  'Self-transfer',
+  'WestJet',
+  'WestJet 1862',
+  'Boeing 737 MAX 8',
+  '6:25 pm',
+  'Vancouver Intl (YVR)',
+  '6h 10m',
+  '9:35 pm',
+  'Honolulu (HNL)',
+  'Wi-Fi available',
+  'Flight 2 • Wed, Aug 26',
+  '17h 05m',
+  'ANA',
+  'ANA 183',
+  'Airbus A380-800',
+  '11:35 am',
+  'Honolulu (HNL)',
+  '8h 15m',
+  '2:50 pm',
+  'Tokyo Narita (NRT)',
+  'Arrives Thu, Aug 27',
+  'Wi-Fi available',
+  '2h 10m•Change planes in Tokyo (NRT)',
+  'Self-transfer',
+  'ZIPAIR',
+  'ZIPAIR 51',
+  'Boeing 787-8 Dreamliner',
+  '5:00 pm',
+  'Tokyo Narita (NRT)',
+  '6h 40m',
+  '9:40 pm',
+  'Bangkok Suvarnabhumi (BKK)',
+  'Flight 3 • Wed, Sep 16',
+  '12h 20m',
+  'Thai Airways',
+  'Thai Airways 916',
+  'Boeing 777-300ER',
+  '12:50 pm',
+  'Bangkok Suvarnabhumi (BKK)',
+  '12h 20m',
+  '7:10 pm',
+  'London Heathrow (LHR)'
+].join('\n');
+
+const fraYvrLines = window.convertTextToI(fraYvrBkkLhr).split('\n');
+assert.strictEqual(fraYvrLines.length, 5, 'FRA-YVR-BKK-LHR sample should produce five segments');
+assert.ok(/DE2454/.test(fraYvrLines[0] || ''), 'First leg should include Condor 2454');
+assert.ok(/WS1862/.test(fraYvrLines[1] || ''), 'Second leg should include WestJet 1862');
+assert.ok(/ZG\s*51/.test(fraYvrLines[3] || ''), 'Fourth leg should include ZIPAIR 51 as ZG 51');
+assert.ok(/16SEP/.test(fraYvrLines[4] || ''), 'Final leg should include Sep 16 departure date');
+
+const fraYvrPeek = window.peekSegments(fraYvrBkkLhr);
+assert.ok(fraYvrPeek && Array.isArray(fraYvrPeek.journeys), 'peekSegments should expose journeys for FRA-YVR-BKK-LHR sample');
+assert.strictEqual(fraYvrPeek.journeys.length, 3, 'FRA-YVR-BKK-LHR sample should expose three journeys');
 
 const selfTransferSample = [
   'Depart • Wed, Feb 11',
