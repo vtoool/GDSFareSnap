@@ -29,12 +29,6 @@
   display:block;
 }
 
-.kayak-copy-inline-slot .kayak-copy-btn-group--ita{
-  top:8px;
-  right:12px;
-  left:auto;
-}
-
 .kayak-copy-btn-group.kayak-copy-btn-group--ita{
   position:absolute;
   top:12px;
@@ -43,6 +37,13 @@
   gap:6px;
   z-index:2147483002;
   pointer-events:auto;
+}
+
+.kayak-copy-inline-slot .kayak-copy-btn-group{
+  position:absolute;
+  top:6px;
+  right:6px;
+  left:auto;
 }
 
 .kayak-copy-btn-group--multi{
