@@ -2917,6 +2917,19 @@
     return slot;
   }
 
+  function forceTopOfCardSlot(card){
+    if(!card || card.nodeType !== 1) return null;
+    const before = getFirstVisibleChildElement(card);
+    const slot = ensureInlineSlotAt(card, card, before);
+    if(slot && slot.classList){
+      slot.classList.add('kayak-copy-inline-host');
+    }
+    if(slot){
+      kayakInlineSlotMap.set(card, slot);
+    }
+    return slot;
+  }
+
   function findKayakOutboundInlineAnchor(card){
     if(!card || card.nodeType !== 1) return null;
     let cardRect = null;
@@ -3040,6 +3053,8 @@
 
   function resolveKayakInlineHost(card, selectBtn, detailOverride){
     if(!card || card.nodeType !== 1) return null;
+    const hostname = (typeof location !== 'undefined' && location && location.hostname) ? location.hostname : '';
+    const isKayak = /kayak\./i.test(hostname);
     const cached = kayakInlineSlotMap.get(card);
     if(cached && cached.isConnected && card.contains(cached)){
       return cached;
@@ -3122,10 +3137,11 @@
         valid = true;
         break;
       }
-      const topLimit = cardRect.top + cardRect.height * 0.33;
       if(slotRect.top < cardRect.top - 2){
         continue;
       }
+      const limitRatio = isKayak ? 0.6 : 0.33;
+      const topLimit = cardRect.top + cardRect.height * limitRatio;
       if(slotRect.top > topLimit){
         continue;
       }
@@ -3134,6 +3150,14 @@
       }
       valid = true;
       break;
+    }
+
+    if(isKayak){
+      if(valid && slot && card.contains(slot)){
+        kayakInlineSlotMap.set(card, slot);
+        return slot;
+      }
+      return forceTopOfCardSlot(card);
     }
 
     if(!valid || !slot || !card.contains(slot)){
@@ -3801,11 +3825,11 @@
 
     const inlineHost = resolveKayakInlineHost(card, selectBtn, detailContainer);
     const inlineSlot = isInlineSlotElement(inlineHost) ? inlineHost : null;
-
-    if(inlineSlot){
-      group.dataset.inline = '1';
-    } else {
-      delete group.dataset.inline;
+    const hostname = (typeof location !== 'undefined' && location && location.hostname) ? location.hostname : '';
+    const isKayakHost = /kayak\./i.test(hostname);
+    let finalInlineSlot = inlineSlot;
+    if(isKayakHost && !finalInlineSlot){
+      finalInlineSlot = forceTopOfCardSlot(card);
     }
 
     buildGroupForCard(card, group, configData);
@@ -3818,18 +3842,18 @@
     }
 
     const previousHost = group.__inlineHost;
-    const prevSlot = previousHost && previousHost !== inlineSlot && isInlineSlotElement(previousHost) ? previousHost : null;
+    const prevSlot = previousHost && previousHost !== finalInlineSlot && isInlineSlotElement(previousHost) ? previousHost : null;
 
-    if(inlineSlot){
-      if(previousHost && previousHost !== inlineSlot && previousHost.classList){
+    if(finalInlineSlot){
+      if(previousHost && previousHost !== finalInlineSlot && previousHost.classList){
         previousHost.classList.remove('kayak-copy-inline-host');
         resetInlineHostPadding(previousHost);
       }
-      if(inlineSlot.classList){
-        inlineSlot.classList.add('kayak-copy-inline-host');
+      if(finalInlineSlot.classList){
+        finalInlineSlot.classList.add('kayak-copy-inline-host');
       }
-      group.__inlineHost = inlineSlot;
-      delete group.__overlayAnchor;
+      group.__inlineHost = finalInlineSlot;
+      group.__overlayAnchor = null;
       group.style.position = '';
       group.style.pointerEvents = '';
       group.style.visibility = '';
@@ -3838,41 +3862,60 @@
       group.style.right = '';
       group.style.bottom = '';
       group.style.zIndex = '';
-      if (group.parentNode !== inlineSlot){
-        inlineSlot.appendChild(group);
+      if (group.parentNode !== finalInlineSlot){
+        finalInlineSlot.appendChild(group);
       }
       if(prevSlot){
         if(kayakInlineSlotMap.get(card) === prevSlot){
-          kayakInlineSlotMap.set(card, inlineSlot);
+          kayakInlineSlotMap.set(card, finalInlineSlot);
         }
         if(prevSlot.isConnected && !prevSlot.childElementCount){
           prevSlot.remove();
         }
       }
+      kayakInlineSlotMap.set(card, finalInlineSlot);
+      group.dataset.inline = '1';
+      const overlayRoot = document.getElementById('kayak-copy-overlay-root');
+      if(overlayRoot && group.parentNode === overlayRoot){
+        try {
+          overlayRoot.removeChild(group);
+        } catch (err) {
+          // ignore removal failure
+        }
+      }
       group.style.display = 'flex';
       group.style.visibility = 'visible';
-    } else {
-      const removedSlot = previousHost && isInlineSlotElement(previousHost) ? previousHost : null;
-      if(previousHost && previousHost.classList){
-        previousHost.classList.remove('kayak-copy-inline-host');
-        resetInlineHostPadding(previousHost);
-      }
-      kayakInlineSlotMap.delete(card);
-      delete group.__inlineHost;
-      group.__overlayAnchor = findKayakOverlayAnchor(card);
-      group.style.position = 'fixed';
-      group.style.pointerEvents = 'auto';
-      group.style.visibility = 'hidden';
-      const root = ensureOverlayRoot();
-      if (!group.isConnected || group.parentNode !== root){
-        root.appendChild(group);
-      }
-      applyGroupZIndex(group);
-      if(removedSlot && removedSlot.isConnected && !removedSlot.childElementCount){
-        removedSlot.remove();
-      }
-      group.style.display = 'flex';
+      schedulePositionSync();
+      return;
     }
+
+    const removedSlot = previousHost && isInlineSlotElement(previousHost) ? previousHost : null;
+    if(previousHost && previousHost.classList){
+      previousHost.classList.remove('kayak-copy-inline-host');
+      resetInlineHostPadding(previousHost);
+    }
+    kayakInlineSlotMap.delete(card);
+    delete group.__inlineHost;
+    group.__overlayAnchor = null;
+    group.__overlayAnchor = findKayakOverlayAnchor(card);
+    if(group.classList){
+      group.classList.remove('kayak-copy-btn-group--ita');
+    }
+    if(group.dataset){
+      delete group.dataset.inline;
+    }
+    group.style.position = 'fixed';
+    group.style.pointerEvents = 'auto';
+    group.style.visibility = 'hidden';
+    const root = ensureOverlayRoot();
+    if (!group.isConnected || group.parentNode !== root){
+      root.appendChild(group);
+    }
+    applyGroupZIndex(group);
+    if(removedSlot && removedSlot.isConnected && !removedSlot.childElementCount){
+      removedSlot.remove();
+    }
+    group.style.display = 'flex';
 
     schedulePositionSync();
   }

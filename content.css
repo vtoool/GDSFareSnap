@@ -6,16 +6,16 @@
 }
 
 #kayak-copy-overlay-root .kayak-copy-btn-group{
-  pointer-events:auto;
-}
-
-.kayak-copy-btn-group{
   position:fixed;
   top:0;
   left:0;
+  pointer-events:auto;
+  z-index:2147483001;
+}
+
+.kayak-copy-btn-group{
   display:flex;
   gap:8px;
-  z-index:2147483001;
 }
 
 .kayak-copy-inline-host{
@@ -40,7 +40,7 @@
 }
 
 .kayak-copy-inline-slot .kayak-copy-btn-group{
-  position:absolute;
+  position:absolute !important;
   top:6px;
   right:6px;
   left:auto;
