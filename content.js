@@ -1951,20 +1951,6 @@
       if(!looksLikeModalCandidate(node)) continue;
       return true;
     }
-    try {
-      const searchNodes = document.querySelectorAll(SEARCH_LIKE_SELECTOR);
-      for(const node of searchNodes){
-        if(!node || node.nodeType !== 1) continue;
-        if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) continue;
-        if(!isVisible(node)) continue;
-        if(!looksLikeModalCandidate(node)) continue;
-        const structuralAncestor = node.closest('header, nav, [role="banner"]');
-        if(structuralAncestor && structuralAncestor !== node) continue;
-        return true;
-      }
-    } catch (err) {
-      // ignore selector issues
-    }
     return false;
   }
 
@@ -2489,27 +2475,6 @@
     }
     if(node.hasAttribute && (node.hasAttribute('data-testid') || node.hasAttribute('data-test'))){
       score += 30;
-    }
-
-    let textSample = '';
-    try {
-      textSample = typeof node.innerText === 'string' ? node.innerText : '';
-    } catch (err) {
-      textSample = '';
-    }
-    if(textSample){
-      if(textSample.length > 1600){
-        textSample = textSample.slice(0, 1600);
-      }
-      const flightMatches = textSample.match(/\bFlight\s+\d+/gi) || [];
-      if(flightMatches.length > 1){
-        score += Math.min(flightMatches.length, 6) * 42;
-        if(/\bFlight\s+1\b/i.test(textSample) && /\bFlight\s+2\b/i.test(textSample)){
-          score += 28;
-        }
-      } else if(flightMatches.length === 1){
-        score += 12;
-      }
     }
 
     const tag = node.tagName ? node.tagName.toLowerCase() : '';
