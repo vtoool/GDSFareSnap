@@ -75,8 +75,15 @@ global.chrome = {
 
 require('./airlines.js');
 require('./rbd.js');
+require('./converter.js');
 
-const { convertViToI, resolveCabinForSegment, pickPreferredBookingClass } = require('./popup.js');
+const {
+  convertViToI,
+  resolveCabinForSegment,
+  pickPreferredBookingClass,
+  buildViAvailabilityPreview,
+  buildViAvailabilityCommands
+} = require('./popup.js');
 
 const sampleText = `FLIGHT  DATE  SEGMENT DPTR  ARVL    MLS  EQP  ELPD MILES SM\n 1 AA  293 22OCT DEL JFK 1130P  605A¥1 LS   789 16.05  7318  N\nDEP-TERMINAL 3                 ARR-TERMINAL 8                 \nONEWORLD\nCABIN-PREMIUM ECONOMY\n 2 AA 2813 23OCT JFK AUS 1132A  237P   F    738  4.05  1521  N\nDEP-TERMINAL 8                 \nONEWORLD\nCABIN-ECONOMY`;
 
@@ -99,5 +106,27 @@ const normalizedCabin = resolveCabinForSegment({ ...shortPremiumSegment });
 assert.strictEqual(normalizedCabin, 'ECONOMY', 'short-haul premium segment should downgrade to economy cabin');
 const shortPremiumBooking = pickPreferredBookingClass('AA', normalizedCabin, '', shortPremiumSegment);
 assert.strictEqual(shortPremiumBooking, 'Y', 'short-haul premium segment should use Y booking class');
+
+const viRoundTripSample = [
+  'CABIN-BUSINESS',
+  ' 1 AA  100 01JUL JFK LAX 0800A 1100A  0 738 5.00',
+  'CABIN-BUSINESS',
+  ' 2 AA  101 05JUL LAX JFK 0100P 0900P  0 738 5.00'
+].join('\n');
+
+const roundTripConversion = convertViToI(viRoundTripSample, { autoCabin: false, bookingClass: 'J', segmentStatus: 'SS1' });
+assert.ok(Array.isArray(roundTripConversion.segments) && roundTripConversion.segments.length === 2, 'round trip conversion should expose two segments');
+
+const viPreview = buildViAvailabilityPreview(roundTripConversion.segments);
+assert.ok(viPreview && Array.isArray(viPreview.segments) && viPreview.segments.length === 2, 'VI preview should surface two normalized segments');
+
+const viAvailabilityCommands = buildViAvailabilityCommands({ preview: viPreview });
+assert.ok(Array.isArray(viAvailabilityCommands) && viAvailabilityCommands.length >= 2, 'VI preview should produce availability commands');
+
+const outboundCommand = viAvailabilityCommands.find(entry => entry && typeof entry.command === 'string' && /JFKLAX/.test(entry.command));
+const inboundCommand = viAvailabilityCommands.find(entry => entry && typeof entry.command === 'string' && /LAXJFK/.test(entry.command));
+
+assert.ok(outboundCommand && /^11JULJFKLAX/.test(outboundCommand.command), 'outbound availability command should include the outbound date and route');
+assert.ok(inboundCommand && /^15JULLAXJFK/.test(inboundCommand.command), 'inbound availability command should include the return date and route');
 
 console.log('All tests passed.');
