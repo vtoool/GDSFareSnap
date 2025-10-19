@@ -516,29 +516,17 @@
       return;
     }
     const trimmed = (rawText || '').trim();
+    const itineraryText = (state.lastResult || '').trim();
     const useDetailed = !!state.detailedAvailability;
+    const hasSegments = Array.isArray(state.lastSegments) && state.lastSegments.length > 0;
     availabilityPreview.innerHTML = '';
     state.availabilityCommands = [];
     state.lastAvailabilityCopiedIndex = -1;
-    if (!trimmed || typeof window.convertTextToAvailability !== 'function'){
+    if (!trimmed && !itineraryText && !hasSegments){
       availabilityPreview.style.display = 'none';
       availabilityPreview.setAttribute('aria-hidden', 'true');
       return;
     }
-    let preview = null;
-    try {
-      preview = typeof window.peekSegments === 'function' ? window.peekSegments(trimmed) : null;
-    } catch (err) {
-      console.warn('peekSegments preview failed:', err);
-      preview = null;
-    }
-    let journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
-    let segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
-    let directionGroups = (typeof window.computeDirectionsFromSegments === 'function' && segments.length)
-      ? window.computeDirectionsFromSegments(segments, { journeys })
-      : [];
-    const commands = [];
-    let isMultiCity = !!(preview && preview.isMultiCity);
     const airportCode = toAirportCode;
     const formatDirectionLabel = (direction, fallbackIdx) => {
       if (!direction){
@@ -575,73 +563,138 @@
       }
       return `Journey ${ordinal}`;
     };
-    if (!isMultiCity && directionGroups.length){
-      const sortedDirections = directionGroups.slice().sort((a, b) => {
-        const priority = (entry) => {
-          if (!entry) return 99;
-          const kind = (entry.kind || '').toLowerCase();
-          if (kind === 'outbound') return 0;
-          if (kind === 'inbound') return 1;
-          return 2 + (Number.isFinite(entry.index) ? entry.index : 0);
-        };
-        const diff = priority(a) - priority(b);
-        if (diff !== 0) return diff;
-        const idxA = Number.isFinite(a && a.index) ? a.index : 0;
-        const idxB = Number.isFinite(b && b.index) ? b.index : 0;
-        return idxA - idxB;
-      });
-      sortedDirections.forEach((direction, idx) => {
-        if (!direction) return;
-        const range = Array.isArray(direction.range) && direction.range.length === 2
-          ? [ Number(direction.range[0]), Number(direction.range[1]) ]
-          : null;
-        if (!range) return;
-        try {
-          const command = window.convertTextToAvailability(trimmed, {
-            direction: 'all',
-            segmentRange: range,
-            detailed: useDetailed
-          });
-          if (command){
-            commands.push({ label: formatDirectionLabel(direction, idx), command });
-          }
-        } catch (err) {
-          console.warn('Availability command build failed:', err);
-        }
-      });
-    }
-    if ((isMultiCity && journeys.length) || (!commands.length && journeys.length)){
-      journeys.forEach((journey, idx) => {
-        if (!journey) return;
-        try {
-          const command = window.convertTextToAvailability(trimmed, {
-            journeyIndex: idx,
-            direction: 'all',
-            detailed: useDetailed
-          });
-          if (command){
-            const label = isMultiCity ? formatJourneyLabel(journey, idx) : formatDirectionLabel(null, idx);
-            commands.push({ label, command });
-          }
-        } catch (err) {
-          console.warn('Availability command build failed:', err);
-        }
-      });
-    }
-    if (!commands.length){
+    const attemptFromText = (text) => {
+      if (!text || typeof window.convertTextToAvailability !== 'function'){
+        return null;
+      }
+      let preview = null;
       try {
-        const fallback = window.convertTextToAvailability(trimmed, {
-          direction: 'all',
-          detailed: useDetailed
-        });
-        if (fallback){
-          commands.push({ label: 'All segments', command: fallback });
-        }
+        preview = typeof window.peekSegments === 'function' ? window.peekSegments(text) : null;
       } catch (err) {
-        console.warn('Availability command build failed:', err);
+        console.warn('peekSegments preview failed:', err);
+        preview = null;
+      }
+      const journeys = preview && Array.isArray(preview.journeys) ? preview.journeys : [];
+      const segments = preview && Array.isArray(preview.segments) ? preview.segments : [];
+      let isMultiCity = !!(preview && preview.isMultiCity);
+      let directionGroups = [];
+      if (typeof window.computeDirectionsFromSegments === 'function' && segments.length){
+        try {
+          directionGroups = window.computeDirectionsFromSegments(segments, { journeys }) || [];
+        } catch (err) {
+          console.warn('computeDirectionsFromSegments failed for preview:', err);
+          directionGroups = [];
+        }
+      }
+      const entries = [];
+      const seen = new Set();
+      if (!isMultiCity && directionGroups.length){
+        const sortedDirections = sortDirectionsForDisplay(directionGroups);
+        sortedDirections.forEach((direction, idx) => {
+          if (!direction) return;
+          const range = Array.isArray(direction.range) && direction.range.length === 2
+            ? [ Number(direction.range[0]), Number(direction.range[1]) ]
+            : null;
+          if (!range) return;
+          try {
+            const command = window.convertTextToAvailability(text, {
+              direction: 'all',
+              segmentRange: range,
+              detailed: useDetailed
+            });
+            if (command && !seen.has(command)){
+              entries.push({ label: formatDirectionLabel(direction, idx), command });
+              seen.add(command);
+            }
+          } catch (err) {
+            console.warn('Availability command build failed:', err);
+          }
+        });
+      }
+      if ((isMultiCity && journeys.length) || (!entries.length && journeys.length)){
+        journeys.forEach((journey, idx) => {
+          if (!journey) return;
+          try {
+            const command = window.convertTextToAvailability(text, {
+              journeyIndex: idx,
+              direction: 'all',
+              detailed: useDetailed
+            });
+            if (command && !seen.has(command)){
+              const label = isMultiCity ? formatJourneyLabel(journey, idx) : formatDirectionLabel(null, idx);
+              entries.push({ label, command });
+              seen.add(command);
+            }
+          } catch (err) {
+            console.warn('Availability command build failed:', err);
+          }
+        });
+      }
+      if (!entries.length){
+        try {
+          const fallback = window.convertTextToAvailability(text, {
+            direction: 'all',
+            detailed: useDetailed
+          });
+          if (fallback && !seen.has(fallback)){
+            entries.push({ label: 'All segments', command: fallback });
+            seen.add(fallback);
+          }
+        } catch (err) {
+          console.warn('Availability command build failed:', err);
+        }
+      }
+      return {
+        commands: entries,
+        segments,
+        journeys,
+        isMultiCity
+      };
+    };
+
+    const commands = [];
+    let previewSegments = [];
+    let previewJourneys = [];
+    let isMultiCity = false;
+
+    const candidateTexts = [];
+    if (trimmed){
+      candidateTexts.push(trimmed);
+    }
+    if (itineraryText && itineraryText !== trimmed){
+      candidateTexts.push(itineraryText);
+    }
+
+    for (const candidate of candidateTexts){
+      const attempt = attemptFromText(candidate);
+      if (attempt){
+        if (!previewSegments.length && attempt.segments && attempt.segments.length){
+          previewSegments = attempt.segments;
+          previewJourneys = attempt.journeys || [];
+          isMultiCity = !!attempt.isMultiCity;
+        }
+        if (attempt.commands && attempt.commands.length){
+          attempt.commands.forEach(entry => commands.push(entry));
+          previewSegments = attempt.segments || previewSegments;
+          previewJourneys = attempt.journeys || previewJourneys;
+          isMultiCity = !!attempt.isMultiCity;
+          break;
+        }
       }
     }
-    if (!commands.length && Array.isArray(state.lastSegments) && state.lastSegments.length){
+
+    if (!commands.length && previewSegments.length){
+      const fallbackCommands = buildViAvailabilityCommands({
+        preview: { segments: previewSegments, journeys: previewJourneys, isMultiCity },
+        formatDirectionLabel,
+        formatJourneyLabel
+      });
+      if (fallbackCommands.length){
+        fallbackCommands.forEach(entry => commands.push(entry));
+      }
+    }
+
+    if (!commands.length && hasSegments){
       const viPreview = buildViAvailabilityPreview(state.lastSegments);
       if (viPreview){
         if (!isMultiCity && viPreview.isMultiCity){
@@ -657,6 +710,7 @@
         }
       }
     }
+
     if (!commands.length){
       availabilityPreview.style.display = 'none';
       availabilityPreview.setAttribute('aria-hidden', 'true');
@@ -1425,7 +1479,9 @@
       convertViToI,
       pickPreferredBookingClass,
       resolveCabinForSegment,
-      normalizeCabinValue
+      normalizeCabinValue,
+      buildViAvailabilityPreview,
+      buildViAvailabilityCommands
     };
   }
 })();
