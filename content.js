@@ -4071,8 +4071,20 @@
     for(let i = 0; i < tokens.length; i++){
       const t = tokens[i];
       const next = tokens[i + 1] || '';
+      let airlineCodeGuess = null;
+      if(typeof lookupAirlineCodeByName === 'function'){
+        airlineCodeGuess = lookupAirlineCodeByName(t);
+        if(!airlineCodeGuess){
+          const stripped = t.replace(/\s+(?:\d{1,4}|[A-Z0-9]{2,3})\b.*$/, '').trim();
+          if(stripped && stripped !== t){
+            airlineCodeGuess = lookupAirlineCodeByName(stripped);
+          }
+        }
+      }
       if (blacklist.some(rx => rx.test(t))){
         if(bookingClassLike.test(t)){
+          keep.push(t);
+        } else if(airlineCodeGuess){
           keep.push(t);
         }
         continue;
@@ -4082,9 +4094,14 @@
           durationLike.test(t) || airlineLike.test(t) || aircraftLike.test(t) ||
           timeLike.test(t) || airportLike.test(t) || changeLike.test(t) ||
           operatedLike.test(t) || arrivesLike.test(t) || overnightLike.test(t) ||
-          flightCodeLike.test(t) ||
+          flightCodeLike.test(t) || airlineCodeGuess ||
           wifiLike.test(t) || limitedSeats.test(t) ||
           monthDayLike.test(t)) {
+        keep.push(t);
+        continue;
+      }
+
+      if(airlineCodeGuess){
         keep.push(t);
         continue;
       }
@@ -4132,6 +4149,13 @@
       merged.push(t);
     }
     return merged.join('\n');
+  }
+
+  if(typeof window !== 'undefined'){
+    window.__kayakCopyTestHooks = window.__kayakCopyTestHooks || {};
+    if(!window.__kayakCopyTestHooks.extractVisibleText){
+      window.__kayakCopyTestHooks.extractVisibleText = extractVisibleText;
+    }
   }
 
   /* ---------- Observe + attach header buttons ---------- */
