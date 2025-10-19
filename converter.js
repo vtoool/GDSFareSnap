@@ -1071,17 +1071,30 @@
       if(depTime && depAirport && arrTime && arrAirport){
         if(pendingJourneyHeader){
           const lastSeg = segs.length ? segs[segs.length - 1] : null;
-          const matchesPrevArrival = lastSeg && lastSeg.arrAirport && depAirport && lastSeg.arrAirport === depAirport;
+          const lastArrivalDate = lastArrivalInfo && lastArrivalInfo.date ? cloneDateInfo(lastArrivalInfo.date) : null;
+          const headerDate = pendingJourneyHeader.headerDate ? { ...pendingJourneyHeader.headerDate } : null;
+          let matchesPrevArrival = lastSeg && lastSeg.arrAirport && depAirport && lastSeg.arrAirport === depAirport;
+          let forceBoundary = false;
+          if(headerDate && lastArrivalDate){
+            const gapFromArrival = dateInfoDifferenceInDays(lastArrivalDate, headerDate);
+            if(Number.isFinite(gapFromArrival) && Math.abs(gapFromArrival) >= 1){
+              forceBoundary = true;
+            }
+          }
+          if(headerDate){
+            const prevDow = currentDate ? currentDate.dow : '';
+            const nextDow = headerDate.dow || prevDow || '';
+            currentDate = { day: headerDate.day, mon: headerDate.mon, dow: nextDow };
+          }
+          if(forceBoundary){
+            matchesPrevArrival = false;
+            pendingJourneyHeader.deferred = false;
+            pendingJourneyHeader.boundaryPending = false;
+          }
           if(matchesPrevArrival){
             pendingJourneyHeader.deferred = true;
             pendingJourneyHeader.boundaryPending = true;
           } else {
-            const headerDate = pendingJourneyHeader.headerDate ? { ...pendingJourneyHeader.headerDate } : null;
-            if(headerDate){
-              const prevDow = currentDate ? currentDate.dow : '';
-              const nextDow = headerDate.dow || prevDow || '';
-              currentDate = { day: headerDate.day, mon: headerDate.mon, dow: nextDow };
-            }
             startJourney({
               explicit: !!pendingJourneyHeader.explicit,
               indexHint: pendingJourneyHeader.indexHint != null ? Number(pendingJourneyHeader.indexHint) : null,
