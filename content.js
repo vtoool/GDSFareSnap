@@ -2586,6 +2586,79 @@
     return normalizeKayakCard(el);
   }
 
+  function getLimitedNodeText(node, limit){
+    if(!node) return '';
+    let raw = '';
+    try {
+      if(typeof node.innerText === 'string'){
+        raw = node.innerText;
+      } else if(typeof node.textContent === 'string'){
+        raw = node.textContent;
+      }
+    } catch (err) {
+      raw = typeof node.textContent === 'string' ? node.textContent : '';
+    }
+    if(!raw) return '';
+    let normalized = raw.replace(/\s+/g, ' ').trim();
+    if(!normalized) return '';
+    if(Number.isFinite(limit) && limit > 0 && normalized.length > limit){
+      normalized = normalized.slice(0, limit);
+    }
+    return normalized;
+  }
+
+  function isNodeAfterReturnHeader(node, card){
+    if(!node || !card || node === card) return false;
+    const returnHdr = /^(Return|Inbound)(?:\s*[•·:|\-])?/i;
+    const attrReturn = /\b(return|inbound)\b/i;
+    let current = node;
+    let depth = 0;
+    while(current && current !== card && depth < 7){
+      const currentText = getLimitedNodeText(current, 160);
+      if(currentText && returnHdr.test(currentText)){
+        return true;
+      }
+      if(current.getAttribute){
+        const attrParts = [
+          current.getAttribute('data-testid') || '',
+          current.getAttribute('data-test') || '',
+          current.getAttribute('aria-label') || '',
+          current.className && typeof current.className === 'string' ? current.className : ''
+        ];
+        const attrSig = attrParts.join(' ').toLowerCase();
+        if(attrSig && attrReturn.test(attrSig)){
+          return true;
+        }
+      }
+      let sibling = current.previousElementSibling;
+      let hops = 0;
+      while(sibling && hops < 6){
+        if(isVisible(sibling)){
+          const siblingText = getLimitedNodeText(sibling, 160);
+          if(siblingText && returnHdr.test(siblingText)){
+            return true;
+          }
+          if(sibling.getAttribute){
+            const sig = [
+              sibling.getAttribute('data-testid') || '',
+              sibling.getAttribute('data-test') || '',
+              sibling.getAttribute('aria-label') || '',
+              sibling.className && typeof sibling.className === 'string' ? sibling.className : ''
+            ].join(' ').toLowerCase();
+            if(sig && attrReturn.test(sig)){
+              return true;
+            }
+          }
+        }
+        sibling = sibling.previousElementSibling;
+        hops++;
+      }
+      current = current.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
   function scoreKayakDetailCandidate(node, card, selectBtn, cardRect){
     if(!node || node === card || node.nodeType !== 1) return Number.NEGATIVE_INFINITY;
     if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) return Number.NEGATIVE_INFINITY;
@@ -2599,16 +2672,8 @@
       if(rect.height < 60 || rect.width < 200) return Number.NEGATIVE_INFINITY;
     }
 
-    let rawText = '';
-    try {
-      rawText = typeof node.innerText === 'string' ? node.innerText : '';
-    } catch (err) {
-      rawText = '';
-    }
-    if(!rawText) return Number.NEGATIVE_INFINITY;
-    const normalized = rawText.replace(/\s+/g, ' ').trim();
-    if(!normalized) return Number.NEGATIVE_INFINITY;
-    const text = normalized.length > 2400 ? normalized.slice(0, 2400) : normalized;
+    const text = getLimitedNodeText(node, 2400);
+    if(!text) return Number.NEGATIVE_INFINITY;
 
     const timeMatches = text.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
     const airportMatches = text.match(/\([A-Z]{3}\)/g) || [];
@@ -2642,6 +2707,11 @@
     if(attrSig){
       if(/detail|itiner|journey|segment|leg|schedule|timeline/.test(attrSig)) score += 36;
       if(/summary|collapsed/.test(attrSig)) score -= 8;
+      if(/\breturn\b|\binbound\b/.test(attrSig)) score -= 72;
+    }
+
+    if(isNodeAfterReturnHeader(node, card)){
+      score -= 84;
     }
 
     if(rect){
@@ -2750,6 +2820,188 @@
     return best;
   }
 
+  function getFirstVisibleChildElement(root){
+    if(!root || !root.children) return null;
+    const kids = root.children;
+    for(let i = 0; i < kids.length; i++){
+      const child = kids[i];
+      if(child && child.nodeType === 1 && isVisible(child)){
+        return child;
+      }
+    }
+    return null;
+  }
+
+  function ensureInlineSlotAt(card, parent, before){
+    if(!card || !parent || parent.nodeType !== 1) return null;
+    if(!card.contains(parent)) return null;
+    let reference = before && before.parentElement === parent ? before : null;
+    let slot = null;
+    const cached = kayakInlineSlotMap.get(card);
+    if(cached && cached.isConnected){
+      slot = cached;
+      if(slot.parentElement !== parent){
+        try {
+          if(reference){
+            parent.insertBefore(slot, reference);
+          } else {
+            parent.insertBefore(slot, parent.firstChild);
+          }
+        } catch (err) {
+          slot = null;
+        }
+      }
+    }
+    if(!slot || slot.parentElement !== parent){
+      const children = parent.children || [];
+      for(let i = 0; i < children.length; i++){
+        const child = children[i];
+        if(child && child.classList && child.classList.contains('kayak-copy-inline-slot')){
+          slot = child;
+          break;
+        }
+      }
+    }
+    if(!slot){
+      slot = document.createElement('div');
+      slot.className = 'kayak-copy-inline-slot';
+      try {
+        if(reference){
+          parent.insertBefore(slot, reference);
+        } else {
+          parent.insertBefore(slot, parent.firstChild);
+        }
+      } catch (err) {
+        return null;
+      }
+    } else if(reference && slot.nextSibling !== reference){
+      try {
+        parent.insertBefore(slot, reference);
+      } catch (err) {
+        // ignore
+      }
+    }
+    if(!card.contains(slot)) return null;
+    return slot;
+  }
+
+  function findKayakOutboundInlineAnchor(card){
+    if(!card || card.nodeType !== 1) return null;
+    let cardRect = null;
+    try {
+      cardRect = typeof card.getBoundingClientRect === 'function' ? card.getBoundingClientRect() : null;
+    } catch (err) {
+      cardRect = null;
+    }
+    const departHdr = /\b(Depart|Departure|Outbound)\b/i;
+    const returnHdr = /^(Return|Inbound)(?:\s*[•·:|\-])?/i;
+    const airlineText = /\b(Air(?:lines?|ways)|United|Delta|American|Lufthansa|SWISS|Air Canada|Air France|KLM|Iberia|Finnair|SAS|Turkish|Qatar|Emirates|Etihad|JetBlue|Alaska|Austrian|TAP|Aer Lingus|Icelandair|Porter|Spirit|Frontier|LATAM|ANA|JAL|Korean|Cathay|Singapore|EVA\s*Air|China\s+Airlines?)\b/i;
+    const timeRx = /(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig;
+    const airportRx = /\([A-Z]{3}\)/g;
+    let walker = null;
+    try {
+      walker = document.createTreeWalker(card, NodeFilter.SHOW_ELEMENT, null);
+    } catch (err) {
+      walker = null;
+    }
+    if(!walker) return null;
+    let best = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    let steps = 0;
+    while(steps < 260 && walker.nextNode()){
+      steps++;
+      const node = walker.currentNode;
+      if(!node || node === card || node.classList && node.classList.contains('kayak-copy-inline-slot')) continue;
+      if(!isVisible(node)) continue;
+      if(isNodeAfterReturnHeader(node, card)) continue;
+      let rect = null;
+      try {
+        rect = typeof node.getBoundingClientRect === 'function' ? node.getBoundingClientRect() : null;
+      } catch (err) {
+        rect = null;
+      }
+      if(cardRect && rect){
+        if(rect.bottom < cardRect.top - 4) continue;
+        if(rect.top > cardRect.top + cardRect.height * 0.48) continue;
+      }
+      const text = getLimitedNodeText(node, 360);
+      if(!text || returnHdr.test(text)) continue;
+      let score = 0;
+      const times = text.match(timeRx) || [];
+      const airports = text.match(airportRx) || [];
+      if(departHdr.test(text)) score += 72;
+      if(times.length >= 2 && airports.length >= 2){
+        score += 42;
+      } else if(times.length >= 2 || airports.length >= 2){
+        score += 18;
+      }
+      let hasAirline = airlineText.test(text);
+      if(!hasAirline && node.querySelector){
+        let airlineNode = null;
+        try {
+          airlineNode = node.querySelector('img[alt], [data-testid*="airline" i], [data-test*="airline" i], [class*="airline" i], [class*="carrier" i]');
+        } catch (err) {
+          airlineNode = null;
+        }
+        if(airlineNode){
+          hasAirline = true;
+        }
+      }
+      if(hasAirline) score += 24;
+      if(times.length >= 2 && airports.length >= 2 && hasAirline) score += 14;
+      if(rect && cardRect){
+        const offsetTop = rect.top - cardRect.top;
+        if(Number.isFinite(offsetTop)){
+          score += Math.max(0, 48 - offsetTop * 0.6);
+        }
+      }
+      let depth = 0;
+      let current = node.parentElement;
+      while(current && current !== card && depth < 8){
+        depth++;
+        current = current.parentElement;
+      }
+      score -= depth * 3;
+      if(score > bestScore){
+        bestScore = score;
+        best = node;
+      }
+    }
+    if(!best) return null;
+    let insertionParent = null;
+    let insertionBefore = null;
+    if(best.parentElement && card.contains(best.parentElement)){
+      insertionParent = best.parentElement;
+      let sibling = best.nextElementSibling;
+      while(sibling){
+        if(sibling.nodeType === 1 && isVisible(sibling)){
+          insertionBefore = sibling;
+          break;
+        }
+        sibling = sibling.nextElementSibling;
+      }
+      if(!insertionBefore){
+        insertionBefore = best;
+      }
+      if(insertionBefore && insertionBefore.parentElement !== insertionParent){
+        insertionBefore = null;
+      }
+    }
+    if((!insertionParent || !insertionBefore) && best.children && best.children.length){
+      insertionParent = best;
+      insertionBefore = best.children[0];
+    }
+    if(!insertionParent || insertionParent.nodeType !== 1){
+      insertionParent = card;
+      insertionBefore = getFirstVisibleChildElement(card);
+    }
+    if(insertionBefore && insertionBefore.parentElement !== insertionParent){
+      insertionBefore = null;
+    }
+    if(!card.contains(insertionParent)) return null;
+    return { parent: insertionParent, before: insertionBefore, anchor: best };
+  }
+
   function resolveKayakInlineHost(card, selectBtn, detailOverride){
     if(!card || card.nodeType !== 1) return card;
     const cached = kayakInlineSlotMap.get(card);
@@ -2757,77 +3009,113 @@
       return cached;
     }
 
-    let detail = detailOverride || null;
-    if(detail){
-      if(detail.nodeType !== 1){
-        detail = detail.parentElement;
+    const usePlacement = (placement) => {
+      if(!placement) return null;
+      const slot = ensureInlineSlotAt(card, placement.parent, placement.before);
+      if(slot){
+        kayakInlineSlotMap.set(card, slot);
       }
-      if(detail && (detail === card || !detail.isConnected || !card.contains(detail))){
-        detail = null;
-      }
-      if(detail && !isVisible(detail)){
-        detail = null;
-      }
-    }
-    if(!detail){
-      detail = findKayakDetailContainer(card, selectBtn);
-    }
-    if(!detail){
-      kayakInlineSlotMap.delete(card);
-      return card;
-    }
-    const parent = detail.parentElement;
-    if(!parent){
-      kayakInlineSlotMap.delete(card);
-      return card;
-    }
+      return slot;
+    };
 
-    let insertionParent = parent;
-    let insertionBefore = detail;
-    while (insertionParent && insertionParent !== card){
-      if(!card.contains(insertionParent)) break;
-      let elementCount = 0;
-      const parentChildren = insertionParent.children || [];
-      for(let i = 0; i < parentChildren.length; i++){
-        const child = parentChildren[i];
-        if(child && child.nodeType === 1){
-          elementCount++;
-          if(elementCount > 1) break;
+    let slot = usePlacement(findKayakOutboundInlineAnchor(card));
+
+    let detail = detailOverride || null;
+    if(!slot){
+      if(detail){
+        if(detail.nodeType !== 1){
+          detail = detail.parentElement;
+        }
+        if(detail && (detail === card || !detail.isConnected || !card.contains(detail))){
+          detail = null;
+        }
+        if(detail && !isVisible(detail)){
+          detail = null;
         }
       }
-      if(elementCount !== 1) break;
-      insertionBefore = insertionParent;
-      insertionParent = insertionParent.parentElement;
-    }
-
-    if(!insertionParent || !insertionBefore || !card.contains(insertionBefore)){
-      kayakInlineSlotMap.delete(card);
-      return card;
-    }
-
-    let slot = null;
-    const targetChildren = insertionParent.children || [];
-    for(let i = 0; i < targetChildren.length; i++){
-      const child = targetChildren[i];
-      if(child && child.classList && child.classList.contains('kayak-copy-inline-slot')){
-        slot = child;
-        break;
+      if(!detail){
+        detail = findKayakDetailContainer(card, selectBtn);
+      }
+      if(detail && detail.parentElement){
+        let insertionParent = detail.parentElement;
+        let insertionBefore = detail;
+        while(insertionParent && insertionParent !== card){
+          if(!card.contains(insertionParent)) break;
+          let elementCount = 0;
+          const parentChildren = insertionParent.children || [];
+          for(let i = 0; i < parentChildren.length; i++){
+            const child = parentChildren[i];
+            if(child && child.nodeType === 1){
+              elementCount++;
+              if(elementCount > 1) break;
+            }
+          }
+          if(elementCount !== 1) break;
+          insertionBefore = insertionParent;
+          insertionParent = insertionParent.parentElement;
+        }
+        if(insertionParent && insertionBefore && card.contains(insertionBefore)){
+          slot = usePlacement({ parent: insertionParent, before: insertionBefore });
+        }
       }
     }
+
     if(!slot){
-      slot = document.createElement('div');
-      slot.className = 'kayak-copy-inline-slot';
-      try {
-        insertionParent.insertBefore(slot, insertionBefore);
-      } catch (err) {
-        kayakInlineSlotMap.delete(card);
-        return card;
-      }
+      slot = usePlacement({ parent: card, before: getFirstVisibleChildElement(card) });
     }
-    if(!card.contains(slot)){
+
+    if(!slot){
       kayakInlineSlotMap.delete(card);
       return card;
     }
+
+    let cardRect = null;
+    let slotRect = null;
+    try {
+      cardRect = typeof card.getBoundingClientRect === 'function' ? card.getBoundingClientRect() : null;
+    } catch (err) {
+      cardRect = null;
+    }
+    try {
+      slotRect = typeof slot.getBoundingClientRect === 'function' ? slot.getBoundingClientRect() : null;
+    } catch (err) {
+      slotRect = null;
+    }
+
+    const exceedsTopThreshold = (cRect, sRect) => {
+      if(!cRect || !sRect) return false;
+      if(!Number.isFinite(cRect.top) || !Number.isFinite(cRect.height) || !Number.isFinite(sRect.top)) return false;
+      return sRect.top > cRect.top + cRect.height * 0.33;
+    };
+
+    if(exceedsTopThreshold(cardRect, slotRect)){
+      const retrySlot = usePlacement(findKayakOutboundInlineAnchor(card));
+      if(retrySlot){
+        slot = retrySlot;
+        try {
+          slotRect = typeof slot.getBoundingClientRect === 'function' ? slot.getBoundingClientRect() : null;
+        } catch (err) {
+          slotRect = null;
+        }
+      }
+      if(exceedsTopThreshold(cardRect, slotRect)){
+        const fallbackSlot = usePlacement({ parent: card, before: getFirstVisibleChildElement(card) });
+        if(fallbackSlot){
+          slot = fallbackSlot;
+          try {
+            slotRect = typeof slot.getBoundingClientRect === 'function' ? slot.getBoundingClientRect() : null;
+          } catch (err) {
+            slotRect = null;
+          }
+        }
+      }
+    }
+
+    if(!slot || !card.contains(slot)){
+      kayakInlineSlotMap.delete(card);
+      return card;
+    }
+
     kayakInlineSlotMap.set(card, slot);
     return slot;
   }
