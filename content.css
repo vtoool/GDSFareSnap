@@ -29,10 +29,20 @@
   display:block;
 }
 
+.kayak-copy-inline-slot--cta{
+  min-height:0;
+  margin:0;
+}
+
 .kayak-copy-inline-slot .kayak-copy-btn-group--ita{
   top:8px;
   right:12px;
   left:auto;
+}
+
+.kayak-copy-inline-slot--cta .kayak-copy-btn-group--ita{
+  top:-6px;
+  right:-4px;
 }
 
 .kayak-copy-btn-group.kayak-copy-btn-group--ita{
