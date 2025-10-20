@@ -55,6 +55,10 @@
   pointer-events:auto;
 }
 
+.kayak-copy-btn-group.kayak-copy-btn-group--ita[data-ita-detail="1"]{
+  top:4px;
+}
+
 .kayak-copy-btn-group--multi{
   flex-wrap:wrap;
   justify-content:flex-end;

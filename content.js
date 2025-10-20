@@ -2269,6 +2269,7 @@
       return;
     }
 
+    const isItaDetail = !!(group.dataset && group.dataset.itaDetail === '1');
     let topOffset = 12;
     try {
       const groupStyles = getComputedStyle(group);
@@ -2296,7 +2297,25 @@
     }
 
     const basePadding = info.basePaddingTop || 0;
-    const desiredPadding = Math.max(basePadding, Math.ceil(topOffset + groupHeight + 8));
+
+    let containerOffset = 0;
+    if (isItaDetail){
+      const card = group.__kayakCard;
+      const hostRect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
+      const cardRect = card && typeof card.getBoundingClientRect === 'function' ? card.getBoundingClientRect() : null;
+      if (hostRect && cardRect){
+        const offset = cardRect.top - hostRect.top;
+        if (Number.isFinite(offset) && offset > 0){
+          containerOffset = offset;
+        }
+      }
+    }
+
+    const clearanceBuffer = isItaDetail ? 4 : 8;
+    const desiredPadding = Math.max(
+      basePadding,
+      Math.ceil(topOffset + groupHeight + clearanceBuffer - containerOffset)
+    );
     if (!Number.isFinite(desiredPadding)){
       return;
     }
