@@ -599,10 +599,12 @@
     })();
     const minOverlayWidth = (() => {
       if(!Number.isFinite(viewWidth) || viewWidth <= 0){
-        return 140;
+        return 200;
       }
-      const scaled = Math.round(viewWidth * 0.18);
-      return Math.max(140, Math.min(360, scaled));
+      // Allow narrower traveler/date popovers on very wide displays, but cap at ~300px
+      // so oversized dialogs don't hide search results unnecessarily.
+      const scaled = viewWidth * 0.12;
+      return Math.max(200, Math.min(scaled, 300));
     })();
 
     const registerOverlayCandidate = (node) => {
@@ -628,9 +630,13 @@
       const width = Number.isFinite(rect.width) ? rect.width : 0;
       const height = Number.isFinite(rect.height) ? rect.height : 0;
       if(height < minOverlayHeight) return;
-      if(width < minOverlayWidth) return;
-      const area = width * height;
-      if(!Number.isFinite(area) || area < 18000) return;
+      const widthTooSmall = width < minOverlayWidth;
+      const nearSearchHeader = widthTooSmall && (rect.top <= searchBottom + 48);
+      if(widthTooSmall && !nearSearchHeader) return;
+      if(!widthTooSmall){
+        const area = width * height;
+        if(!Number.isFinite(area) || area < 18000) return;
+      }
       let cs = null;
       try {
         cs = getComputedStyle(node);
@@ -844,6 +850,14 @@
       maxBottom = Math.max(maxBottom, rect.bottom);
     });
 
+    if(SEARCH_LIKE_SELECTOR){
+      try {
+        document.querySelectorAll(SEARCH_LIKE_SELECTOR).forEach(considerSearchLike);
+      } catch (err) {
+        // ignore query issues
+      }
+    }
+
     overlaySelectorList.forEach(sel => {
       try {
         document.querySelectorAll(sel).forEach(node => registerOverlayCandidate(node));
@@ -862,14 +876,6 @@
     }
 
     overlayCandidates.forEach(node => considerHeaderOverlay(node));
-
-    if(SEARCH_LIKE_SELECTOR){
-      try {
-        document.querySelectorAll(SEARCH_LIKE_SELECTOR).forEach(considerSearchLike);
-      } catch (err) {
-        // ignore query issues
-      }
-    }
 
     if(searchBottom > 0){
       maxBottom = Math.max(maxBottom, searchBottom);
