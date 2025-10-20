@@ -2924,6 +2924,22 @@
       }
       break;
     }
+    if(best && best !== card){
+      const legHost = best.closest('.o-C7-leg-outer');
+      if(legHost && card.contains(legHost)){
+        best = legHost;
+      } else {
+        const sectionHost = best.closest('.o-C7-section');
+        if(sectionHost && card.contains(sectionHost)){
+          const firstLeg = sectionHost.querySelector('.o-C7-leg-outer, .X3K_, [data-testid*="segment" i], [data-test*="segment" i]');
+          if(firstLeg && card.contains(firstLeg)){
+            best = firstLeg.closest('.o-C7-leg-outer') || firstLeg;
+          } else {
+            best = sectionHost;
+          }
+        }
+      }
+    }
     return best;
   }
 
@@ -3005,6 +3021,27 @@
     }
     kayakInlineSlotMap.set(card, slot);
     return slot;
+  }
+
+  function cleanupInlineHostDuplicates(host, keepGroup){
+    if(!host || !host.children || !keepGroup) return;
+    const removals = [];
+    for(const child of Array.from(host.children)){
+      if(child === keepGroup) continue;
+      if(child && child.classList && child.classList.contains(BTN_GROUP_CLASS)){
+        removals.push(child);
+      }
+    }
+    if(!removals.length) return;
+    removals.forEach(stray => {
+      try {
+        hardRemoveGroup(stray);
+      } catch (err) {
+        if(stray && stray.parentNode === host){
+          try { stray.remove(); } catch (removeErr) {}
+        }
+      }
+    });
   }
 
   function parseCssSize(value){
@@ -3465,6 +3502,7 @@
     if (group.parentNode !== host){
       host.appendChild(group);
     }
+    cleanupInlineHostDuplicates(host, group);
     ensureInlineHostPadding(host, group, showMulti || buttonCount > 1);
 
     group.style.display = 'flex';
