@@ -580,6 +580,7 @@
     const candidates = new Set();
     let highestZ = null;
     const overlayCandidates = new Set();
+    const overlayDetectedNodes = new Set();
     let overlayBottom = 0;
 
     const overlayTopLimit = (() => {
@@ -607,6 +608,90 @@
       return Math.max(200, Math.min(scaled, 300));
     })();
 
+    const updateHighestZFromNode = (node, initialStyle) => {
+      if(!node) return;
+      let current = node;
+      let style = initialStyle || null;
+      let hops = 0;
+      while(current && hops < 8){
+        if(current === overlayRoot) break;
+        let cs = style;
+        if(!cs){
+          try {
+            cs = getComputedStyle(current);
+          } catch (err) {
+            cs = null;
+          }
+        }
+        style = null;
+        if(!cs){
+          if(!current.parentElement) break;
+          current = current.parentElement;
+          hops++;
+          continue;
+        }
+        if(cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity || '1') === 0){
+          if(!current.parentElement) break;
+          current = current.parentElement;
+          hops++;
+          continue;
+        }
+        const zIndexRaw = cs.zIndex;
+        if(zIndexRaw && zIndexRaw !== 'auto'){
+          const parsed = parseInt(zIndexRaw, 10);
+          if(Number.isFinite(parsed)){
+            highestZ = highestZ == null ? parsed : Math.max(highestZ, parsed);
+            break;
+          }
+        }
+        if(!current.parentElement) break;
+        current = current.parentElement;
+        hops++;
+      }
+    };
+
+    const recordOverlayDetection = (node, rect, style) => {
+      if(node){
+        overlayDetectedNodes.add(node);
+      }
+      if(rect && Number.isFinite(rect.bottom)){
+        overlayBottom = Math.max(overlayBottom, rect.bottom);
+      }
+      if(node){
+        updateHighestZFromNode(node, style);
+      }
+    };
+
+    const findOverlayOwner = (startNode) => {
+      let current = startNode;
+      let hops = 0;
+      while(current && hops < 8){
+        if(current === overlayRoot || current === document.body || current === document.documentElement){
+          break;
+        }
+        let cs;
+        try {
+          cs = getComputedStyle(current);
+        } catch (err) {
+          cs = null;
+        }
+        if(cs){
+          if(cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity || '1') === 0){
+            return null;
+          }
+          const pos = cs.position;
+          const zIndexRaw = cs.zIndex;
+          if(pos === 'fixed' || pos === 'sticky' || (zIndexRaw && zIndexRaw !== 'auto')){
+            return { node: current, style: cs };
+          }
+        }
+        if(!current.parentElement) break;
+        current = current.parentElement;
+        hops++;
+      }
+      return null;
+    };
+
     const registerOverlayCandidate = (node) => {
       if(!node || overlayCandidates.has(node)) return;
       if(node === overlayRoot) return;
@@ -618,44 +703,74 @@
       if(node === overlayRoot) return;
       if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) return;
       if(node === document.body || node === document.documentElement) return;
-      let rect;
-      try {
-        rect = node.getBoundingClientRect();
-      } catch (err) {
-        return;
+      const sources = [];
+
+      const pushSource = (candidateNode) => {
+        if(!candidateNode || sources.some(src => src.node === candidateNode)) return;
+        let rect;
+        try {
+          rect = candidateNode.getBoundingClientRect();
+        } catch (err) {
+          rect = null;
+        }
+        if(!rect || rect.bottom <= 0) return;
+        if(!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) return;
+        if(rect.top > overlayTopLimit) return;
+        let cs = null;
+        try {
+          cs = getComputedStyle(candidateNode);
+        } catch (err) {
+          cs = null;
+        }
+        if(cs){
+          if(cs.display === 'none' || cs.visibility === 'hidden') return;
+          const opacity = parseFloat(cs.opacity || '1');
+          if(Number.isFinite(opacity) && opacity <= 0) return;
+        }
+        const width = Number.isFinite(rect.width) ? rect.width : 0;
+        const height = Number.isFinite(rect.height) ? rect.height : 0;
+        sources.push({
+          node: candidateNode,
+          rect,
+          style: cs,
+          width,
+          height
+        });
+      };
+
+      pushSource(node);
+
+      const owner = findOverlayOwner(node);
+      if(owner && owner.node !== node){
+        pushSource(owner.node);
       }
-      if(!rect || rect.bottom <= 0) return;
-      if(!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) return;
-      if(rect.top > overlayTopLimit) return;
-      const width = Number.isFinite(rect.width) ? rect.width : 0;
-      const height = Number.isFinite(rect.height) ? rect.height : 0;
-      if(height < minOverlayHeight) return;
-      const widthTooSmall = width < minOverlayWidth;
-      const nearSearchHeader = widthTooSmall && (rect.top <= searchBottom + 48);
-      if(widthTooSmall && !nearSearchHeader) return;
-      if(!widthTooSmall){
-        const area = width * height;
-        if(!Number.isFinite(area) || area < 18000) return;
+
+      let accepted = false;
+      for(const source of sources){
+        if(source.height < minOverlayHeight) continue;
+        const widthTooSmall = source.width < minOverlayWidth;
+        const effectiveSearchBottom = searchBottom > 0 ? searchBottom : source.rect.top;
+        const nearSearchHeader = widthTooSmall && (source.rect.top <= effectiveSearchBottom + 48);
+        if(widthTooSmall && !nearSearchHeader) continue;
+        if(!widthTooSmall){
+          const area = source.width * source.height;
+          if(!Number.isFinite(area) || area < 18000) continue;
+        }
+        recordOverlayDetection(source.node, source.rect, source.style);
+        accepted = true;
+        break;
       }
-      let cs = null;
-      try {
-        cs = getComputedStyle(node);
-      } catch (err) {
-        cs = null;
-      }
-      if(cs){
-        if(cs.display === 'none' || cs.visibility === 'hidden') return;
-        const opacity = parseFloat(cs.opacity || '1');
-        if(Number.isFinite(opacity) && opacity <= 0) return;
-        const zIndexRaw = cs.zIndex;
-        if(zIndexRaw && zIndexRaw !== 'auto'){
-          const parsed = parseInt(zIndexRaw, 10);
-          if(Number.isFinite(parsed)){
-            highestZ = highestZ == null ? parsed : Math.max(highestZ, parsed);
-          }
+
+      if(!accepted){
+        const fallbackSource = sources.find(src => {
+          if(src.height >= minOverlayHeight * 0.6) return true;
+          if(src.width >= minOverlayWidth * 0.6) return true;
+          return false;
+        });
+        if(fallbackSource){
+          recordOverlayDetection(fallbackSource.node, fallbackSource.rect, fallbackSource.style);
         }
       }
-      overlayBottom = Math.max(overlayBottom, rect.bottom);
     };
 
     const queueAriaRefs = (node) => {
@@ -905,7 +1020,7 @@
       lastKnownHeaderZ = null;
       updateOverlayZIndex(DEFAULT_OVERLAY_BASE_Z);
     }
-    lastAvoidOverlayDetected = overlayBottom > 0;
+    lastAvoidOverlayDetected = overlayDetectedNodes.size > 0;
     return cachedAvoidTop;
   }
 
