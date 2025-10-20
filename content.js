@@ -2041,14 +2041,40 @@
       return;
     }
 
+    if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom) || !Number.isFinite(rect.right)) {
+      group.style.display = 'none';
+      group.style.visibility = 'hidden';
+      schedulePositionSync();
+      return;
+    }
+
+    let viewWidth = window.innerWidth;
+    let viewHeight = window.innerHeight;
+    if (!Number.isFinite(viewWidth) || viewWidth <= 0) {
+      viewWidth = (document.documentElement && document.documentElement.clientWidth) || 0;
+    }
+    if (!Number.isFinite(viewHeight) || viewHeight <= 0) {
+      viewHeight = (document.documentElement && document.documentElement.clientHeight) || 0;
+    }
+
+    if (!Number.isFinite(viewWidth) || !Number.isFinite(viewHeight) || viewWidth <= 0 || viewHeight <= 0) {
+      group.style.display = 'none';
+      group.style.visibility = 'hidden';
+      return;
+    }
+
     group.style.display = 'flex';
     group.style.visibility = 'hidden';
     group.style.top = '0px';
     group.style.left = '0px';
 
     const groupRect = group.getBoundingClientRect();
-    const viewWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-    const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (!groupRect || !Number.isFinite(groupRect.width) || !Number.isFinite(groupRect.height)) {
+      group.style.display = 'none';
+      group.style.visibility = 'hidden';
+      schedulePositionSync();
+      return;
+    }
     const avoidTop = measureAvoidTop();
     if(rect.bottom <= avoidTop + 4 || rect.top >= viewHeight){
       group.style.display = 'none';
@@ -2057,10 +2083,16 @@
     }
     const maxTop = Math.max(avoidTop + 4, viewHeight - groupRect.height - 4);
     const desiredTop = rect.top + 10;
-    const top = clamp(Math.max(desiredTop, avoidTop + 8), avoidTop + 4, maxTop);
+    let top = clamp(Math.max(desiredTop, avoidTop + 8), avoidTop + 4, maxTop);
+    if (!Number.isFinite(top)) {
+      top = avoidTop + 12;
+    }
     const rawRight = Math.max(4, viewWidth - rect.right + 10);
     const maxRight = Math.max(4, viewWidth - groupRect.width - 4);
-    const right = clamp(rawRight, 4, maxRight);
+    let right = clamp(rawRight, 4, maxRight);
+    if (!Number.isFinite(right)) {
+      right = 12;
+    }
 
     group.style.top = `${Math.round(top)}px`;
     group.style.left = 'auto';
