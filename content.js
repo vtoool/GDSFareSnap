@@ -2660,6 +2660,21 @@
     if(/\bNonstop\b/i.test(text)) score += 2;
     if(/\bLayover\b/i.test(text)) score += 2;
 
+    let flightHeaderMatch;
+    const flightHeaderRx = /\bFlight\s*(\d+)\b/gi;
+    while((flightHeaderMatch = flightHeaderRx.exec(text))){
+      const flightNumber = parseInt(flightHeaderMatch[1], 10);
+      if(Number.isFinite(flightNumber)){
+        if(flightNumber === 1){
+          score += 36;
+        } else if(flightNumber >= 2){
+          score -= Math.min(24, 6 + flightNumber * 2);
+        }
+      }
+    }
+    if(/\bOutbound\b/i.test(text)) score += 18;
+    if(/\bInbound\b/i.test(text)) score += 8;
+
     const attrParts = [];
     if(node.getAttribute){
       const dt = node.getAttribute('data-testid');
@@ -2684,6 +2699,8 @@
       if(cardRect){
         const offsetTop = rect.top - cardRect.top;
         if(Number.isFinite(offsetTop)){
+          const offsetPenalty = Math.max(0, Math.min(360, offsetTop));
+          score -= offsetPenalty * 0.3;
           if(offsetTop < 20){
             score += 12;
           } else if(offsetTop > 260){
