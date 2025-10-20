@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 class StubTextNode {
   constructor(value){
@@ -28,8 +30,11 @@ class StubElement {
     this.style = {};
     this.dataset = {};
     this.attributes = new Map();
-    this.offsetHeight = 0;
     this.ownerDocument = null;
+    this._rect = { top: 0, left: 0, width: 320, height: 200 };
+    this.offsetHeight = this._rect.height;
+    this.offsetWidth = this._rect.width;
+    this.offsetTop = this._rect.top;
     const classSet = new Set();
     this.classList = {
       add: (...cls) => cls.forEach(c => classSet.add(c)),
@@ -62,11 +67,54 @@ class StubElement {
           .forEach(c => classSet.add(c));
       }
     });
+    this.getBoundingClientRect = () => ({
+      top: this._rect.top,
+      left: this._rect.left,
+      width: this._rect.width,
+      height: this._rect.height,
+      right: this._rect.left + this._rect.width,
+      bottom: this._rect.top + this._rect.height
+    });
+    this.getClientRects = () => [this.getBoundingClientRect()];
+  }
+
+  setBoundingRect(rect = {}){
+    this._rect = Object.assign({}, this._rect, rect);
+    this.offsetHeight = this._rect.height;
+    this.offsetWidth = this._rect.width;
+    this.offsetTop = this._rect.top;
   }
 
   appendChild(node){
     if(!node) return node;
+    if(node.parentElement){
+      node.parentElement.removeChild(node);
+    }
     this.childNodes.push(node);
+    if(node.nodeType === 1 || node.nodeType === 3){
+      node.parentElement = this;
+      node.parentNode = this;
+      if(typeof document !== 'undefined'){
+        node.ownerDocument = document;
+      }
+    }
+    return node;
+  }
+
+  insertBefore(node, referenceNode){
+    if(!node) return node;
+    if(referenceNode && referenceNode.parentElement !== this){
+      return this.appendChild(node);
+    }
+    if(node.parentElement){
+      node.parentElement.removeChild(node);
+    }
+    const idx = referenceNode ? this.childNodes.indexOf(referenceNode) : -1;
+    if(idx >= 0){
+      this.childNodes.splice(idx, 0, node);
+    } else {
+      this.childNodes.push(node);
+    }
     if(node.nodeType === 1 || node.nodeType === 3){
       node.parentElement = this;
       node.parentNode = this;
@@ -91,6 +139,45 @@ class StubElement {
 
   get children(){
     return this.childNodes.filter(child => child && child.nodeType === 1);
+  }
+
+  get firstElementChild(){
+    for(const child of this.childNodes){
+      if(child && child.nodeType === 1) return child;
+    }
+    return null;
+  }
+
+  get lastElementChild(){
+    for(let i = this.childNodes.length - 1; i >= 0; i--){
+      const child = this.childNodes[i];
+      if(child && child.nodeType === 1) return child;
+    }
+    return null;
+  }
+
+  get nextElementSibling(){
+    if(!this.parentElement) return null;
+    const siblings = this.parentElement.childNodes;
+    let seen = false;
+    for(const sibling of siblings){
+      if(!sibling || sibling.nodeType !== 1) continue;
+      if(seen) return sibling;
+      if(sibling === this) seen = true;
+    }
+    return null;
+  }
+
+  get previousElementSibling(){
+    if(!this.parentElement) return null;
+    const siblings = this.parentElement.childNodes;
+    let prev = null;
+    for(const sibling of siblings){
+      if(!sibling || sibling.nodeType !== 1) continue;
+      if(sibling === this) return prev;
+      prev = sibling;
+    }
+    return null;
   }
 
   get textContent(){
@@ -121,20 +208,44 @@ class StubElement {
     this.textContent = value;
   }
 
-  getClientRects(){
-    return [{}];
+  matches(selector){
+    return stubMatchesSelector(this, selector);
   }
 
-  getBoundingClientRect(){
-    return { top: 0, left: 0, width: 320, height: 200 };
-  }
-
-  querySelector(){
+  closest(selector){
+    if(!selector) return null;
+    let current = this;
+    while(current){
+      if(current.matches && current.matches(selector)) return current;
+      current = current.parentElement || null;
+    }
     return null;
   }
 
-  querySelectorAll(){
-    return [];
+  querySelector(selector){
+    const all = this.querySelectorAll(selector);
+    return all.length ? all[0] : null;
+  }
+
+  querySelectorAll(selector){
+    const selectors = String(selector || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    if(!selectors.length) return [];
+    const results = [];
+    const visit = (node) => {
+      if(!node || !node.childNodes) return;
+      for(const child of node.childNodes){
+        if(!child || child.nodeType !== 1) continue;
+        if(selectors.some(sel => child.matches(sel))){
+          results.push(child);
+        }
+        visit(child);
+      }
+    };
+    visit(this);
+    return results;
   }
 
   addEventListener(){
@@ -149,6 +260,38 @@ class StubElement {
     return false;
   }
 
+  setAttribute(name, value){
+    const val = value === undefined ? '' : String(value);
+    if(name === 'class'){
+      this.className = val;
+      return;
+    }
+    this.attributes.set(name, val);
+    if(name && name.startsWith('data-')){
+      const key = name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      this.dataset[key] = val;
+    }
+  }
+
+  getAttribute(name){
+    if(name === 'class'){
+      return this.className;
+    }
+    return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
+
+  removeAttribute(name){
+    if(name === 'class'){
+      this.className = '';
+      return;
+    }
+    this.attributes.delete(name);
+    if(name && name.startsWith('data-')){
+      const key = name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      delete this.dataset[key];
+    }
+  }
+
   contains(node){
     let current = node;
     while(current){
@@ -157,22 +300,97 @@ class StubElement {
     }
     return false;
   }
+}
 
-  closest(){
-    return null;
+function splitSelectorParts(selector){
+  const parts = [];
+  let current = '';
+  let depth = 0;
+  for(let i = 0; i < selector.length; i++){
+    const ch = selector[i];
+    if(ch === '['){
+      depth++;
+    } else if(ch === ']'){
+      depth = Math.max(0, depth - 1);
+    }
+    if(depth === 0 && /\s/.test(ch)){
+      if(current.trim()){
+        parts.push(current.trim());
+      }
+      current = '';
+      continue;
+    }
+    current += ch;
   }
+  if(current.trim()){
+    parts.push(current.trim());
+  }
+  return parts;
+}
 
-  setAttribute(name, value){
-    this.attributes.set(name, String(value));
+function matchSimpleSelector(node, selector){
+  const trimmed = (selector || '').trim();
+  if(!trimmed) return false;
+  if(trimmed === '*') return true;
+  if(trimmed.startsWith('.')){
+    const cls = trimmed.slice(1);
+    return !!cls && node.classList.contains(cls);
   }
+  if(trimmed.startsWith('#')){
+    const id = trimmed.slice(1);
+    return !!id && node.getAttribute('id') === id;
+  }
+  if(trimmed.startsWith('[')){
+    const attrRegex = /^\[([^\s=\]]+)([*^$~|]?=)?(?:"([^"]*)"|'([^']*)'|([^\s\]]+))?(?:\s+([iIsS]))?\]$/;
+    const match = trimmed.match(attrRegex);
+    if(!match) return false;
+    const attr = match[1];
+    const operator = match[2] || null;
+    const rawValue = match[3] ?? match[4] ?? match[5] ?? '';
+    const flag = (match[6] || '').toLowerCase();
+    const attrValue = node.getAttribute(attr);
+    if(operator === null){
+      return attrValue !== null;
+    }
+    if(attrValue == null) return false;
+    const attrStr = flag === 'i' ? String(attrValue).toLowerCase() : String(attrValue);
+    const valueStr = flag === 'i' ? rawValue.toLowerCase() : rawValue;
+    if(operator === '*='){
+      return attrStr.indexOf(valueStr) !== -1;
+    }
+    if(operator === '='){
+      return attrStr === valueStr;
+    }
+    return false;
+  }
+  return node.tagName === trimmed.toUpperCase();
+}
 
-  getAttribute(name){
-    return this.attributes.has(name) ? this.attributes.get(name) : null;
+function matchCompoundSelector(node, selector){
+  const parts = splitSelectorParts(selector.trim());
+  if(!parts.length) return false;
+  const last = parts[parts.length - 1];
+  if(!matchSimpleSelector(node, last)) return false;
+  if(parts.length === 1) return true;
+  const ancestorSelector = parts.slice(0, -1).join(' ');
+  let ancestor = node.parentElement;
+  while(ancestor){
+    if(matchCompoundSelector(ancestor, ancestorSelector)){
+      return true;
+    }
+    ancestor = ancestor.parentElement;
   }
+  return false;
+}
 
-  removeAttribute(name){
-    this.attributes.delete(name);
-  }
+function stubMatchesSelector(node, selector){
+  if(!node || node.nodeType !== 1) return false;
+  const options = String(selector || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  if(!options.length) return false;
+  return options.some(sel => matchCompoundSelector(node, sel));
 }
 
 global.window = global;
@@ -180,6 +398,7 @@ window.addEventListener = () => {};
 window.removeEventListener = () => {};
 window.dispatchEvent = () => false;
 global.NodeFilter = {
+  SHOW_ELEMENT: 1,
   SHOW_TEXT: 4,
   FILTER_ACCEPT: 1,
   FILTER_REJECT: 2,
@@ -202,9 +421,14 @@ global.document = {
   },
   createTreeWalker(root, whatToShow, filter){
     const nodes = [];
+    const elementMask = Number.isFinite(whatToShow) ? (whatToShow & NodeFilter.SHOW_ELEMENT) : NodeFilter.SHOW_ELEMENT;
+    const textMask = Number.isFinite(whatToShow) ? (whatToShow & NodeFilter.SHOW_TEXT) : NodeFilter.SHOW_TEXT;
     const visit = (node) => {
       if(!node) return;
-      if(node.nodeType === 3){
+      if(node.nodeType === 1 && elementMask){
+        nodes.push(node);
+      }
+      if(node.nodeType === 3 && textMask){
         nodes.push(node);
       }
       if(node.childNodes){
@@ -300,6 +524,65 @@ const makeLine = (value) => {
   return wrapper;
 };
 
+function parseHtmlFragment(html){
+  const container = new StubElement('fragment');
+  container.ownerDocument = document;
+  const stack = [container];
+  const tokenRegex = /<!--[\s\S]*?-->|<[^>]+>|[^<]+/g;
+  const source = String(html || '');
+  let match;
+  while((match = tokenRegex.exec(source))){
+    const token = match[0];
+    if(!token) continue;
+    if(token.startsWith('<!--')){
+      continue;
+    }
+    if(token.startsWith('</')){
+      if(stack.length > 1){
+        stack.pop();
+      }
+      continue;
+    }
+    if(token.startsWith('<')){
+      const isSelfClosing = /\/\s*>$/.test(token);
+      const openMatch = token.match(/^<\s*([a-zA-Z0-9:-]+)([^>]*)\/?\s*>$/);
+      if(!openMatch) continue;
+      const tagName = openMatch[1];
+      const attrSource = openMatch[2] || '';
+      const el = new StubElement(tagName);
+      el.ownerDocument = document;
+      const attrRegex = /([a-zA-Z0-9:-]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>/]+)))?/g;
+      let attrMatch;
+      while((attrMatch = attrRegex.exec(attrSource))){
+        const attrName = attrMatch[1];
+        if(!attrName) continue;
+        const attrValue = attrMatch[3] ?? attrMatch[4] ?? attrMatch[5];
+        if(typeof attrValue === 'undefined'){
+          el.setAttribute(attrName, attrName);
+        } else {
+          el.setAttribute(attrName, attrValue);
+        }
+      }
+      stack[stack.length - 1].appendChild(el);
+      if(!isSelfClosing){
+        stack.push(el);
+      }
+      continue;
+    }
+    const textValue = token.replace(/\s+/g, ' ').trim();
+    if(!textValue) continue;
+    const textNode = new StubTextNode(textValue);
+    stack[stack.length - 1].appendChild(textNode);
+  }
+  return container.childNodes.filter(Boolean);
+}
+
+function loadFixtureNodes(relativePath){
+  const filePath = path.join(__dirname, relativePath);
+  const html = fs.readFileSync(filePath, 'utf8');
+  return parseHtmlFragment(html);
+}
+
 const root = new StubElement('section');
 [
   'Flight 1 • Thu, Jul 16',
@@ -350,5 +633,54 @@ const extracted = extractVisibleText(root);
 assert.ok(extracted.includes('WestJet 1862'), 'WestJet segment should remain in extracted text');
 assert.ok(extracted.includes('ZIPAIR 51'), 'ZIPAIR segment should remain in extracted text');
 assert.ok(extracted.includes('EVA Air 67'), 'EVA Air segment should remain in extracted text');
+
+const resolveKayakInlineHost = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.resolveKayakInlineHost;
+const findKayakDetailContainer = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.findKayakDetailContainer;
+assert.strictEqual(typeof resolveKayakInlineHost, 'function', 'resolveKayakInlineHost test hook should be available');
+assert.strictEqual(typeof findKayakDetailContainer, 'function', 'findKayakDetailContainer test hook should be available');
+
+function buildKayakDetailCard(){
+  const card = new StubElement('div');
+  card.ownerDocument = document;
+  card.className = 'detail-card';
+  card.setAttribute('data-testid', 'detail-card');
+  card.setBoundingRect({ top: 200, left: 0, width: 760, height: 1200 });
+  const nodes = loadFixtureNodes('fixtures/kayak/multi-city-nonstop-flight1.html');
+  nodes.forEach(node => card.appendChild(node));
+  const selectBtn = new StubElement('button');
+  selectBtn.ownerDocument = document;
+  selectBtn.className = 'primary-select';
+  selectBtn.innerText = 'Select';
+  selectBtn.setBoundingRect({ top: 260, left: 520, width: 140, height: 40 });
+  card.insertBefore(selectBtn, card.firstElementChild || null);
+  const legs = card.querySelectorAll('.o-C7-leg-outer');
+  legs.forEach((leg, idx) => {
+    const top = 340 + idx * 220;
+    leg.setBoundingRect({ top, left: 32, width: 640, height: 200 });
+    const inner = leg.querySelector('.o-C7-leg-inner');
+    if(inner && typeof inner.setBoundingRect === 'function'){
+      inner.setBoundingRect({ top: top + 24, left: 64, width: 600, height: 160 });
+    }
+  });
+  body.appendChild(card);
+  return { card, selectBtn };
+}
+
+const { card: detailCard, selectBtn: detailSelect } = buildKayakDetailCard();
+const firstLeg = detailCard.querySelector('.o-C7-leg-outer');
+assert.ok(firstLeg, 'fixture should expose at least one leg element');
+
+const detailTarget = findKayakDetailContainer(detailCard, detailSelect);
+assert.ok(detailTarget, 'detail container discovery should yield a candidate');
+const detailLeg = detailTarget.closest ? detailTarget.closest('.o-C7-leg-outer') : null;
+assert.strictEqual(detailLeg, firstLeg, 'detail container should resolve to the first leg');
+
+const inlineHost = resolveKayakInlineHost(detailCard, detailSelect, detailTarget);
+assert.ok(inlineHost, 'inline host resolution should return an element');
+assert.ok(inlineHost.classList.contains('kayak-copy-inline-slot'), 'inline host should use kayak slot class');
+assert.strictEqual(inlineHost.nextElementSibling, firstLeg, 'inline slot should sit immediately before the first leg');
+assert.strictEqual(inlineHost.parentElement, firstLeg.parentElement, 'inline slot should share the parent container with the first leg');
+
+body.removeChild(detailCard);
 
 console.log('extractVisibleText tests passed.');

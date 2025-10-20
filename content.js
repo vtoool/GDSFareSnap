@@ -2694,20 +2694,43 @@
     if(/\bNonstop\b/i.test(text)) score += 2;
     if(/\bLayover\b/i.test(text)) score += 2;
 
+    const legHost = node.closest ? node.closest('.o-C7-leg-outer') : null;
+
     let flightHeaderMatch;
     const flightHeaderRx = /\bFlight\s*(\d+)\b/gi;
+    let hasFlightOne = false;
     while((flightHeaderMatch = flightHeaderRx.exec(text))){
       const flightNumber = parseInt(flightHeaderMatch[1], 10);
       if(Number.isFinite(flightNumber)){
         if(flightNumber === 1){
-          score += 36;
+          score += 52;
+          hasFlightOne = true;
         } else if(flightNumber >= 2){
-          score -= Math.min(24, 6 + flightNumber * 2);
+          score -= Math.min(40, 12 + flightNumber * 4);
         }
       }
     }
     if(/\bOutbound\b/i.test(text)) score += 18;
     if(/\bInbound\b/i.test(text)) score += 8;
+
+    if(legHost && legHost.parentElement && legHost.parentElement.querySelectorAll){
+      let legIndex = -1;
+      try {
+        const siblings = Array.from(legHost.parentElement.querySelectorAll('.o-C7-leg-outer'));
+        legIndex = siblings.indexOf(legHost);
+      } catch (err) {
+        legIndex = -1;
+      }
+      if(legIndex === 0){
+        score += hasFlightOne ? 22 : 16;
+      } else if(legIndex > 0){
+        score -= Math.min(42, 10 + legIndex * 10);
+      }
+    }
+    if(!hasFlightOne && /\bFlight\s*1\b/i.test(text)){
+      score += 20;
+      hasFlightOne = true;
+    }
 
     const attrParts = [];
     if(node.getAttribute){
@@ -2728,17 +2751,22 @@
     if(rect){
       const clampedHeight = Math.min(420, rect.height);
       const clampedWidth = Math.min(720, rect.width);
-      score += clampedHeight * 0.4;
-      score += clampedWidth * 0.12;
+      score += clampedHeight * 0.26;
+      score += clampedWidth * 0.08;
       if(cardRect){
         const offsetTop = rect.top - cardRect.top;
         if(Number.isFinite(offsetTop)){
-          const offsetPenalty = Math.max(0, Math.min(360, offsetTop));
-          score -= offsetPenalty * 0.3;
+          const offsetPenalty = Math.max(0, Math.min(420, offsetTop));
+          score -= offsetPenalty * 0.48;
           if(offsetTop < 20){
             score += 12;
-          } else if(offsetTop > 260){
-            score -= Math.min(80, (offsetTop - 260) * 0.25);
+          } else {
+            if(offsetTop > 140){
+              score -= Math.min(90, (offsetTop - 140) * 0.35);
+            }
+            if(offsetTop > 280){
+              score -= Math.min(120, (offsetTop - 280) * 0.5);
+            }
           }
         }
       }
@@ -2767,6 +2795,16 @@
     let best = null;
     let bestScore = Number.NEGATIVE_INFINITY;
     const scoreCache = new WeakMap();
+
+    const ensureScore = (node) => {
+      if(!node || node === card) return Number.NEGATIVE_INFINITY;
+      if(scoreCache.has(node)){
+        return scoreCache.get(node);
+      }
+      const val = scoreKayakDetailCandidate(node, card, selectBtn, cardRect);
+      scoreCache.set(node, val);
+      return val;
+    };
 
     const evaluate = (node, bonus = 0) => {
       if(!node || node === card) return;
@@ -2826,6 +2864,116 @@
           const node = walker.currentNode;
           count++;
           evaluate(node, 0);
+        }
+      }
+    }
+
+    if(best){
+      const getNodeText = (node) => {
+        if(!node) return '';
+        let raw = '';
+        try {
+          raw = typeof node.innerText === 'string' ? node.innerText : (typeof node.textContent === 'string' ? node.textContent : '');
+        } catch (err) {
+          raw = '';
+        }
+        return raw.replace(/\s+/g, ' ').trim();
+      };
+
+      const isCandidateViable = (node) => {
+        if(!node || node === card) return false;
+        if(!card.contains(node)) return false;
+        if(!isVisible(node)) return false;
+        const baseScore = ensureScore(node);
+        if(!Number.isFinite(baseScore)) return false;
+        const txt = getNodeText(node);
+        if(!txt) return false;
+        if(/\bFlight\s*\d/i.test(txt)) return true;
+        const timeMatches = txt.match(/(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig) || [];
+        const airportMatches = txt.match(/\([A-Z]{3}\)/g) || [];
+        if(timeMatches.length >= 2 && airportMatches.length >= 2) return true;
+        return cardHasFlightClues(node, selectBtn, { suppressSelectLookup: true, allowMissingSelect: true });
+      };
+
+      const findFirstLeg = () => {
+        let legs = [];
+        try {
+          legs = card.querySelectorAll('.o-C7-leg-outer');
+        } catch (err) {
+          legs = [];
+        }
+        if(!legs || typeof legs.length === 'undefined') return null;
+        for(const leg of legs){
+          if(!leg || !card.contains(leg)) continue;
+          if(isCandidateViable(leg)) return leg;
+        }
+        return null;
+      };
+
+      const findFlightOneCandidate = () => {
+        let walker;
+        try {
+          walker = document.createTreeWalker(card, NodeFilter.SHOW_ELEMENT, null);
+        } catch (err) {
+          walker = null;
+        }
+        if(!walker) return null;
+        while(walker.nextNode()){
+          const node = walker.currentNode;
+          if(!node || node.nodeType !== 1) continue;
+          if(!card.contains(node)) continue;
+          if(!isVisible(node)) continue;
+          const txt = getNodeText(node);
+          if(!txt) continue;
+          if(/\bFlight\s*1\b/i.test(txt)){
+            const leg = node.closest ? node.closest('.o-C7-leg-outer') : null;
+            if(leg && card.contains(leg) && isCandidateViable(leg)){
+              return leg;
+            }
+            if(isCandidateViable(node)){
+              return node;
+            }
+          }
+        }
+        return null;
+      };
+
+      const firstLeg = findFirstLeg();
+      const bestLeg = best.closest ? best.closest('.o-C7-leg-outer') : null;
+      const firstLegViable = firstLeg ? isCandidateViable(firstLeg) : false;
+
+      if(firstLeg && !bestLeg){
+        if(firstLegViable && best !== firstLeg){
+          best = firstLeg;
+        }
+      } else if(firstLeg && bestLeg && bestLeg !== firstLeg){
+        const firstTxt = getNodeText(firstLeg);
+        const bestTxt = getNodeText(bestLeg);
+        const firstHasFlightOne = /\bFlight\s*1\b/i.test(firstTxt);
+        const bestHasFlightOne = /\bFlight\s*1\b/i.test(bestTxt);
+        if(firstLegViable && (firstHasFlightOne || !bestHasFlightOne)){
+          best = firstLeg;
+        } else if(firstLegViable){
+          const bestScore = ensureScore(bestLeg);
+          const firstScore = ensureScore(firstLeg);
+          if(Number.isFinite(firstScore) && Number.isFinite(bestScore) && firstScore >= bestScore - 18){
+            best = firstLeg;
+          }
+        }
+      } else if(!bestLeg && firstLeg && firstLegViable){
+        const bestTxt = getNodeText(best);
+        if(/\bFlight\s*[2-9]\b/i.test(bestTxt) && !/\bFlight\s*1\b/i.test(bestTxt)){
+          best = firstLeg;
+        }
+      }
+
+      const reassessedTxt = getNodeText(best);
+      if(/\bFlight\s*[2-9]\b/i.test(reassessedTxt) && !/\bFlight\s*1\b/i.test(reassessedTxt)){
+        const fallback = (firstLeg && /\bFlight\s*1\b/i.test(getNodeText(firstLeg)) && firstLegViable)
+          ? firstLeg
+          : findFlightOneCandidate();
+        if(fallback && fallback !== best && isCandidateViable(fallback)){
+          best = fallback;
         }
       }
     }
@@ -2929,13 +3077,29 @@
       if(legHost && card.contains(legHost)){
         best = legHost;
       } else {
-        const sectionHost = best.closest('.o-C7-section');
-        if(sectionHost && card.contains(sectionHost)){
-          const firstLeg = sectionHost.querySelector('.o-C7-leg-outer, .X3K_, [data-testid*="segment" i], [data-test*="segment" i]');
-          if(firstLeg && card.contains(firstLeg)){
-            best = firstLeg.closest('.o-C7-leg-outer') || firstLeg;
-          } else {
-            best = sectionHost;
+        let legDescendant = null;
+        if(best.querySelector){
+          try {
+            legDescendant = best.querySelector('.o-C7-leg-outer, .X3K_, [data-testid*="segment" i], [data-test*="segment" i]');
+          } catch (err) {
+            legDescendant = null;
+          }
+        }
+        if(legDescendant && card.contains(legDescendant)){
+          const normalized = legDescendant.closest('.o-C7-leg-outer') || legDescendant;
+          if(normalized && card.contains(normalized)){
+            best = normalized;
+          }
+        }
+        if(best && best !== card){
+          const sectionHost = best.closest('.o-C7-section');
+          if(sectionHost && card.contains(sectionHost)){
+            const firstLeg = sectionHost.querySelector('.o-C7-leg-outer, .X3K_, [data-testid*="segment" i], [data-test*="segment" i]');
+            if(firstLeg && card.contains(firstLeg)){
+              best = firstLeg.closest('.o-C7-leg-outer') || firstLeg;
+            } else {
+              best = sectionHost;
+            }
           }
         }
       }
@@ -4368,6 +4532,14 @@
     window.__kayakCopyTestHooks = window.__kayakCopyTestHooks || {};
     if(!window.__kayakCopyTestHooks.extractVisibleText){
       window.__kayakCopyTestHooks.extractVisibleText = extractVisibleText;
+    }
+    if(!window.__kayakCopyTestHooks.resolveKayakInlineHost){
+      window.__kayakCopyTestHooks.resolveKayakInlineHost = (card, selectBtn, detailOverride) =>
+        resolveKayakInlineHost(card, selectBtn, detailOverride);
+    }
+    if(!window.__kayakCopyTestHooks.findKayakDetailContainer){
+      window.__kayakCopyTestHooks.findKayakDetailContainer = (card, selectBtn) =>
+        findKayakDetailContainer(card, selectBtn);
     }
   }
 
