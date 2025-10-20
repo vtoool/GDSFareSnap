@@ -78,6 +78,7 @@
   const itaGroupsByKey = new Map();
   let modalDimScheduled = false;
   let modalDimState = false;
+  let lastOverlayCandidates = new Set();
 
   let itaResultsObserver = null;
   let itaObservedRoot = null;
@@ -580,6 +581,7 @@
     const candidates = new Set();
     let highestZ = null;
     const overlayCandidates = new Set();
+    const freshOverlayCandidates = new Set();
     let overlayBottom = 0;
 
     const overlayTopLimit = (() => {
@@ -611,6 +613,7 @@
       if(!node || overlayCandidates.has(node)) return;
       if(node === overlayRoot) return;
       overlayCandidates.add(node);
+      freshOverlayCandidates.add(node);
     };
 
     const considerHeaderOverlay = (node) => {
@@ -905,6 +908,7 @@
       lastKnownHeaderZ = null;
       updateOverlayZIndex(DEFAULT_OVERLAY_BASE_Z);
     }
+    lastOverlayCandidates = freshOverlayCandidates;
     lastAvoidOverlayDetected = overlayBottom > 0;
     return cachedAvoidTop;
   }
@@ -2083,7 +2087,16 @@
     const areaRatio = area / viewArea;
     const widthRatio = rect.width / viewWidth;
     const heightRatio = rect.height / viewHeight;
-    if(areaRatio < 0.18 && (widthRatio < 0.32 || heightRatio < 0.32)) return false;
+    if(areaRatio < 0.18){
+      const shortRatio = Math.min(widthRatio, heightRatio);
+      const longRatio = Math.max(widthRatio, heightRatio);
+      const minAreaRatio = 0.08;
+      const minAreaPixels = Math.max(viewArea * 0.05, 32000);
+      const hasEnoughArea = areaRatio >= minAreaRatio || area >= minAreaPixels;
+      if(!hasEnoughArea) return false;
+      const spansEdge = shortRatio >= 0.12 || longRatio >= 0.42;
+      if(!spansEdge) return false;
+    }
     let cs;
     try {
       cs = getComputedStyle(node);
@@ -2109,15 +2122,85 @@
       '[data-test*="modal" i]',
       '[data-testid*="dialog" i]',
       '[data-test*="dialog" i]',
-      '[id*="modal" i]'
+      '[id*="modal" i]',
+      '[data-testid*="search-flyout" i]',
+      '[data-testid*="searchflyout" i]',
+      '[data-test*="search-flyout" i]',
+      '[data-test*="searchflyout" i]',
+      '[class*="search-flyout" i]',
+      '[class*="searchFlyout" i]',
+      '[id*="search-flyout" i]',
+      '[id*="searchflyout" i]',
+      '[data-testid*="search-overlay" i]',
+      '[data-testid*="searchoverlay" i]',
+      '[data-test*="search-overlay" i]',
+      '[data-test*="searchoverlay" i]',
+      '[class*="search-overlay" i]',
+      '[class*="searchOverlay" i]',
+      '[id*="search-overlay" i]',
+      '[id*="searchoverlay" i]',
+      '[data-testid*="search-dim" i]',
+      '[data-testid*="searchdim" i]',
+      '[data-test*="search-dim" i]',
+      '[data-test*="searchdim" i]',
+      '[class*="search-dim" i]',
+      '[class*="searchDim" i]',
+      '[id*="search-dim" i]',
+      '[id*="searchdim" i]',
+      '[data-testid*="search-backdrop" i]',
+      '[data-testid*="searchbackdrop" i]',
+      '[data-test*="search-backdrop" i]',
+      '[data-test*="searchbackdrop" i]',
+      '[class*="search-backdrop" i]',
+      '[class*="searchBackdrop" i]',
+      '[id*="search-backdrop" i]',
+      '[id*="searchbackdrop" i]'
     ];
-    const nodes = document.querySelectorAll(selectors.join(','));
-    for(const node of nodes){
-      if(!node || node.nodeType !== 1) continue;
-      if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) continue;
-      if(!isVisible(node)) continue;
-      if(!looksLikeModalCandidate(node)) continue;
-      return true;
+    const candidateNodes = new Set();
+    const pushMatches = (selectorList) => {
+      if(!selectorList || !selectorList.length) return;
+      const selector = selectorList.join(',');
+      if(!selector) return;
+      let matches = null;
+      try {
+        matches = document.querySelectorAll(selector);
+      } catch (err) {
+        matches = null;
+      }
+      if(!matches) return;
+      matches.forEach(node => {
+        if(node && node.nodeType === 1){
+          candidateNodes.add(node);
+        }
+      });
+    };
+    pushMatches(selectors);
+    if(lastOverlayCandidates && lastOverlayCandidates.size){
+      lastOverlayCandidates.forEach(node => {
+        if(node && node.nodeType === 1 && node.isConnected){
+          candidateNodes.add(node);
+        }
+      });
+    }
+    const inspected = new Set();
+    const inspectNode = (node) => {
+      let current = node;
+      let hops = 0;
+      while(current && hops < 6){
+        if(current === document.body || current === document.documentElement) break;
+        if(inspected.has(current)) return false;
+        inspected.add(current);
+        if(current.closest && current.closest(`#${OVERLAY_ROOT_ID}`)) return false;
+        if(isVisible(current) && looksLikeModalCandidate(current)){
+          return true;
+        }
+        current = current.parentElement;
+        hops++;
+      }
+      return false;
+    };
+    for(const node of candidateNodes){
+      if(inspectNode(node)) return true;
     }
     return false;
   }
