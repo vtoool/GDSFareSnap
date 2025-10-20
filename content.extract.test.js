@@ -666,6 +666,40 @@ function buildKayakDetailCard(){
   return { card, selectBtn };
 }
 
+function buildKayakCollapsedCard(){
+  const card = new StubElement('div');
+  card.ownerDocument = document;
+  card.className = 'result-card';
+  card.setAttribute('data-testid', 'result-card');
+  card.setBoundingRect({ top: 420, left: 0, width: 760, height: 380 });
+
+  const summary = new StubElement('div');
+  summary.className = 'result-summary';
+  summary.setBoundingRect({ top: 440, left: 0, width: 720, height: 120 });
+  summary.appendChild(new StubTextNode('Sample carrier · 2 stops'));
+  card.appendChild(summary);
+
+  const priceRow = new StubElement('div');
+  priceRow.className = 'result-price-row';
+  priceRow.setAttribute('data-testid', 'price-container');
+  priceRow.setBoundingRect({ top: 580, left: 0, width: 720, height: 72 });
+  const price = new StubElement('div');
+  price.className = 'result-price';
+  price.innerText = '$642';
+  priceRow.appendChild(price);
+
+  const selectBtn = new StubElement('button');
+  selectBtn.className = 'primary-select';
+  selectBtn.setAttribute('data-testid', 'primary-button');
+  selectBtn.innerText = 'Select';
+  selectBtn.setBoundingRect({ top: 592, left: 536, width: 160, height: 44 });
+  priceRow.appendChild(selectBtn);
+
+  card.appendChild(priceRow);
+  body.appendChild(card);
+  return { card, selectBtn, priceRow };
+}
+
 const { card: detailCard, selectBtn: detailSelect } = buildKayakDetailCard();
 const firstLeg = detailCard.querySelector('.o-C7-leg-outer');
 assert.ok(firstLeg, 'fixture should expose at least one leg element');
@@ -681,6 +715,16 @@ assert.ok(inlineHost.classList.contains('kayak-copy-inline-slot'), 'inline host 
 assert.strictEqual(inlineHost.nextElementSibling, firstLeg, 'inline slot should sit immediately before the first leg');
 assert.strictEqual(inlineHost.parentElement, firstLeg.parentElement, 'inline slot should share the parent container with the first leg');
 
+const { card: collapsedCard, selectBtn: collapsedSelect, priceRow } = buildKayakCollapsedCard();
+const collapsedInline = resolveKayakInlineHost(collapsedCard, collapsedSelect, null);
+assert.ok(collapsedInline, 'collapsed card should yield an inline host');
+assert.ok(collapsedInline.classList.contains('kayak-copy-inline-slot--cta'), 'collapsed inline host should mark CTA variant');
+assert.strictEqual(collapsedInline.parentElement, priceRow, 'CTA inline slot should live inside the price row container');
+assert.strictEqual(collapsedInline.nextElementSibling, collapsedSelect, 'CTA inline slot should sit before the select button');
+const collapsedRepeat = resolveKayakInlineHost(collapsedCard, collapsedSelect, null);
+assert.strictEqual(collapsedRepeat, collapsedInline, 'CTA inline slot should be cached on repeat resolutions');
+
 body.removeChild(detailCard);
+body.removeChild(collapsedCard);
 
 console.log('extractVisibleText tests passed.');
