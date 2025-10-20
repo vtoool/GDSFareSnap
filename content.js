@@ -2075,6 +2075,28 @@
       schedulePositionSync();
       return;
     }
+    let anchorRect = rect;
+    let preferCtaAnchor = false;
+    const cta = group.__ctaElement;
+    if (cta && typeof cta.getBoundingClientRect === 'function') {
+      try {
+        const ctaRect = cta.getBoundingClientRect();
+        if (
+          ctaRect &&
+          Number.isFinite(ctaRect.top) &&
+          Number.isFinite(ctaRect.bottom) &&
+          Number.isFinite(ctaRect.left) &&
+          Number.isFinite(ctaRect.right) &&
+          ctaRect.width > 0 &&
+          ctaRect.height > 0
+        ) {
+          anchorRect = ctaRect;
+          preferCtaAnchor = true;
+        }
+      } catch (err) {
+        // ignore failures and fall back to card rect
+      }
+    }
     const avoidTop = measureAvoidTop();
     if(rect.bottom <= avoidTop + 4 || rect.top >= viewHeight){
       group.style.display = 'none';
@@ -2082,12 +2104,14 @@
       return;
     }
     const maxTop = Math.max(avoidTop + 4, viewHeight - groupRect.height - 4);
-    const desiredTop = rect.top + 10;
-    let top = clamp(Math.max(desiredTop, avoidTop + 8), avoidTop + 4, maxTop);
+    const desiredTop = preferCtaAnchor ? anchorRect.bottom + 8 : rect.top + 10;
+    const minTop = preferCtaAnchor ? Math.max(rect.top + 4, avoidTop + 8) : avoidTop + 8;
+    let top = clamp(Math.max(desiredTop, minTop), avoidTop + 4, maxTop);
     if (!Number.isFinite(top)) {
       top = avoidTop + 12;
     }
-    const rawRight = Math.max(4, viewWidth - rect.right + 10);
+    const sourceRight = preferCtaAnchor ? anchorRect.right : rect.right;
+    const rawRight = Math.max(4, viewWidth - sourceRight + (preferCtaAnchor ? 8 : 10));
     const maxRight = Math.max(4, viewWidth - groupRect.width - 4);
     let right = clamp(rawRight, 4, maxRight);
     if (!Number.isFinite(right)) {
