@@ -2104,7 +2104,17 @@
       return;
     }
     const maxTop = Math.max(avoidTop + 4, viewHeight - groupRect.height - 4);
-    const desiredTop = preferCtaAnchor ? anchorRect.bottom + 8 : rect.top + 10;
+    let desiredTop;
+    if (preferCtaAnchor) {
+      const ctaTopTarget = anchorRect.top - groupRect.height - 12;
+      if (Number.isFinite(ctaTopTarget)) {
+        desiredTop = ctaTopTarget;
+      } else {
+        desiredTop = rect.top + 10;
+      }
+    } else {
+      desiredTop = rect.top + 10;
+    }
     const minTop = preferCtaAnchor ? Math.max(rect.top + 4, avoidTop + 8) : avoidTop + 8;
     let top = clamp(Math.max(desiredTop, minTop), avoidTop + 4, maxTop);
     if (!Number.isFinite(top)) {
