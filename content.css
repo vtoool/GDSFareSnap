@@ -238,21 +238,6 @@
   border-radius:999px;
 }
 
-html.kayak-copy-modal-dim .kayak-copy-btn{
-  opacity:.82;
-  filter:saturate(.85) brightness(.84);
-  box-shadow:0 3px 12px rgba(9,19,33,.22);
-}
-
-html.kayak-copy-modal-dim .kayak-copy-btn.kayak-copy-btn--ita{
-  box-shadow:0 3px 12px rgba(0,0,0,.24);
-}
-
-html.kayak-copy-modal-dim .kayak-copy-btn.is-copied{
-  filter:saturate(.94) brightness(.9);
-  box-shadow:0 4px 14px rgba(38,64,178,.32);
-}
-
 .kayak-copy-cabin-hint{
   display:inline-flex;
   align-items:center;

@@ -111,7 +111,13 @@
   ];
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
-  const MODAL_DIM_CLASS = 'kayak-copy-modal-dim';
+  const SEARCH_DIALOG_FALLBACK_SELECTORS = [
+    '.c1r2d-form-container',
+    '[data-testid*="search-form-dialog" i]',
+    '[data-testid*="searchdialog" i]',
+    '[data-testid*="modify-search" i]'
+  ];
+  const SEARCH_DIALOG_TRIP_TYPE_SELECTOR = 'input[type="radio"][name="roundtrip"], input[type="radio"][name="oneway"], input[type="radio"][name="multicity"]';
   const MAX_CLIMB   = 12;
   const SELECT_RX   = /\b(?:Select(?:\s+Flight)?|Choose|View\s+(?:Deal|Flight|Offer)|See\s+(?:Deal|Offer)|Book|Continue(?:\s+to\s+Airline)?|Go\s+to\s+(?:Site|Airline)|Visit\s+(?:Airline|Site)|Check\s+Price|View\s+Offer)\b/i;
   const CTA_ATTR_HINTS = ['select','book','booking','cta','result-select','provider','price-link','price','offer','deal'];
@@ -174,7 +180,8 @@
   const kayakInlineSlotMap = new WeakMap();
   const itaGroupsByKey = new Map();
   let modalDimScheduled = false;
-  let modalDimState = false;
+  let overlayVisibilityState = { searchOpen: false, hasBlocking: false };
+  let searchSuppressionActive = false;
   let lastOverlayCandidatesSnapshot = [];
   let lastOverlayDetectionsSnapshot = [];
   let lastOverlaySnapshotTime = 0;
@@ -2233,6 +2240,47 @@
     delete host.__kayakCopyInlinePaddingInfo;
   }
 
+  function applySearchSuppressionToGroup(group, suppressed){
+    if (!group) return;
+    const shouldSuppress = !!suppressed;
+    const currentlySuppressed = group.dataset && group.dataset.searchSuppressed === '1';
+    if (shouldSuppress === currentlySuppressed) {
+      return;
+    }
+    if (shouldSuppress){
+      if (group.dataset){
+        group.dataset.searchSuppressed = '1';
+      }
+      group.style.display = 'none';
+      group.style.visibility = 'hidden';
+      const host = group.__inlineHost;
+      if (host){
+        resetInlineHostPadding(host);
+      }
+    } else {
+      if (group.dataset){
+        delete group.dataset.searchSuppressed;
+      }
+      group.style.display = '';
+      group.style.visibility = '';
+      const host = group.__inlineHost;
+      if (host){
+        const needsExtra = group.dataset && (group.dataset.multi === '1' || group.childElementCount > 1);
+        ensureInlineHostPadding(host, group, !!needsExtra);
+      }
+    }
+  }
+
+  function setSearchSuppressionActive(active){
+    const shouldSuppress = !!active;
+    if (searchSuppressionActive === shouldSuppress) return;
+    searchSuppressionActive = shouldSuppress;
+    activeGroups.forEach(group => {
+      applySearchSuppressionToGroup(group, shouldSuppress);
+    });
+    schedulePositionSync();
+  }
+
   function ensureOverlayRoot(){
     if (overlayRoot && overlayRoot.isConnected) return overlayRoot;
     const existing = document.getElementById(OVERLAY_ROOT_ID);
@@ -2298,8 +2346,90 @@
     return true;
   }
 
-  function hasVisibleModal(){
+  function getSearchDialogHost(node){
+    if(!node || node.nodeType !== 1) return null;
+    if(node.id === 'searchFormDialog') return node;
+    if(node.classList && node.classList.contains('c1r2d-form-container')) return node;
+    if(node.closest){
+      const direct = node.closest('#searchFormDialog');
+      if(direct) return direct;
+      const attrHost = node.closest('[data-testid*="search-form-dialog" i]');
+      if(attrHost) return attrHost;
+    }
+    if(node.matches && node.matches('[data-testid*="search-form-dialog" i]')){
+      return node;
+    }
+    if(node.classList && (node.classList.contains('J_T2') || node.classList.contains('Yyig'))){
+      try {
+        if(node.querySelector && node.querySelector('input[type="radio"][name]')){
+          return node;
+        }
+      } catch (err) {
+        // ignore query issues
+      }
+    }
+    return null;
+  }
+
+  function looksLikeSearchDialogHost(node){
+    if(!node || node.nodeType !== 1) return false;
+    if(!isVisible(node)) return false;
+    if(typeof node.querySelector !== 'function') return false;
+    let score = 0;
+    try {
+      if(node.querySelector(SEARCH_DIALOG_TRIP_TYPE_SELECTOR)){
+        score++;
+      }
+    } catch (err) {}
+    try {
+      if(node.querySelector('.LPJT-locations, .pM26')){
+        score++;
+      }
+    } catch (err) {}
+    try {
+      if(node.querySelector('.vlBx-pres-chip, .c2jKu-label, .J_T2-header')){
+        score++;
+      }
+    } catch (err) {}
+    try {
+      if(node.querySelector('button[type="submit"], .RxNS, .Iqt3, [aria-label="Search"]')){
+        score++;
+      }
+    } catch (err) {}
+    const ariaLabel = (node.getAttribute && node.getAttribute('aria-label')) || '';
+    if(ariaLabel && /search|modify/i.test(ariaLabel)){
+      score++;
+    }
+    return score >= 2;
+  }
+
+  function isSearchDialogVisible(){
     if(!IS_KAYAK) return false;
+    const hosts = new Set();
+    const direct = document.getElementById('searchFormDialog');
+    if(direct) hosts.add(direct);
+    SEARCH_DIALOG_FALLBACK_SELECTORS.forEach(sel => {
+      if(!sel) return;
+      try {
+        document.querySelectorAll(sel).forEach(candidate => {
+          const host = getSearchDialogHost(candidate);
+          if(host) hosts.add(host);
+        });
+      } catch (err) {
+        // ignore selector errors
+      }
+    });
+    for(const host of hosts){
+      if(looksLikeSearchDialogHost(host)){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function computeOverlayState(){
+    const baseState = { searchOpen: false, hasBlocking: false };
+    if(!IS_KAYAK) return baseState;
     const now = Date.now();
     if(now - lastOverlaySnapshotTime > 400){
       try {
@@ -2325,6 +2455,9 @@
       if(!list || !list.length) return;
       list.forEach(node => candidates.add(node));
     });
+    let searchOpen = isSearchDialogVisible();
+    let hasBlocking = false;
+    const detectedNodes = [];
     const considerNode = (start) => {
       let current = start;
       let depth = 0;
@@ -2343,23 +2476,39 @@
       if(node === overlayRoot) continue;
       if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) continue;
       if(!node.isConnected) continue;
-      if(considerNode(node)) return true;
+      const searchHost = getSearchDialogHost(node);
+      if(searchHost && looksLikeSearchDialogHost(searchHost)){
+        searchOpen = true;
+        continue;
+      }
+      if(considerNode(node)){
+        detectedNodes.push(node);
+        hasBlocking = true;
+        break;
+      }
     }
-    return false;
+    lastOverlayCandidatesSnapshot = Array.from(candidates).filter(node => node && node.nodeType === 1);
+    lastOverlayDetectionsSnapshot = detectedNodes;
+    lastOverlaySnapshotTime = Date.now();
+    return { searchOpen, hasBlocking };
+  }
+
+  function applyOverlayVisibilityState(nextState){
+    if(!nextState) nextState = { searchOpen: false, hasBlocking: false };
+    const prev = overlayVisibilityState || { searchOpen: false, hasBlocking: false };
+    overlayVisibilityState = nextState;
+    if(prev.searchOpen !== nextState.searchOpen){
+      setSearchSuppressionActive(nextState.searchOpen);
+    }
   }
 
   function updateModalDimState(){
-    if(!IS_KAYAK) return;
-    const shouldDim = hasVisibleModal();
-    if(shouldDim === modalDimState) return;
-    modalDimState = shouldDim;
-    const host = document.documentElement || document.body;
-    if(!host) return;
-    if(shouldDim){
-      host.classList.add(MODAL_DIM_CLASS);
-    } else {
-      host.classList.remove(MODAL_DIM_CLASS);
+    if(!IS_KAYAK){
+      applyOverlayVisibilityState({ searchOpen: false, hasBlocking: false });
+      return;
     }
+    const state = computeOverlayState();
+    applyOverlayVisibilityState(state);
   }
 
   function scheduleModalDimUpdate(){
@@ -2388,6 +2537,7 @@
     }
     activeGroups.add(group);
     applyGroupZIndex(group);
+    applySearchSuppressionToGroup(group, searchSuppressionActive);
     if (cardResizeObserver && card) {
       try {
         cardResizeObserver.observe(card);
@@ -2553,6 +2703,12 @@
       }
       if (!card.isConnected) {
         removeCardButton(card);
+        return;
+      }
+
+      if (group.dataset && group.dataset.searchSuppressed === '1'){
+        group.style.display = 'none';
+        group.style.visibility = 'hidden';
         return;
       }
 
