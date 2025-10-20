@@ -138,6 +138,33 @@
     return `${hourToken}${pad2(mm)}${period}`;
   }
 
+  function parseTimeToken(token){
+    if(!token) return null;
+    const trimmed = String(token).replace(/\s+/g, ' ').trim();
+    if(!trimmed) return null;
+    let m = trimmed.match(/^(\d{1,2}):(\d{2})\s*([ap]m)$/i);
+    if(m){
+      let hh = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10);
+      if(!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+      const ap = m[3].toUpperCase();
+      if(ap === 'PM' && hh !== 12) hh += 12;
+      if(ap === 'AM' && hh === 12) hh = 0;
+      const mins = hh * 60 + mm;
+      return { mins, gds: minutesToGds(mins) };
+    }
+    m = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+    if(m){
+      const hh = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10);
+      if(!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+      if(hh > 23 || mm > 59) return null;
+      const mins = hh * 60 + mm;
+      return { mins, gds: minutesToGds(mins) };
+    }
+    return null;
+  }
+
   function toAmPmMinutes(s){ // "12:20 pm" -> minutes from midnight and GDS "1220P"
     if(!s) return { mins:null, gds:s };
     let cleaned = s.replace(/\(.*?\)/g, ' ')
@@ -147,25 +174,31 @@
                    .trim();
     if(!cleaned) return { mins:null, gds:s };
 
-    let m = cleaned.match(/^(\d{1,2}):(\d{2})\s*([ap]m)$/i);
-    if(m){
-      let hh = parseInt(m[1],10), mm = parseInt(m[2],10);
-      const ap = m[3].toUpperCase();
-      if(ap==='PM' && hh!==12) hh += 12;
-      if(ap==='AM' && hh===12) hh = 0;
-      const mins = hh*60+mm;
-      const gds = minutesToGds(mins);
-      return { mins, gds };
+    const rangeDelimiterRx = /(?:\bto\b|[-\u2013\u2014])/i;
+    if(rangeDelimiterRx.test(cleaned)){
+      const timeTokenRx = /(\d{1,2}:\d{2}\s*(?:[ap]m)?)/ig;
+      const parts = [];
+      let match;
+      while((match = timeTokenRx.exec(cleaned))){
+        parts.push(match[1]);
+        if(parts.length >= 2) break;
+      }
+      if(parts.length >= 2){
+        const start = parseTimeToken(parts[0]);
+        const end = parseTimeToken(parts[1]);
+        if(start){
+          const result = { mins: start.mins, gds: start.gds };
+          if(end && Number.isFinite(end.mins)){
+            result.rangeEndMins = end.mins;
+            result.rangeEndGds = end.gds || minutesToGds(end.mins);
+          }
+          return result;
+        }
+      }
     }
 
-    m = cleaned.match(/^(\d{1,2}):(\d{2})$/);
-    if(m){
-      let hh = parseInt(m[1],10), mm = parseInt(m[2],10);
-      if(hh > 23 || mm > 59) return { mins:null, gds:s };
-      const mins = hh*60 + mm;
-      const gds = minutesToGds(mins);
-      return { mins, gds };
-    }
+    const single = parseTimeToken(cleaned);
+    if(single) return single;
 
     return { mins:null, gds:s };
   }
@@ -439,15 +472,32 @@
   function parseRouteHeaderLine(line){
     const cleaned = (line || '').replace(/[•·]/g, ' ').replace(/\s+/g,' ').trim();
     if(!cleaned) return null;
-    if(!/\bto\b/i.test(cleaned)) return null;
     const codeRx = /\(([A-Z]{3})\)/g;
     const codes = [];
+    const codeMeta = [];
     let match;
     while((match = codeRx.exec(cleaned))){
       codes.push(match[1]);
+      codeMeta.push({ index: match.index, length: match[0].length });
       if(codes.length === 2) break;
     }
-    if(codes.length < 2) return null;
+    if(codes.length < 2){
+      const bareCodeRx = /\b([A-Z]{3})\b/g;
+      let bareMatch;
+      while((bareMatch = bareCodeRx.exec(cleaned))){
+        codeMeta.push({ index: bareMatch.index, length: bareMatch[0].length });
+        codes.push(bareMatch[1]);
+        if(codes.length === 2) break;
+      }
+      if(codes.length < 2){
+        return null;
+      }
+    }
+    const betweenStart = codeMeta[0].index + codeMeta[0].length;
+    const betweenEnd = codeMeta[1].index;
+    const between = cleaned.slice(betweenStart, betweenEnd);
+    const hasConnectorBetween = /[→←↔⟶⟵⟷−–—-]/.test(between) || /\bto\b/i.test(between);
+    if(!hasConnectorBetween && !/\bto\b/i.test(cleaned)) return null;
     let headerDate = parseInlineOnDate(cleaned);
     if(!headerDate){
       const tailPatterns = [
@@ -470,7 +520,6 @@
     if(!headerDate){
       headerDate = parseLooseDate(cleaned);
     }
-    if(!headerDate) return null;
     return { origin: codes[0], dest: codes[1], headerDate };
   }
 
@@ -901,6 +950,9 @@
       let arrivesDate = null;
       let k = flightInfo.index + 1;
       let explicitDurationMinutes = null;
+      let arrTimeFromDepRange = null;
+      let depLoopBrokeForRoute = false;
+      let arrLoopBrokeForRoute = false;
 
       const isNextFlightBoundary = (idx) => {
         if(idx == null || idx <= flightInfo.index || idx >= lines.length) return false;
@@ -965,11 +1017,35 @@
         if(headerCheck) break;
         if(isSegmentNoiseLine(lines[k])) continue;
         if(applyDepartsOverride(lines[k])) continue;
-        if(parseRouteHeaderLine(lines[k])) break;
-        if(isNextFlightBoundary(k)) break;
+        if(parseRouteHeaderLine(lines[k])){ depLoopBrokeForRoute = true; break; }
+        if(isNextFlightBoundary(k)){ depLoopBrokeForRoute = true; break; }
         const t = toAmPmMinutes(lines[k]);
-        if(t.mins != null){ depTime = t; k++; break; }
+        if(t.mins != null){
+          depTime = t;
+          if(Number.isFinite(t.rangeEndMins)){
+            arrTimeFromDepRange = {
+              mins: t.rangeEndMins,
+              gds: t.rangeEndGds || minutesToGds(t.rangeEndMins)
+            };
+          }
+          k++;
+          break;
+        }
+        if(Number.isFinite(t.rangeEndMins) && !arrTimeFromDepRange){
+          arrTimeFromDepRange = {
+            mins: t.rangeEndMins,
+            gds: t.rangeEndGds || minutesToGds(t.rangeEndMins)
+          };
+        }
       }
+      if((!arrTime || arrTime.mins == null) && arrTimeFromDepRange){
+        arrTime = {
+          mins: arrTimeFromDepRange.mins,
+          gds: arrTimeFromDepRange.gds || minutesToGds(arrTimeFromDepRange.mins)
+        };
+        arrTimeFromDepRange = null;
+      }
+
       if(!routeInfo){
         for(; k < lines.length; k++){
           const headerCheck = parseJourneyHeader(lines[k]);
@@ -987,15 +1063,29 @@
         if(headerCheck) break;
         if(isSegmentNoiseLine(lines[k])) continue;
         if(applyDepartsOverride(lines[k])) continue;
-        if(parseRouteHeaderLine(lines[k])) break;
-        if(isNextFlightBoundary(k)) break;
+        if(parseRouteHeaderLine(lines[k])){ arrLoopBrokeForRoute = true; break; }
+        if(isNextFlightBoundary(k)){ arrLoopBrokeForRoute = true; break; }
         const durCandidate = extractDurationMinutesFromLine(lines[k]);
         if(durCandidate != null){
           explicitDurationMinutes = durCandidate;
           continue;
         }
         const t = toAmPmMinutes(lines[k]);
-        if(t.mins != null){ arrTime = t; k++; break; }
+        if(t.mins != null || Number.isFinite(t.rangeEndMins)){
+          if(Number.isFinite(t.rangeEndMins)){
+            arrTime = {
+              mins: t.rangeEndMins,
+              gds: t.rangeEndGds || minutesToGds(t.rangeEndMins)
+            };
+            if((!depTime || depTime.mins == null) && Number.isFinite(t.mins)){
+              depTime = { mins: t.mins, gds: t.gds };
+            }
+          } else {
+            arrTime = t;
+          }
+          k++;
+          break;
+        }
       }
       if(!routeInfo){
         for(; k < lines.length; k++){
@@ -1022,22 +1112,50 @@
 
       if(flightInfo.index > 0){
         const backTimes = [];
-        for(let look = flightInfo.index - 1; look >= 0 && backTimes.length < 3; look--){
+        for(let look = flightInfo.index - 1; look >= 0 && backTimes.length < 4; look--){
           const info = parseRouteHeaderLine(lines[look]);
-          if(info) break;
+          if(info){
+            if(backTimes.length >= 2){
+              break;
+            }
+            continue;
+          }
           if(isSegmentNoiseLine(lines[look])) continue;
+          const durCandidate = extractDurationMinutesFromLine(lines[look]);
+          if(explicitDurationMinutes == null && durCandidate != null){
+            explicitDurationMinutes = durCandidate;
+          }
           const t = toAmPmMinutes(lines[look]);
+          const local = [];
+          if(Number.isFinite(t.rangeEndMins)){
+            local.push({
+              mins: t.rangeEndMins,
+              gds: t.rangeEndGds || minutesToGds(t.rangeEndMins)
+            });
+          }
           if(t.mins != null){
-            backTimes.push(t);
+            local.push({ mins: t.mins, gds: t.gds || minutesToGds(t.mins) });
+          }
+          if(local.length){
+            for(const entry of local){
+              backTimes.push(entry);
+              if(backTimes.length >= 4) break;
+            }
           }
         }
         if(backTimes.length){
           backTimes.reverse();
-          if((!depTime || depTime.mins == null) && backTimes[0] && backTimes[0].mins != null){
-            depTime = backTimes[0];
+          if(((!depTime || depTime.mins == null) || depLoopBrokeForRoute) && backTimes[0] && backTimes[0].mins != null){
+            depTime = {
+              mins: backTimes[0].mins,
+              gds: backTimes[0].gds || minutesToGds(backTimes[0].mins)
+            };
           }
-          if((!arrTime || arrTime.mins == null) && backTimes.length > 1 && backTimes[1] && backTimes[1].mins != null){
-            arrTime = backTimes[1];
+          if(((!arrTime || arrTime.mins == null) || arrLoopBrokeForRoute) && backTimes.length > 1 && backTimes[1] && backTimes[1].mins != null){
+            arrTime = {
+              mins: backTimes[1].mins,
+              gds: backTimes[1].gds || minutesToGds(backTimes[1].mins)
+            };
           }
         }
       }
