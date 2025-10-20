@@ -2799,6 +2799,100 @@
     return best;
   }
 
+  function getKayakNodeSignature(node){
+    if(!node || node.nodeType !== 1) return '';
+    const parts = [];
+    if(node.className){
+      parts.push(typeof node.className === 'string' ? node.className : String(node.className));
+    }
+    if(node.getAttribute){
+      const attrs = ['data-testid', 'data-test', 'role', 'id', 'aria-label'];
+      for(const attr of attrs){
+        const val = node.getAttribute(attr);
+        if(val){
+          parts.push(String(val));
+        }
+      }
+    }
+    return parts.join(' ').toLowerCase();
+  }
+
+  function findKayakDetailSiblingFromSelect(card, selectBtn, detail){
+    if(!card || !selectBtn) return null;
+    const anchorSelectors = [
+      '[data-testid*="button-container" i]',
+      '[data-test*="button-container" i]',
+      '[class*="button-container" i]',
+      '[data-testid*="cta" i]',
+      '[data-test*="cta" i]',
+      '[class*="cta" i]',
+      '[data-testid*="price" i]',
+      '[data-test*="price" i]',
+      '[class*="price" i]'
+    ];
+    let anchor = selectBtn;
+    if(selectBtn.closest){
+      for(const sel of anchorSelectors){
+        let candidate = null;
+        try {
+          candidate = selectBtn.closest(sel);
+        } catch (err) {
+          candidate = null;
+        }
+        if(candidate && candidate !== document.body && card.contains(candidate)){
+          anchor = candidate;
+          break;
+        }
+      }
+    }
+    let current = anchor;
+    while(current && current !== card){
+      let sibling = current.nextElementSibling;
+      while(sibling && sibling.nodeType === 1 && sibling.classList && sibling.classList.contains('kayak-copy-inline-slot')){
+        sibling = sibling.nextElementSibling;
+      }
+      if(sibling && sibling.nodeType === 1 && card.contains(sibling)){
+        if(detail && (sibling === detail || sibling.contains(detail))){
+          return sibling;
+        }
+        const sig = getKayakNodeSignature(sibling);
+        if(sig && /detail|itiner|journey|segment|section|leg|schedule|timeline|o-c7|accordion|expanded/.test(sig)){
+          return sibling;
+        }
+      }
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  function normalizeKayakDetailBoundary(card, node){
+    if(!card || !node || node === card) return node;
+    let current = node;
+    let best = node;
+    while(current && current !== card){
+      const parent = current.parentElement;
+      if(!parent || parent === card) break;
+      const signature = getKayakNodeSignature(parent);
+      if(signature && /detail|itiner|journey|segment|section|leg|schedule|timeline|o-c7|expanded|accordion/.test(signature)){
+        best = parent;
+        current = parent;
+        continue;
+      }
+      let elementCount = 0;
+      for(let child = parent.firstElementChild; child; child = child.nextElementSibling){
+        elementCount++;
+        if(elementCount > 1) break;
+      }
+      if(elementCount === 1){
+        best = parent;
+        current = parent;
+        continue;
+      }
+      break;
+    }
+    return best;
+  }
+
   function resolveKayakInlineHost(card, selectBtn, detailOverride){
     if(!card || card.nodeType !== 1) return card;
     const cached = kayakInlineSlotMap.get(card);
@@ -2821,35 +2915,33 @@
     if(!detail){
       detail = findKayakDetailContainer(card, selectBtn);
     }
-    if(!detail){
-      kayakInlineSlotMap.delete(card);
-      return card;
-    }
-    const parent = detail.parentElement;
-    if(!parent){
-      kayakInlineSlotMap.delete(card);
-      return card;
-    }
 
-    let insertionParent = parent;
-    let insertionBefore = detail;
-    while (insertionParent && insertionParent !== card){
-      if(!card.contains(insertionParent)) break;
-      let elementCount = 0;
-      const parentChildren = insertionParent.children || [];
-      for(let i = 0; i < parentChildren.length; i++){
-        const child = parentChildren[i];
-        if(child && child.nodeType === 1){
-          elementCount++;
-          if(elementCount > 1) break;
-        }
+    let boundary = null;
+    if(card && detail){
+      boundary = normalizeKayakDetailBoundary(card, detail);
+    }
+    if(card && selectBtn){
+      const sibling = findKayakDetailSiblingFromSelect(card, selectBtn, boundary || detail);
+      if(sibling && card.contains(sibling)){
+        boundary = normalizeKayakDetailBoundary(card, sibling);
       }
-      if(elementCount !== 1) break;
-      insertionBefore = insertionParent;
-      insertionParent = insertionParent.parentElement;
+    }
+    if(!boundary && detail){
+      boundary = normalizeKayakDetailBoundary(card, detail);
+    }
+    if(!boundary || boundary === card){
+      kayakInlineSlotMap.delete(card);
+      return card;
     }
 
-    if(!insertionParent || !insertionBefore || !card.contains(insertionBefore)){
+    const insertionParent = boundary.parentElement;
+    if(!insertionParent || !card.contains(insertionParent)){
+      kayakInlineSlotMap.delete(card);
+      return card;
+    }
+
+    let insertionBefore = boundary;
+    if(!card.contains(insertionBefore)){
       kayakInlineSlotMap.delete(card);
       return card;
     }
