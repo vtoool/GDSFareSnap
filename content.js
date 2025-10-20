@@ -12,6 +12,103 @@
 
   const BTN_CLASS    = 'kayak-copy-btn';
   const SEARCH_LIKE_SELECTOR = 'form, [role="search"], [data-testid*="searchbox" i], [data-test*="searchbox" i], [data-testid*="search-form" i], [data-test*="search-form" i], [data-testid*="searchform" i], [data-test*="searchform" i], [data-testid*="searchpanel" i], [data-test*="searchpanel" i], [data-testid*="search-header" i], [data-test*="search-header" i], [data-testid*="searchheader" i], [data-test*="searchheader" i], [class*="searchbox" i], [class*="search-form" i], [class*="search-header" i], [class*="searchHeader" i], [class*="SearchHeader" i], [class*="search-bar" i], [class*="searchBar" i], [aria-label*="search" i]';
+  const HEADER_OVERLAY_SELECTOR_LIST = [
+    '[aria-modal="true"]',
+    '[role="dialog"]',
+    '[role="menu"]',
+    '[role="tabpanel"]',
+    '[data-testid*="popover" i]',
+    '[data-testid*="dropdown" i]',
+    '[data-testid*="flyout" i]',
+    '[data-testid*="overlay" i]',
+    '[data-testid*="panel" i]',
+    '[data-testid*="tray" i]',
+    '[data-testid*="sheet" i]',
+    '[data-testid*="popup" i]',
+    '[data-testid*="calendar" i]',
+    '[data-testid*="traveler" i]',
+    '[data-testid*="guest" i]',
+    '[data-testid*="search-flyout" i]',
+    '[data-testid*="searchflyout" i]',
+    '[data-testid*="search-overlay" i]',
+    '[data-testid*="searchoverlay" i]',
+    '[data-testid*="search-dim" i]',
+    '[data-testid*="searchdim" i]',
+    '[data-testid*="backdrop" i]',
+    '[data-testid*="dimmer" i]',
+    '[data-test*="popover" i]',
+    '[data-test*="dropdown" i]',
+    '[data-test*="flyout" i]',
+    '[data-test*="overlay" i]',
+    '[data-test*="panel" i]',
+    '[data-test*="tray" i]',
+    '[data-test*="sheet" i]',
+    '[data-test*="popup" i]',
+    '[data-test*="calendar" i]',
+    '[data-test*="traveler" i]',
+    '[data-test*="guest" i]',
+    '[data-test*="search-flyout" i]',
+    '[data-test*="searchflyout" i]',
+    '[data-test*="search-overlay" i]',
+    '[data-test*="searchoverlay" i]',
+    '[data-test*="search-dim" i]',
+    '[data-test*="searchdim" i]',
+    '[data-test*="backdrop" i]',
+    '[data-test*="dimmer" i]',
+    '[class*="popover" i]',
+    '[class*="dropdown" i]',
+    '[class*="flyout" i]',
+    '[class*="overlay" i]',
+    '[class*="tray" i]',
+    '[class*="popup" i]',
+    '[class*="calendar" i]',
+    '[class*="traveler" i]',
+    '[class*="guest" i]',
+    '[class*="search-flyout" i]',
+    '[class*="searchFlyout" i]',
+    '[class*="SearchFlyout" i]',
+    '[class*="search-overlay" i]',
+    '[class*="searchOverlay" i]',
+    '[class*="SearchOverlay" i]',
+    '[class*="search-dim" i]',
+    '[class*="searchDim" i]',
+    '[class*="SearchDim" i]',
+    '[class*="dimmer" i]',
+    '[class*="Dimmer" i]',
+    '[class*="backdrop" i]',
+    '[class*="Backdrop" i]'
+  ];
+  const MODAL_SELECTOR_LIST = [
+    '[aria-modal="true"]',
+    '[role="dialog"]',
+    '[role="alertdialog"]',
+    '[data-testid*="modal" i]',
+    '[data-test*="modal" i]',
+    '[data-testid*="dialog" i]',
+    '[data-test*="dialog" i]',
+    '[id*="modal" i]',
+    '[data-testid*="search-flyout" i]',
+    '[data-testid*="searchflyout" i]',
+    '[data-test*="search-flyout" i]',
+    '[data-test*="searchflyout" i]',
+    '[class*="search-flyout" i]',
+    '[class*="searchFlyout" i]',
+    '[class*="SearchFlyout" i]',
+    '[data-testid*="search-overlay" i]',
+    '[data-test*="search-overlay" i]',
+    '[class*="search-overlay" i]',
+    '[class*="searchOverlay" i]',
+    '[data-testid*="search-dim" i]',
+    '[data-test*="search-dim" i]',
+    '[data-testid*="dimmer" i]',
+    '[data-test*="dimmer" i]',
+    '[data-testid*="backdrop" i]',
+    '[data-test*="backdrop" i]',
+    '[class*="dimmer" i]',
+    '[class*="Dimmer" i]',
+    '[class*="backdrop" i]',
+    '[class*="Backdrop" i]'
+  ];
   const BTN_GROUP_CLASS = 'kayak-copy-btn-group';
   const OVERLAY_ROOT_ID = 'kayak-copy-overlay-root';
   const MODAL_DIM_CLASS = 'kayak-copy-modal-dim';
@@ -78,6 +175,9 @@
   const itaGroupsByKey = new Map();
   let modalDimScheduled = false;
   let modalDimState = false;
+  let lastOverlayCandidatesSnapshot = [];
+  let lastOverlayDetectionsSnapshot = [];
+  let lastOverlaySnapshotTime = 0;
 
   let itaResultsObserver = null;
   let itaObservedRoot = null;
@@ -846,38 +946,9 @@
       Array.from(document.body.children).forEach(el => addCandidate(el));
     }
 
-    const overlaySelectorList = [
-      '[aria-modal="true"]',
-      '[role="dialog"]',
-      '[role="menu"]',
-      '[role="tabpanel"]',
-      '[data-testid*="popover" i]',
-      '[data-testid*="dropdown" i]',
-      '[data-testid*="flyout" i]',
-      '[data-testid*="overlay" i]',
-      '[data-testid*="panel" i]',
-      '[data-testid*="tray" i]',
-      '[data-testid*="sheet" i]',
-      '[data-testid*="popup" i]',
-      '[data-testid*="calendar" i]',
-      '[data-testid*="traveler" i]',
-      '[data-testid*="guest" i]',
-      '[data-test*="popover" i]',
-      '[data-test*="dropdown" i]',
-      '[data-test*="flyout" i]',
-      '[data-test*="overlay" i]',
-      '[data-test*="panel" i]',
-      '[data-test*="tray" i]',
-      '[data-test*="sheet" i]',
-      '[class*="popover" i]',
-      '[class*="dropdown" i]',
-      '[class*="flyout" i]',
-      '[class*="overlay" i]',
-      '[class*="tray" i]',
-      '[class*="popup" i]'
-    ];
-
-    const overlaySelector = overlaySelectorList.join(',');
+    const overlaySelector = HEADER_OVERLAY_SELECTOR_LIST.length
+      ? HEADER_OVERLAY_SELECTOR_LIST.join(',')
+      : '';
 
     if(typeof document.elementsFromPoint === 'function'){
       const sampleXs = [];
@@ -973,7 +1044,7 @@
       }
     }
 
-    overlaySelectorList.forEach(sel => {
+    HEADER_OVERLAY_SELECTOR_LIST.forEach(sel => {
       try {
         document.querySelectorAll(sel).forEach(node => registerOverlayCandidate(node));
       } catch (err) {
@@ -991,6 +1062,10 @@
     }
 
     overlayCandidates.forEach(node => considerHeaderOverlay(node));
+
+    lastOverlayCandidatesSnapshot = Array.from(overlayCandidates).filter(node => node && node.nodeType === 1);
+    lastOverlayDetectionsSnapshot = Array.from(overlayDetectedNodes).filter(node => node && node.nodeType === 1);
+    lastOverlaySnapshotTime = Date.now();
 
     if(searchBottom > 0){
       maxBottom = Math.max(maxBottom, searchBottom);
@@ -2198,7 +2273,16 @@
     const areaRatio = area / viewArea;
     const widthRatio = rect.width / viewWidth;
     const heightRatio = rect.height / viewHeight;
-    if(areaRatio < 0.18 && (widthRatio < 0.32 || heightRatio < 0.32)) return false;
+    const minAreaRatio = 0.035;
+    if(areaRatio < minAreaRatio) return false;
+    const largerRatio = Math.max(widthRatio, heightRatio);
+    const smallerRatio = Math.min(widthRatio, heightRatio);
+    if(areaRatio < 0.12){
+      if(largerRatio < 0.45) return false;
+      if(areaRatio < 0.06 && smallerRatio < 0.18) return false;
+    } else if(areaRatio < 0.18){
+      if(widthRatio < 0.28 && heightRatio < 0.28) return false;
+    }
     let cs;
     try {
       cs = getComputedStyle(node);
@@ -2216,23 +2300,50 @@
 
   function hasVisibleModal(){
     if(!IS_KAYAK) return false;
-    const selectors = [
-      '[aria-modal="true"]',
-      '[role="dialog"]',
-      '[role="alertdialog"]',
-      '[data-testid*="modal" i]',
-      '[data-test*="modal" i]',
-      '[data-testid*="dialog" i]',
-      '[data-test*="dialog" i]',
-      '[id*="modal" i]'
-    ];
-    const nodes = document.querySelectorAll(selectors.join(','));
-    for(const node of nodes){
+    const now = Date.now();
+    if(now - lastOverlaySnapshotTime > 400){
+      try {
+        measureAvoidTop();
+      } catch (err) {
+        // ignore measure failures
+      }
+    }
+    const selectors = Array.from(new Set([
+      ...MODAL_SELECTOR_LIST,
+      ...HEADER_OVERLAY_SELECTOR_LIST
+    ])).filter(Boolean);
+    const candidates = new Set();
+    selectors.forEach(sel => {
+      if(!sel) return;
+      try {
+        document.querySelectorAll(sel).forEach(node => candidates.add(node));
+      } catch (err) {
+        // ignore selector issues
+      }
+    });
+    [lastOverlayCandidatesSnapshot, lastOverlayDetectionsSnapshot].forEach(list => {
+      if(!list || !list.length) return;
+      list.forEach(node => candidates.add(node));
+    });
+    const considerNode = (start) => {
+      let current = start;
+      let depth = 0;
+      while(current && depth < 6){
+        if(current === overlayRoot) return false;
+        if(current === document.body || current === document.documentElement) break;
+        if(current.closest && current.closest(`#${OVERLAY_ROOT_ID}`)) return false;
+        if(isVisible(current) && looksLikeModalCandidate(current)) return true;
+        current = current.parentElement;
+        depth++;
+      }
+      return false;
+    };
+    for(const node of candidates){
       if(!node || node.nodeType !== 1) continue;
+      if(node === overlayRoot) continue;
       if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) continue;
-      if(!isVisible(node)) continue;
-      if(!looksLikeModalCandidate(node)) continue;
-      return true;
+      if(!node.isConnected) continue;
+      if(considerNode(node)) return true;
     }
     return false;
   }
