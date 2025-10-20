@@ -566,6 +566,7 @@
 
   let cachedAvoidTop = 0;
   let lastAvoidMeasure = 0;
+  let lastAvoidOverlayDetected = false;
 
   function measureAvoidTop(){
     const now = Date.now();
@@ -578,6 +579,97 @@
     const viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
     const candidates = new Set();
     let highestZ = null;
+    const overlayCandidates = new Set();
+    let overlayBottom = 0;
+
+    const overlayTopLimit = (() => {
+      if(!Number.isFinite(viewHeight) || viewHeight <= 0){
+        return 420;
+      }
+      const byViewport = viewHeight * 0.65;
+      const byEdge = viewHeight - 140;
+      return Math.max(240, Math.min(byViewport, byEdge));
+    })();
+    const minOverlayHeight = (() => {
+      if(!Number.isFinite(viewHeight) || viewHeight <= 0){
+        return 64;
+      }
+      const scaled = Math.round(viewHeight * 0.18);
+      return Math.max(64, Math.min(260, scaled));
+    })();
+    const minOverlayWidth = (() => {
+      if(!Number.isFinite(viewWidth) || viewWidth <= 0){
+        return 140;
+      }
+      const scaled = Math.round(viewWidth * 0.18);
+      return Math.max(140, Math.min(360, scaled));
+    })();
+
+    const registerOverlayCandidate = (node) => {
+      if(!node || overlayCandidates.has(node)) return;
+      if(node === overlayRoot) return;
+      overlayCandidates.add(node);
+    };
+
+    const considerHeaderOverlay = (node) => {
+      if(!node || !node.isConnected) return;
+      if(node === overlayRoot) return;
+      if(node.closest && node.closest(`#${OVERLAY_ROOT_ID}`)) return;
+      if(node === document.body || node === document.documentElement) return;
+      let rect;
+      try {
+        rect = node.getBoundingClientRect();
+      } catch (err) {
+        return;
+      }
+      if(!rect || rect.bottom <= 0) return;
+      if(!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) return;
+      if(rect.top > overlayTopLimit) return;
+      const width = Number.isFinite(rect.width) ? rect.width : 0;
+      const height = Number.isFinite(rect.height) ? rect.height : 0;
+      if(height < minOverlayHeight) return;
+      if(width < minOverlayWidth) return;
+      const area = width * height;
+      if(!Number.isFinite(area) || area < 18000) return;
+      let cs = null;
+      try {
+        cs = getComputedStyle(node);
+      } catch (err) {
+        cs = null;
+      }
+      if(cs){
+        if(cs.display === 'none' || cs.visibility === 'hidden') return;
+        const opacity = parseFloat(cs.opacity || '1');
+        if(Number.isFinite(opacity) && opacity <= 0) return;
+        const zIndexRaw = cs.zIndex;
+        if(zIndexRaw && zIndexRaw !== 'auto'){
+          const parsed = parseInt(zIndexRaw, 10);
+          if(Number.isFinite(parsed)){
+            highestZ = highestZ == null ? parsed : Math.max(highestZ, parsed);
+          }
+        }
+      }
+      overlayBottom = Math.max(overlayBottom, rect.bottom);
+    };
+
+    const queueAriaRefs = (node) => {
+      if(!node || !node.getAttribute) return;
+      const collectIds = (value) => {
+        if(!value) return [];
+        return value.split(/\s+/).map(id => id.trim()).filter(Boolean);
+      };
+      const controlIds = collectIds(node.getAttribute('aria-controls'));
+      const ownsIds = collectIds(node.getAttribute('aria-owns'));
+      controlIds.concat(ownsIds).forEach(id => {
+        const target = id ? document.getElementById(id) : null;
+        if(target){
+          registerOverlayCandidate(target);
+        }
+      });
+      if(node.nextElementSibling){
+        registerOverlayCandidate(node.nextElementSibling);
+      }
+    };
 
     const addCandidate = (node) => {
       let current = node;
@@ -602,6 +694,9 @@
           if(parseFloat(cs.opacity || '1') === 0) return;
           candidates.add(current);
           return;
+        }
+        if(pos === 'absolute'){
+          registerOverlayCandidate(current);
         }
         if(!current.parentElement) break;
         current = current.parentElement;
@@ -630,6 +725,39 @@
       Array.from(document.body.children).forEach(el => addCandidate(el));
     }
 
+    const overlaySelectorList = [
+      '[aria-modal="true"]',
+      '[role="dialog"]',
+      '[role="menu"]',
+      '[role="tabpanel"]',
+      '[data-testid*="popover" i]',
+      '[data-testid*="dropdown" i]',
+      '[data-testid*="flyout" i]',
+      '[data-testid*="overlay" i]',
+      '[data-testid*="panel" i]',
+      '[data-testid*="tray" i]',
+      '[data-testid*="sheet" i]',
+      '[data-testid*="popup" i]',
+      '[data-testid*="calendar" i]',
+      '[data-testid*="traveler" i]',
+      '[data-testid*="guest" i]',
+      '[data-test*="popover" i]',
+      '[data-test*="dropdown" i]',
+      '[data-test*="flyout" i]',
+      '[data-test*="overlay" i]',
+      '[data-test*="panel" i]',
+      '[data-test*="tray" i]',
+      '[data-test*="sheet" i]',
+      '[class*="popover" i]',
+      '[class*="dropdown" i]',
+      '[class*="flyout" i]',
+      '[class*="overlay" i]',
+      '[class*="tray" i]',
+      '[class*="popup" i]'
+    ];
+
+    const overlaySelector = overlaySelectorList.join(',');
+
     if(typeof document.elementsFromPoint === 'function'){
       const sampleXs = [];
       if(viewWidth > 0){
@@ -640,7 +768,7 @@
       } else {
         sampleXs.push(0);
       }
-      const sampleYs = [0, 24, 48, 72, 96, 128, 160];
+      const sampleYs = [0, 24, 48, 72, 96, 128, 160, 192, 224, 256];
       sampleYs.forEach(y => {
         sampleXs.forEach(x => {
           const clampedX = Math.max(0, Math.min(x, Math.max(viewWidth - 1, 0)));
@@ -649,6 +777,16 @@
           for(const el of elements){
             if(!el) continue;
             addCandidate(el);
+            if(overlaySelector){
+              const overlayAncestor = el.closest ? el.closest(overlaySelector) : null;
+              if(overlayAncestor){
+                registerOverlayCandidate(overlayAncestor);
+              }
+            }
+            if(el.getAttribute && el.getAttribute('aria-expanded') === 'true'){
+              registerOverlayCandidate(el);
+              queueAriaRefs(el);
+            }
           }
         });
       });
@@ -706,6 +844,25 @@
       maxBottom = Math.max(maxBottom, rect.bottom);
     });
 
+    overlaySelectorList.forEach(sel => {
+      try {
+        document.querySelectorAll(sel).forEach(node => registerOverlayCandidate(node));
+      } catch (err) {
+        // ignore selector issues
+      }
+    });
+
+    try {
+      document.querySelectorAll('[aria-expanded="true"]').forEach(node => {
+        registerOverlayCandidate(node);
+        queueAriaRefs(node);
+      });
+    } catch (err) {
+      // ignore aria-expanded query issues
+    }
+
+    overlayCandidates.forEach(node => considerHeaderOverlay(node));
+
     if(SEARCH_LIKE_SELECTOR){
       try {
         document.querySelectorAll(SEARCH_LIKE_SELECTOR).forEach(considerSearchLike);
@@ -716,6 +873,10 @@
 
     if(searchBottom > 0){
       maxBottom = Math.max(maxBottom, searchBottom);
+    }
+
+    if(overlayBottom > 0){
+      maxBottom = Math.max(maxBottom, overlayBottom);
     }
 
     cachedAvoidTop = maxBottom || 0;
@@ -738,6 +899,7 @@
       lastKnownHeaderZ = null;
       updateOverlayZIndex(DEFAULT_OVERLAY_BASE_Z);
     }
+    lastAvoidOverlayDetected = overlayBottom > 0;
     return cachedAvoidTop;
   }
 
@@ -2098,11 +2260,14 @@
       }
     }
     const avoidTop = measureAvoidTop();
+    const overlayBlocking = lastAvoidOverlayDetected;
     const anchorTop = preferCtaAnchor ? anchorRect.top : rect.top;
     if (
       Number.isFinite(avoidTop) &&
-      Number.isFinite(anchorTop) &&
-      anchorTop <= avoidTop + 6
+      (
+        (Number.isFinite(anchorTop) && anchorTop <= avoidTop + 6) ||
+        (overlayBlocking && Number.isFinite(rect.top) && rect.top <= avoidTop + 6)
+      )
     ) {
       group.style.display = 'none';
       group.style.visibility = 'hidden';
@@ -3860,6 +4025,15 @@
     }
 
     let selectRect = null;
+    const intersectsReservedBand = (rect, avoidValue, topPad, bottomPad) => {
+      if(!rect || !Number.isFinite(avoidValue)) return false;
+      const rectTop = Number.isFinite(rect.top) ? rect.top : null;
+      const rectBottom = Number.isFinite(rect.bottom) ? rect.bottom : null;
+      if(rectTop == null || rectBottom == null) return false;
+      const topThreshold = avoidValue + (Number.isFinite(topPad) ? topPad : 0);
+      const bottomThreshold = Math.max(0, avoidValue - (Number.isFinite(bottomPad) ? bottomPad : 0));
+      return rectTop <= topThreshold && rectBottom >= bottomThreshold;
+    };
     let overlayEligible = false;
     if(selectBtn && isVisible(selectBtn)){
       try {
@@ -3881,14 +4055,22 @@
           overlayEligible = false;
         }
         const avoidTop = measureAvoidTop();
+        const overlayBlocking = lastAvoidOverlayDetected;
         if(!Number.isFinite(avoidTop)){
           overlayEligible = false;
         } else {
           if(selectRect.top <= avoidTop + 12 || selectRect.top < 56){
             overlayEligible = false;
           }
-          if(cardRect && Number.isFinite(cardRect.top) && cardRect.top <= avoidTop + 10){
+          if(overlayEligible && cardRect && Number.isFinite(cardRect.top) && cardRect.top <= avoidTop + 10){
             overlayEligible = false;
+          }
+          if(overlayEligible && overlayBlocking){
+            const selectOverlap = intersectsReservedBand(selectRect, avoidTop, 24, 12);
+            const cardOverlap = cardRect && intersectsReservedBand(cardRect, avoidTop, 20, 8);
+            if(selectOverlap || cardOverlap){
+              overlayEligible = false;
+            }
           }
         }
       }
