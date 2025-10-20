@@ -472,10 +472,98 @@
     return false;
   }
 
+  function isKayakReviewItineraryCard(card){
+    if(IS_ITA || !card || card.nodeType !== 1) return false;
+    if(!isInKayakReviewContext(card)) return false;
+    if(!isVisible(card)) return false;
+
+    let rect = null;
+    try {
+      rect = typeof card.getBoundingClientRect === 'function'
+        ? card.getBoundingClientRect()
+        : null;
+    } catch (err) {
+      rect = null;
+    }
+    if(rect){
+      if(rect.height < 200 || rect.width < 220){
+        return false;
+      }
+      if(rect.width > 700){
+        return false;
+      }
+    }
+
+    let text = '';
+    try {
+      text = (card.innerText || '').replace(/\s+/g, ' ').trim();
+    } catch (err) {
+      text = '';
+    }
+    if(!text) return false;
+
+    const airportMatches = text.match(/\([A-Z]{3}\)/g) || [];
+    const timeMatches = text.match(/\d{1,2}:\d{2}\s*(?:AM|PM)?/gi) || [];
+    if(airportMatches.length < 2 || timeMatches.length < 2) return false;
+
+    const headingNode = card.querySelector ? card.querySelector(ITA_HEADING_SELECTOR) : null;
+    let headingText = '';
+    if(headingNode){
+      headingText = (headingNode.textContent || headingNode.innerText || '').replace(/\s+/g, ' ').trim();
+    }
+    const headingLooksLikeRoute = !!headingText && !/\bStep\b/i.test(headingText) && (/[\u2192\u2013\u2014-]/.test(headingText) || /\bto\b/i.test(headingText));
+
+    const itineraryKeyword = /\bItinerary\b/i.test(text) || /\bRound-?trip\b/i.test(text) || /\bOne-way\b/i.test(text) || /\bMulti-?city\b/i.test(text);
+    const travelerKeyword = /\bTravelers?\b/i.test(text) || /\bPassengers?\b/i.test(text);
+
+    let hasSegmentBlock = false;
+    const segmentSelectors = [
+      '[class*="leg" i]',
+      '[class*="segment" i]',
+      '[class*="flight" i]',
+      '[data-testid*="leg" i]',
+      '[data-testid*="segment" i]',
+      '[data-testid*="flight" i]'
+    ];
+    for(const sel of segmentSelectors){
+      let list = [];
+      try {
+        list = card.querySelectorAll(sel);
+      } catch (err) {
+        list = [];
+      }
+      if(!list || !list.length) continue;
+      for(const node of list){
+        if(!node || node === card) continue;
+        if(!isVisible(node)) continue;
+        const segText = (node.innerText || '').replace(/\s+/g, ' ').trim();
+        if(!segText) continue;
+        const segTimes = segText.match(/\d{1,2}:\d{2}\s*(?:AM|PM)?/gi) || [];
+        const segAirports = segText.match(/\([A-Z]{3}\)/g) || [];
+        if(segTimes.length && segAirports.length){
+          hasSegmentBlock = true;
+          break;
+        }
+      }
+      if(hasSegmentBlock) break;
+    }
+    if(!hasSegmentBlock) return false;
+
+    if(headingLooksLikeRoute) return true;
+
+    const signature = getKayakNodeSignature(card);
+    const signatureHints = signature && /\b(right|summary|detail|itin)/.test(signature);
+
+    if(itineraryKeyword && (travelerKeyword || signatureHints)) return true;
+    if(signatureHints && travelerKeyword) return true;
+
+    return false;
+  }
+
   function shouldIgnoreCard(card){
     if(!card) return true;
     if(card === overlayRoot) return true;
-    if(!IS_ITA && isInKayakReviewContext(card)) return true;
+    if(!IS_ITA && isInKayakReviewContext(card) && !isKayakReviewItineraryCard(card)) return true;
     if(hasDisqualifyingSignature(card)) return true;
     if(card.matches){
       if(card.matches(SEARCH_LIKE_SELECTOR)) return true;
