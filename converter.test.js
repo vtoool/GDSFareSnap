@@ -198,6 +198,37 @@ assert.ok(/15JUN/.test(interleavedLines[2] || ''), 'first inbound segment should
 assert.ok(/15JUN/.test(interleavedLines[3] || ''), 'final inbound segment should use Jun 15 header date');
 assert.ok(/15JUN/.test(interleavedLines[1] || ''), 'second outbound leg should align with Jun 15 header date');
 assert.ok(/05JUN\s+F/.test(interleavedLines[0]), 'overnight arrival should include next-day date context');
+
+const kayakBottomRightSample = [
+  'American Airlines',
+  'LAX → HNL',
+  'Thu, Jul 16',
+  'Nonstop • 5h 45m',
+  '6:06 pm - 8:51 pm(5h 45m)',
+  'Los Angeles (LAX) - Honolulu (HNL)',
+  'American Airlines 297',
+  'Narrow-body jet',
+  'Airbus A321neo',
+  'American Airlines',
+  'HNL → LAX',
+  'Wed, Aug 26',
+  'Nonstop • 5h 34m',
+  '2:00 pm - 10:34 pm(5h 34m)',
+  'Honolulu (HNL) - Los Angeles (LAX)',
+  'American Airlines 164',
+  'Narrow-body jet'
+].join('\n');
+
+const kayakSampleLines = window.convertTextToI(kayakBottomRightSample).split('\n');
+assert.strictEqual(kayakSampleLines.length, 2, 'Kayak bottom-right copy order should produce two segments');
+assert.ok(/AA\s+297/.test(kayakSampleLines[0] || ''), 'first segment should map American Airlines 297 to AA 297');
+assert.ok(/16JUL/.test(kayakSampleLines[0] || ''), 'first segment should use Jul 16 departure date');
+assert.ok(/LAXHNL/.test(kayakSampleLines[0] || ''), 'first segment should include LAXHNL city pair');
+assert.ok(/606P\s+851P/.test(kayakSampleLines[0] || ''), 'first segment should render both departure and arrival times');
+assert.ok(/AA\s+164/.test(kayakSampleLines[1] || ''), 'return segment should map American Airlines 164 to AA 164');
+assert.ok(/26AUG/.test(kayakSampleLines[1] || ''), 'return segment should use Aug 26 departure date');
+assert.ok(/HNLLAX/.test(kayakSampleLines[1] || ''), 'return segment should include HNLLAX city pair');
+assert.ok(/200P\s+1034P/.test(kayakSampleLines[1] || ''), 'return segment should render both departure and arrival times');
 assert.strictEqual(interleavedPeek.segments[1].depDate, '15JUN', 'peekSegments should align second segment with Jun 15 header');
 
 const fraHnlBkkLhr = [

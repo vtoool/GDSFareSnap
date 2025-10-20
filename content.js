@@ -5263,6 +5263,7 @@
     const airlineLike   = /(Airlines?|Airways|Aviation|Virgin Atlantic|British Airways|United|Delta|KLM|Air Canada|American|Lufthansa|SWISS|Austrian|TAP|Aer Lingus|Iberia|Finnair|SAS|Turkish|Emirates|Qatar|Etihad|JetBlue|Alaska|Hawaiian|Frontier|Spirit|Condor|Icelandair|Air Transat|Porter|Sun Country|Eurowings|TUI Fly|\bAir\s+[A-Z])/i;
     const aircraftLike  = /(Boeing|Airbus|Embraer|Bombardier|CRJ|E-?Jet|Dreamliner|neo|MAX|777|787|737|A3\d{2}|A220|A321|A320|A319|A330|A350)/i;
     const timeLike      = /^(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?$/i;
+    const timeRangeLike = /(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?\s*(?:[-\u2013\u2014\u2192]|\bto\b)\s*(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/i;
     const durationLike  = /^\d+h(?:\s?\d+m)?$/i;
     const changeLike    = /Change planes in/i;
     const operatedLike  = /·\s*Operated by/i;
@@ -5308,9 +5309,15 @@
         continue;
       }
 
+      const normalizedForRange = t
+        .replace(/[•·]/g, ' ')
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
       if (departHdr.test(t) || returnHdr.test(t) ||
           durationLike.test(t) || airlineLike.test(t) || aircraftLike.test(t) ||
-          timeLike.test(t) || airportLike.test(t) || changeLike.test(t) ||
+          timeLike.test(t) || (normalizedForRange && timeRangeLike.test(normalizedForRange)) || airportLike.test(t) || changeLike.test(t) ||
           operatedLike.test(t) || arrivesLike.test(t) || overnightLike.test(t) ||
           flightCodeLike.test(t) || airlineCodeGuess ||
           wifiLike.test(t) || limitedSeats.test(t) ||

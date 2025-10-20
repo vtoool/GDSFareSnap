@@ -634,6 +634,23 @@ assert.ok(extracted.includes('WestJet 1862'), 'WestJet segment should remain in 
 assert.ok(extracted.includes('ZIPAIR 51'), 'ZIPAIR segment should remain in extracted text');
 assert.ok(extracted.includes('EVA Air 67'), 'EVA Air segment should remain in extracted text');
 
+const reviewRoot = new StubElement('section');
+[
+  'American Airlines',
+  'Nonstop • 5h 45m',
+  '6:06 pm - 8:51 pm(5h 45m)',
+  'Los Angeles (LAX)',
+  'Honolulu (HNL)',
+  'American Airlines 297'
+].forEach(line => reviewRoot.appendChild(makeLine(line)));
+
+const reviewExtracted = extractVisibleText(reviewRoot);
+
+assert.ok(
+  reviewExtracted.includes('6:06 pm - 8:51 pm(5h 45m)'),
+  'Time range rows should be preserved for itinerary parsing'
+);
+
 const resolveKayakInlineHost = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.resolveKayakInlineHost;
 const findKayakDetailContainer = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.findKayakDetailContainer;
 assert.strictEqual(typeof resolveKayakInlineHost, 'function', 'resolveKayakInlineHost test hook should be available');
