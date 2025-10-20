@@ -5275,6 +5275,15 @@
     const wifiLike      = /Wi-?Fi available/i;
     const limitedSeats  = /Limited seats remaining/i;
     const flightCodeLike = /^[A-Z]{2,3}\s?\d{1,4}$/;
+    const isRouteConnectorToken = (token) => {
+      if(!token) return false;
+      const trimmed = token.trim();
+      if(!trimmed) return false;
+      if(/^(?:to)$/i.test(trimmed)) return true;
+      if(/^[\-\u2010-\u2015\u2212]+$/.test(trimmed)) return true;
+      if(/^[\u2190-\u21ff\u27f0-\u27ff\u2794\u279D\u2900-\u297f]+$/.test(trimmed)) return true;
+      return false;
+    };
 
     const blacklist = [
       /^\$\d/, /Select/, /deal(s)?\s*from/i, /per\s*son/i,
@@ -5344,11 +5353,44 @@
       const prevKept = keep[keep.length - 1] || '';
       if (dayNumberLike.test(t) && (monthPartLike.test(prevKept) || dowPartLike.test(prevKept))){
         keep.push(t);
+        continue;
+      }
+
+      if(isRouteConnectorToken(t)){
+        const prevTokens = [prevKept, tokens[i - 1] || '', tokens[i - 2] || ''];
+        const prevHasCity = prevTokens.some(val => /\([A-Z]{3}\)/.test(val || ''));
+        let nextHasCity = false;
+        for(let j = 1; j <= 4 && (i + j) < tokens.length; j++){
+          const lookahead = tokens[i + j];
+          if(!lookahead) continue;
+          if(/\([A-Z]{3}\)/.test(lookahead)){
+            nextHasCity = true;
+            break;
+          }
+        }
+        if(prevHasCity && nextHasCity){
+          keep.push(t);
+        }
       }
     }
 
     // Merge split tokens we care about
     const merged = [];
+    const gatherCityToken = (startIndex) => {
+      const parts = [];
+      let consumed = 0;
+      const MAX_PARTS = 5;
+      while((startIndex + consumed) < keep.length && consumed < MAX_PARTS){
+        const part = keep[startIndex + consumed];
+        if(!part) break;
+        parts.push(part);
+        consumed++;
+        if(/\([A-Z]{3}\)/.test(part)){
+          return { text: parts.join(' '), consumed };
+        }
+      }
+      return null;
+    };
     for (let i=0;i<keep.length;i++){
       const t = keep[i];
       const next = keep[i+1] || '';
@@ -5369,6 +5411,18 @@
         merged.push(t + ' ' + next);
         i++;
         continue;
+      }
+
+      const prevMerged = merged[merged.length - 1] || '';
+      if(prevMerged && /\([A-Z]{3}\)\s*$/.test(prevMerged) && isRouteConnectorToken(t)){
+        const cityInfo = gatherCityToken(i + 1);
+        if(cityInfo && cityInfo.text){
+          const connector = t.trim();
+          const prevTrimmed = prevMerged.replace(/\s+$/, '');
+          merged[merged.length - 1] = prevTrimmed + ' ' + connector + ' ' + cityInfo.text.trim();
+          i += cityInfo.consumed;
+          continue;
+        }
       }
 
       merged.push(t);

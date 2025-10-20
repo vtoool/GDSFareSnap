@@ -651,6 +651,22 @@ assert.ok(
   'Time range rows should be preserved for itinerary parsing'
 );
 
+const reviewRouteRoot = new StubElement('section');
+reviewRouteRoot.ownerDocument = document;
+const routeRow = new StubElement('div');
+routeRow.ownerDocument = document;
+routeRow.appendChild(new StubTextNode('Greenville (GSP)'));
+routeRow.appendChild(new StubTextNode('-'));
+routeRow.appendChild(new StubTextNode('Dulles Intl (IAD)'));
+reviewRouteRoot.appendChild(routeRow);
+
+const reviewRouteExtracted = extractVisibleText(reviewRouteRoot);
+
+assert.ok(
+  reviewRouteExtracted.includes('Greenville (GSP) - Dulles Intl (IAD)'),
+  'Route connectors should merge into a single route line'
+);
+
 const resolveKayakInlineHost = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.resolveKayakInlineHost;
 const findKayakDetailContainer = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.findKayakDetailContainer;
 assert.strictEqual(typeof resolveKayakInlineHost, 'function', 'resolveKayakInlineHost test hook should be available');
