@@ -354,6 +354,8 @@
       let sawBook = false;
       let sawStepReview = false;
       let sawStepBook = false;
+      let sawChooseFare = false;
+      let sawChooseWhereToBook = false;
       for(const node of headings){
         if(!node) continue;
         const txt = (node.textContent || node.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -361,7 +363,13 @@
         const hasReview = /\breview\b/.test(txt);
         const hasBook = /\bbook(?:ing)?\b/.test(txt);
         const hasStep = /\bstep\s*\d+\b/.test(txt);
+        const hasChooseFare = /\bchoose\s+(?:a|your)\s+fare\b/.test(txt);
+        const hasChooseWhereToBook = /\bchoose\s+where\s+to\s+book\b/.test(txt);
         if(REVIEW_BOOK_SIGNATURE_RX.test(txt) || (hasReview && hasBook) || (hasStep && hasReview)){
+          reviewHeadingCacheValue = true;
+          break;
+        }
+        if(hasStep && (hasChooseFare || hasChooseWhereToBook)){
           reviewHeadingCacheValue = true;
           break;
         }
@@ -377,14 +385,39 @@
         if(hasBook){
           sawBook = true;
         }
+        if(hasChooseFare){
+          sawChooseFare = true;
+        }
+        if(hasChooseWhereToBook){
+          sawChooseWhereToBook = true;
+        }
       }
       if(!reviewHeadingCacheValue){
         if((sawReview && sawBook) || sawStepReview || (sawReview && sawStepBook)){
           reviewHeadingCacheValue = true;
         }
       }
+      if(!reviewHeadingCacheValue && (sawChooseFare || sawChooseWhereToBook)){
+        reviewHeadingCacheValue = true;
+      }
     } catch (err) {
       reviewHeadingCacheValue = false;
+    }
+    if(!reviewHeadingCacheValue){
+      try {
+        const chooseNodes = document.querySelectorAll('.Z8U5-fare-header, .Z8U5-title, [class*="fare-header" i]');
+        for(const node of chooseNodes){
+          if(!node) continue;
+          const txt = (node.textContent || node.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if(!txt) continue;
+          if(/\bchoose\s+(?:a|your)\s+fare\b/.test(txt) || /\bchoose\s+where\s+to\s+book\b/.test(txt)){
+            reviewHeadingCacheValue = true;
+            break;
+          }
+        }
+      } catch (err) {
+        // ignore query issues
+      }
     }
     return reviewHeadingCacheValue;
   }
@@ -476,6 +509,29 @@
     if(IS_ITA || !card || card.nodeType !== 1) return false;
     if(!isInKayakReviewContext(card)) return false;
     if(!isVisible(card)) return false;
+
+    let providerWrapper = null;
+    if(card.matches && card.matches('.RBZl-row-wrapper')){
+      providerWrapper = card;
+    } else if(card.closest){
+      providerWrapper = card.closest('.RBZl-row-wrapper');
+    }
+    if(providerWrapper){
+      let hasVendorBadge = false;
+      let hasVendorCta = false;
+      try {
+        hasVendorBadge = !!providerWrapper.querySelector('.ehQI-provider-container, .ehQI-provider-logos, .veIp-provider-name');
+        hasVendorCta = !!providerWrapper.querySelector('.ehQI-price-button-wrapper, .Iqt3-button-content, [data-testid*="provider-book" i]');
+      } catch (err) {
+        hasVendorBadge = false;
+        hasVendorCta = false;
+      }
+      const headingInWrapper = providerWrapper.querySelector ? providerWrapper.querySelector(ITA_HEADING_SELECTOR) : null;
+      const wrapperLabel = (providerWrapper.getAttribute && providerWrapper.getAttribute('aria-label')) || '';
+      if((hasVendorBadge && hasVendorCta && !headingInWrapper) || (/\$\s*\d/.test(wrapperLabel) && /\b(book|deal|instant)\b/i.test(wrapperLabel))){
+        return false;
+      }
+    }
 
     let rect = null;
     try {
