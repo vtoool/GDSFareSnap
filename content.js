@@ -2587,7 +2587,85 @@
     if(ariaLabel && /search|modify/i.test(ariaLabel)){
       score++;
     }
-    return score >= 2;
+    if(score < 2) return false;
+    if(!searchDialogHasModalTraits(node)) return false;
+    return true;
+  }
+
+  function searchDialogHasModalTraits(node){
+    if(!node || node.nodeType !== 1) return false;
+    const modalAttrSelector = '[aria-modal="true"], [role="dialog"], [role="alertdialog"]';
+    if(node.matches){
+      try {
+        if(node.matches(modalAttrSelector)){
+          return true;
+        }
+      } catch (err) {
+        // ignore selector issues
+      }
+    }
+    const attrRole = (node.getAttribute && (node.getAttribute('role') || '')) || '';
+    if(attrRole){
+      const normRole = attrRole.toLowerCase();
+      if(normRole === 'dialog' || normRole === 'alertdialog'){
+        return true;
+      }
+    }
+    const ariaModal = (node.getAttribute && (node.getAttribute('aria-modal') || '')) || '';
+    if(ariaModal && ariaModal.toLowerCase() === 'true'){
+      return true;
+    }
+    if(node.closest){
+      const combinedSelectors = Array.from(new Set([
+        modalAttrSelector,
+        ...MODAL_SELECTOR_LIST,
+        ...HEADER_OVERLAY_SELECTOR_LIST
+      ])).filter(Boolean).join(', ');
+      if(combinedSelectors){
+        try {
+          const modalAncestor = node.closest(combinedSelectors);
+          if(modalAncestor && modalAncestor !== document.body && modalAncestor !== document.documentElement){
+            return true;
+          }
+        } catch (err) {
+          // ignore selector issues
+        }
+      }
+    }
+    let cs = null;
+    try {
+      cs = getComputedStyle(node);
+    } catch (err) {
+      cs = null;
+    }
+    if(cs){
+      const pos = cs.position || '';
+      if(pos === 'fixed' || pos === 'absolute'){
+        const zIndex = parseFloat(cs.zIndex || '');
+        if(Number.isFinite(zIndex) && zIndex >= 10){
+          return true;
+        }
+        let parent = node.parentElement;
+        let depth = 0;
+        while(parent && depth < 3){
+          let parentStyle = null;
+          try {
+            parentStyle = getComputedStyle(parent);
+          } catch (err) {
+            parentStyle = null;
+          }
+          if(parentStyle){
+            const parentPos = parentStyle.position || '';
+            if(parentPos === 'fixed' || parentPos === 'absolute'){
+              return true;
+            }
+          }
+          parent = parent.parentElement;
+          depth++;
+        }
+      }
+    }
+    return false;
   }
 
   function isSearchDialogVisible(){
