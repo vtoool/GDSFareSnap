@@ -3886,6 +3886,83 @@
     return best;
   }
 
+  function kayakCardHasVisibleSegmentDetails(card, detailCandidate){
+    if(!card || card.nodeType !== 1) return false;
+
+    const roots = [];
+    if(detailCandidate && detailCandidate.nodeType === 1 && card.contains(detailCandidate)){
+      roots.push(detailCandidate);
+    }
+    roots.push(card);
+
+    const selectors = [
+      '.o-C7-leg-outer',
+      '.o-C7-leg-inner',
+      '.o-C7-segment',
+      '[data-testid*="segment-detail" i]',
+      '[data-testid*="segmentdetail" i]',
+      '[data-testid*="leg-detail" i]',
+      '[data-test*="segment-detail" i]',
+      '[data-test*="segmentdetail" i]',
+      '[data-test*="leg-detail" i]',
+      '[class*="leg-outer" i]',
+      '[class*="leg-inner" i]',
+      '[class*="leginner" i]',
+      '[class*="segment-detail" i]',
+      '[class*="segmentdetail" i]',
+      '[class*="leg-detail" i]',
+      '[class*="legdetail" i]'
+    ];
+
+    const seen = new Set();
+    const timeRx = /(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:am|pm))?/ig;
+    const airportRx = /\([A-Z]{3}\)/g;
+
+    for(const root of roots){
+      if(!root || root.nodeType !== 1) continue;
+      if(!card.contains(root)) continue;
+
+      for(const sel of selectors){
+        let nodes = [];
+        try {
+          nodes = root.querySelectorAll(sel);
+        } catch (err) {
+          nodes = [];
+        }
+        if(!nodes || !nodes.length) continue;
+
+        for(const node of nodes){
+          if(!node || node.nodeType !== 1) continue;
+          if(seen.has(node)) continue;
+          seen.add(node);
+          if(!card.contains(node)) continue;
+          if(!isVisible(node)) continue;
+          let text = '';
+          try {
+            text = typeof node.innerText === 'string'
+              ? node.innerText
+              : (typeof node.textContent === 'string' ? node.textContent : '');
+          } catch (err) {
+            text = '';
+          }
+          if(!text) continue;
+          const normalized = text.replace(/\s+/g, ' ').trim();
+          if(!normalized) continue;
+          if(/\bFlight\s*\d+/i.test(normalized)){
+            return true;
+          }
+          const timeMatches = normalized.match(timeRx) || [];
+          const airportMatches = normalized.match(airportRx) || [];
+          if(timeMatches.length >= 2 && airportMatches.length >= 2){
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
   function getKayakNodeSignature(node){
     if(!node || node.nodeType !== 1) return '';
     const parts = [];
@@ -4728,6 +4805,7 @@
     const expansionHost = card.getAttribute('aria-expanded') != null
       ? card
       : card.closest('[aria-expanded]');
+    const explicitExpanded = !!(expansionHost && expansionHost.getAttribute('aria-expanded') === 'true');
     if (expansionHost && expansionHost.getAttribute('aria-expanded') !== 'true'){
       removeCardButton(card);
       return;
@@ -4819,6 +4897,21 @@
       return;
     }
 
+    let detailContainer = null;
+    try {
+      detailContainer = findKayakDetailContainer(card, selectBtn);
+    } catch (err) {
+      detailContainer = null;
+    }
+    if(detailContainer && (detailContainer === card || !card.contains(detailContainer) || !detailContainer.isConnected || !isVisible(detailContainer))){
+      detailContainer = null;
+    }
+
+    if(!explicitExpanded && !kayakCardHasVisibleSegmentDetails(card, detailContainer)){
+      removeCardButton(card);
+      return;
+    }
+
     let configData = null;
     try {
       configData = computeButtonConfigsForCard(card);
@@ -4838,14 +4931,15 @@
       overlayEligible = false;
     }
 
-    let detailContainer = null;
-    try {
-      detailContainer = findKayakDetailContainer(card, selectBtn);
-    } catch (err) {
-      detailContainer = null;
-    }
-    if(detailContainer && (detailContainer === card || !card.contains(detailContainer) || !detailContainer.isConnected || !isVisible(detailContainer))){
-      detailContainer = null;
+    if(!detailContainer){
+      try {
+        detailContainer = findKayakDetailContainer(card, selectBtn);
+      } catch (err) {
+        detailContainer = null;
+      }
+      if(detailContainer && (detailContainer === card || !card.contains(detailContainer) || !detailContainer.isConnected || !isVisible(detailContainer))){
+        detailContainer = null;
+      }
     }
     if(detailContainer){
       overlayEligible = false;
