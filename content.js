@@ -4661,6 +4661,8 @@
       return;
     }
 
+    const inReviewContext = isInKayakReviewContext(card);
+
     const cardKey = getCardKey(card);
     let group = cardGroupMap.get(card);
     if(cardKey){
