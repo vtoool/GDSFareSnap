@@ -519,16 +519,40 @@
     if(providerWrapper){
       let hasVendorBadge = false;
       let hasVendorCta = false;
+      let hasEhqiVendorCue = false;
+      let nestedGroupLabel = '';
+      let hasNestedVendorGroup = false;
       try {
         hasVendorBadge = !!providerWrapper.querySelector('.ehQI-provider-container, .ehQI-provider-logos, .veIp-provider-name');
         hasVendorCta = !!providerWrapper.querySelector('.ehQI-price-button-wrapper, .Iqt3-button-content, [data-testid*="provider-book" i]');
+        hasEhqiVendorCue = !!providerWrapper.querySelector('[class*="ehQI"]');
+        const nestedGroups = providerWrapper.querySelectorAll('[role="group"][aria-label]');
+        if(nestedGroups && nestedGroups.length){
+          hasNestedVendorGroup = true;
+          nestedGroupLabel = Array.from(nestedGroups).map(groupEl => {
+            try {
+              return (groupEl.getAttribute && groupEl.getAttribute('aria-label')) || '';
+            } catch (err) {
+              return '';
+            }
+          }).join(' ').trim();
+        }
       } catch (err) {
         hasVendorBadge = false;
         hasVendorCta = false;
+        hasEhqiVendorCue = false;
+        hasNestedVendorGroup = false;
+        nestedGroupLabel = '';
       }
       const headingInWrapper = providerWrapper.querySelector ? providerWrapper.querySelector(ITA_HEADING_SELECTOR) : null;
       const wrapperLabel = (providerWrapper.getAttribute && providerWrapper.getAttribute('aria-label')) || '';
-      if((hasVendorBadge && hasVendorCta && !headingInWrapper) || (/\$\s*\d/.test(wrapperLabel) && /\b(book|deal|instant)\b/i.test(wrapperLabel))){
+      const combinedLabel = [wrapperLabel, nestedGroupLabel].filter(Boolean).join(' ');
+      const labelLooksLikeVendor = /\$\s*\d/.test(combinedLabel) && /\b(book|deal|instant)\b/i.test(combinedLabel);
+      if(
+        (hasNestedVendorGroup && (hasVendorBadge || hasVendorCta || hasEhqiVendorCue || labelLooksLikeVendor)) ||
+        (hasVendorBadge && hasVendorCta && !headingInWrapper) ||
+        labelLooksLikeVendor
+      ){
         return false;
       }
     }
@@ -5509,6 +5533,10 @@
     window.__kayakCopyTestHooks = window.__kayakCopyTestHooks || {};
     if(!window.__kayakCopyTestHooks.extractVisibleText){
       window.__kayakCopyTestHooks.extractVisibleText = extractVisibleText;
+    }
+    if(!window.__kayakCopyTestHooks.isKayakReviewItineraryCard){
+      window.__kayakCopyTestHooks.isKayakReviewItineraryCard = (card) =>
+        isKayakReviewItineraryCard(card);
     }
     if(!window.__kayakCopyTestHooks.resolveKayakInlineHost){
       window.__kayakCopyTestHooks.resolveKayakInlineHost = (card, selectBtn, detailOverride) =>
