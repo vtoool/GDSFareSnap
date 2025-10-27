@@ -517,6 +517,9 @@ require('./content.js');
 const extractVisibleText = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.extractVisibleText;
 assert.strictEqual(typeof extractVisibleText, 'function', 'extractVisibleText test hook should be available');
 
+const isKayakReviewItineraryCard = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.isKayakReviewItineraryCard;
+assert.strictEqual(typeof isKayakReviewItineraryCard, 'function', 'isKayakReviewItineraryCard test hook should be available');
+
 const makeLine = (value) => {
   const wrapper = new StubElement('div');
   wrapper.ownerDocument = document;
@@ -671,6 +674,118 @@ const resolveKayakInlineHost = window.__kayakCopyTestHooks && window.__kayakCopy
 const findKayakDetailContainer = window.__kayakCopyTestHooks && window.__kayakCopyTestHooks.findKayakDetailContainer;
 assert.strictEqual(typeof resolveKayakInlineHost, 'function', 'resolveKayakInlineHost test hook should be available');
 assert.strictEqual(typeof findKayakDetailContainer, 'function', 'findKayakDetailContainer test hook should be available');
+
+function buildStepOneReviewFixture(){
+  const originalQuerySelectorAll = document.querySelectorAll;
+  const reviewRoot = new StubElement('section');
+  reviewRoot.ownerDocument = document;
+  reviewRoot.className = 'review-book-step';
+  reviewRoot.setAttribute('data-testid', 'review-book-step');
+  reviewRoot.setBoundingRect({ top: 120, left: 0, width: 680, height: 640 });
+
+  const heading = new StubElement('h2');
+  heading.ownerDocument = document;
+  heading.innerText = 'Step 1: Choose a fare';
+  heading.setBoundingRect({ top: 140, left: 16, width: 360, height: 48 });
+  reviewRoot.appendChild(heading);
+
+  document.querySelectorAll = (selector) => {
+    if(String(selector).trim() === 'h1, h2, h3, h4, h5, h6, [role="heading"]'){
+      return [heading];
+    }
+    return originalQuerySelectorAll(selector);
+  };
+
+  const summaryCard = new StubElement('article');
+  summaryCard.ownerDocument = document;
+  summaryCard.className = 'review-summary-card';
+  summaryCard.setAttribute('data-testid', 'review-summary');
+  summaryCard.setBoundingRect({ top: 200, left: 0, width: 640, height: 320 });
+
+  const summaryHeading = new StubElement('h3');
+  summaryHeading.ownerDocument = document;
+  summaryHeading.innerText = 'New York (JFK) → Los Angeles (LAX)';
+  summaryHeading.setBoundingRect({ top: 220, left: 24, width: 400, height: 32 });
+  summaryCard.appendChild(summaryHeading);
+
+  const segmentList = new StubElement('div');
+  segmentList.ownerDocument = document;
+  segmentList.className = 'flight-segment list';
+  segmentList.setBoundingRect({ top: 260, left: 24, width: 600, height: 160 });
+
+  const segmentRow = new StubElement('div');
+  segmentRow.ownerDocument = document;
+  segmentRow.className = 'segment-row';
+  segmentRow.setBoundingRect({ top: 280, left: 40, width: 560, height: 120 });
+  segmentRow.appendChild(new StubTextNode('8:00 AM New York (JFK) 11:15 AM Los Angeles (LAX)'));
+  segmentList.appendChild(segmentRow);
+  summaryCard.appendChild(segmentList);
+  summaryCard.appendChild(new StubTextNode('Round-trip · 1 traveler'));
+
+  const originalSummaryQueryAll = summaryCard.querySelectorAll.bind(summaryCard);
+  summaryCard.querySelectorAll = (selector) => {
+    const raw = String(selector || '');
+    if(/\[(?:class|data-testid)[^\]]*(?:leg|segment|flight)[^\]]*\]/i.test(raw)){
+      return [segmentList];
+    }
+    return originalSummaryQueryAll(selector);
+  };
+
+  reviewRoot.appendChild(summaryCard);
+
+  const providerRow = new StubElement('div');
+  providerRow.ownerDocument = document;
+  providerRow.className = 'RBZl-row-wrapper';
+  providerRow.setBoundingRect({ top: 540, left: 0, width: 640, height: 240 });
+
+  const providerGroup = new StubElement('div');
+  providerGroup.ownerDocument = document;
+  providerGroup.className = 'ehQI-group';
+  providerGroup.setAttribute('role', 'group');
+  providerGroup.setAttribute('aria-label', '$512 · Book on Example Airways');
+  providerGroup.setBoundingRect({ top: 560, left: 24, width: 600, height: 200 });
+
+  const providerBadge = new StubElement('div');
+  providerBadge.ownerDocument = document;
+  providerBadge.className = 'ehQI-provider-container';
+  providerBadge.appendChild(new StubTextNode('Example Airways'));
+  providerGroup.appendChild(providerBadge);
+
+  const providerHeading = new StubElement('h3');
+  providerHeading.ownerDocument = document;
+  providerHeading.innerText = 'Example Airways';
+  providerGroup.appendChild(providerHeading);
+
+  const providerCta = new StubElement('div');
+  providerCta.ownerDocument = document;
+  providerCta.className = 'ehQI-price-button-wrapper';
+  const providerButton = new StubElement('button');
+  providerButton.ownerDocument = document;
+  providerButton.innerText = 'Select';
+  providerCta.appendChild(providerButton);
+  providerGroup.appendChild(providerCta);
+
+  providerRow.appendChild(providerGroup);
+  reviewRoot.appendChild(providerRow);
+  body.appendChild(reviewRoot);
+
+  return {
+    reviewRoot,
+    summaryCard,
+    providerRow,
+    teardown(){
+      document.querySelectorAll = originalQuerySelectorAll;
+      if(reviewRoot.parentElement){
+        reviewRoot.parentElement.removeChild(reviewRoot);
+      }
+    }
+  };
+}
+
+const stepOneFixture = buildStepOneReviewFixture();
+assert.strictEqual(isKayakReviewItineraryCard(stepOneFixture.summaryCard), true, 'Step 1 summary card should qualify as an itinerary');
+assert.strictEqual(isKayakReviewItineraryCard(stepOneFixture.providerRow), false, 'Provider offer rows should be ignored on Step 1');
+stepOneFixture.teardown();
 
 function buildKayakDetailCard(){
   const card = new StubElement('div');
