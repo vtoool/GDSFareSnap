@@ -4399,6 +4399,7 @@
       return;
     }
     card = normalized;
+    const inReviewContext = isInKayakReviewContext(card);
     const group = cardGroupMap.get(card);
     const cardKey = card && card.getAttribute ? card.getAttribute(CARD_KEY_ATTR) : null;
     if (group){
@@ -4673,6 +4674,8 @@
       removeCardButton(card);
       return;
     }
+    const buttonCount = configData && Array.isArray(configData.configs) ? configData.configs.length : 0;
+    const showMulti = !!(configData && configData.showJourneyButtons);
     const hasMultiPreview = !!(configData.preview && configData.preview.isMultiCity);
     if(hasMultiPreview){
       overlayEligible = false;
@@ -4688,6 +4691,10 @@
       detailContainer = null;
     }
     if(detailContainer){
+      overlayEligible = false;
+    }
+
+    if(inReviewContext){
       overlayEligible = false;
     }
 
@@ -4713,6 +4720,9 @@
       shouldInline = true;
     }
     if(!overlayEligible){
+      shouldInline = true;
+    }
+    if(inReviewContext){
       shouldInline = true;
     }
 
@@ -4796,6 +4806,8 @@
       if (group.parentNode !== host){
         host.appendChild(group);
       }
+      cleanupInlineHostDuplicates(host, group);
+      ensureInlineHostPadding(host, group, showMulti || buttonCount > 1);
       if(prevSlot){
         const cachedSlot = card ? kayakInlineSlotMap.get(card) : null;
         if(cachedSlot === prevSlot){
