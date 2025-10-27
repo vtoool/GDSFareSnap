@@ -158,6 +158,15 @@
     'a[href*="/offer" i]',
     'a[href*="/flight" i]'
   ].join(', ');
+  const NAVIGATION_REFRESH_SELECTORS = (() => {
+    const attrSelectors = STABLE_CARD_ATTRS.map(attr => `[${attr}]`);
+    attrSelectors.push('[aria-expanded="true"]');
+    attrSelectors.push('[data-testid*="result" i]');
+    attrSelectors.push('[data-testid*="detail" i]');
+    attrSelectors.push('[data-test*="result" i]');
+    attrSelectors.push('[data-test*="detail" i]');
+    return attrSelectors;
+  })();
 
   let nextCardKey = 1;
 
@@ -197,6 +206,7 @@
   let itaDetailRetryStart = 0;
   let itaDetailRetryCount = 0;
   let itaDetailHostNeedsReset = false;
+  let navRefreshScheduled = false;
 
   let cardResizeObserver = null;
   if (typeof ResizeObserver !== 'undefined') {
@@ -3048,6 +3058,73 @@
     schedulePositionSync();
   }
 
+  function scheduleNavigationRefresh(){
+    if (navRefreshScheduled) return;
+    navRefreshScheduled = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        navRefreshScheduled = false;
+        try {
+          refreshCardsAfterNavigation();
+        } catch (err) {
+          // ignore navigation refresh errors
+        }
+      });
+    });
+  }
+
+  function refreshCardsAfterNavigation(){
+    const candidateNodes = new Set();
+    NAVIGATION_REFRESH_SELECTORS.forEach(selector => {
+      let list = null;
+      try {
+        list = document.querySelectorAll(selector);
+      } catch (err) {
+        list = null;
+      }
+      if (!list || !list.length) return;
+      for (const node of list){
+        if (node && node.nodeType === 1){
+          candidateNodes.add(node);
+        }
+      }
+    });
+
+    activeGroups.forEach(group => {
+      if (group && group.__kayakCard){
+        candidateNodes.add(group.__kayakCard);
+      }
+    });
+
+    if (!candidateNodes.size){
+      let fallbackList = null;
+      try {
+        fallbackList = document.querySelectorAll('button, a[role="button"], a[href]');
+      } catch (err) {
+        fallbackList = null;
+      }
+      if (fallbackList && fallbackList.length){
+        let added = 0;
+        for (const el of fallbackList){
+          if (!el || el.nodeType !== 1) continue;
+          const label = getCtaLabel(el);
+          if (!label || !SELECT_RX.test(label)) continue;
+          candidateNodes.add(el);
+          added++;
+          if (added >= 60) break;
+        }
+      }
+    }
+
+    const processed = new Set();
+    candidateNodes.forEach(node => {
+      const card = findCardFrom(node);
+      if (!card || processed.has(card)) return;
+      processed.add(card);
+      ensureCardButton(card);
+    });
+  }
+
   function getItaSummaryRowFromDetail(detailRow){
     if (!detailRow || !detailRow.previousElementSibling) return null;
     let prev = detailRow.previousElementSibling;
@@ -5727,6 +5804,7 @@
     scheduleCabinDetection();
     schedulePassengerDetection();
     scheduleModalDimUpdate();
+    scheduleNavigationRefresh();
   };
   window.addEventListener('popstate', handleNavigationEvent);
   window.addEventListener('hashchange', handleNavigationEvent);
