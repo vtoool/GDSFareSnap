@@ -61,11 +61,16 @@ global.navigator = {
   }
 };
 
+const chromeState = { detailedAvailability: true };
+
 global.chrome = {
   storage: {
     sync: {
-      get: (_, cb) => cb({}),
-      set: (_, cb) => cb && cb(),
+      get: (_, cb) => cb({ ...chromeState }),
+      set: (data, cb) => {
+        Object.assign(chromeState, data || {});
+        if (typeof cb === 'function') cb();
+      },
     },
     onChanged: {
       addListener: () => {}
@@ -128,5 +133,18 @@ const inboundCommand = viAvailabilityCommands.find(entry => entry && typeof entr
 
 assert.ok(outboundCommand && /^11JULJFKLAX/.test(outboundCommand.command), 'outbound availability command should include the outbound date and route');
 assert.ok(inboundCommand && /^15JULLAXJFK/.test(inboundCommand.command), 'inbound availability command should include the return date and route');
+
+const viDetailedSample = [
+  ' 1 LH  464 14FEB MCO FRA 0750P 1050A¥1 343 8.00',
+  'CABIN-BUSINESS',
+  ' 2 LH  944 15FEB FRA FLR 0130P 0255P 320 1.42'
+].join('\n');
+
+const detailedConversion = convertViToI(viDetailedSample, { autoCabin: false, bookingClass: 'J', segmentStatus: 'SS1' });
+const detailedPreview = buildViAvailabilityPreview(detailedConversion.segments);
+const detailedCommands = buildViAvailabilityCommands({ preview: detailedPreview });
+const detailedOutbound = detailedCommands.find(entry => entry && typeof entry.command === 'string' && /MCOFLR/.test(entry.command));
+
+assert.ok(detailedOutbound && /750PFRA-160/.test(detailedOutbound.command), 'detailed availability should include departure time and layover minutes for VI* conversions');
 
 console.log('All tests passed.');
