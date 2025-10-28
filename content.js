@@ -5691,8 +5691,8 @@
     const durationLike  = /^\d+h(?:\s?\d+m)?$/i;
     const changeLike    = /Change planes in/i;
     const operatedLike  = /·\s*Operated by/i;
-    const departHdr     = /^(Depart|Departure|Outbound)(?:\s*[•·])?/i;
-    const returnHdr     = /^(Return|Inbound)(?:\s*[•·])?/i;
+    const departHdr     = /^(?:Depart(?:ure)?|Outbound)\b(?:\s*[•·:-]\s*)?.*/i;
+    const returnHdr     = /^(?:Return|Inbound)\b(?:\s*[•·:-]\s*)?.*/i;
     const arrivesLike   = /^Arrives\b/i;
     const overnightLike = /Overnight flight/i;
     const airportLike   = /\([A-Z]{3}\)/;
