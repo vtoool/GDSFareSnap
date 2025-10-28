@@ -1455,7 +1455,10 @@
     if (!match){
       return { time: cleaned.toUpperCase(), offset };
     }
-    const time = match[1] + (match[2] ? match[2].toUpperCase() : '');
+    const numeric = String(match[1] || '');
+    const suffix = match[2] ? match[2].toUpperCase() : '';
+    const padded = numeric.padStart(4, '0');
+    const time = `${padded}${suffix}`;
     return { time, offset };
   }
 
