@@ -4370,6 +4370,62 @@
     });
   }
 
+  function cleanupItaDuplicateGroups(summaryRow, detailRow, key, keepGroup){
+    if(!IS_ITA) return;
+    const removals = new Set();
+    if(summaryRow && summaryRow.querySelectorAll){
+      summaryRow.querySelectorAll(`.${BTN_GROUP_CLASS}`).forEach(node => {
+        if(node && node !== keepGroup){
+          removals.add(node);
+        }
+      });
+    }
+    if(detailRow && detailRow.querySelectorAll){
+      detailRow.querySelectorAll(`.${BTN_GROUP_CLASS}`).forEach(node => {
+        if(node && node !== keepGroup){
+          removals.add(node);
+        }
+      });
+    }
+    if(key){
+      const existing = itaGroupsByKey.get(key);
+      if(existing && existing !== keepGroup){
+        removals.add(existing);
+      }
+    }
+    activeGroups.forEach(group => {
+      if(!group || group === keepGroup) return;
+      if(group.dataset && group.dataset.inline !== '1') return;
+      if(!group.classList || !group.classList.contains('kayak-copy-btn-group--ita')) return;
+      if(summaryRow && group.__kayakSummaryRow === summaryRow){
+        removals.add(group);
+        return;
+      }
+      if(detailRow && group.__kayakDetailRow === detailRow){
+        removals.add(group);
+        return;
+      }
+      if(key && group.dataset && group.dataset.itaKey && group.dataset.itaKey === key){
+        removals.add(group);
+        return;
+      }
+      if(!key && keepGroup && keepGroup.__kayakCard && group.__kayakCard === keepGroup.__kayakCard){
+        removals.add(group);
+      }
+    });
+    if(!removals.size) return;
+    removals.forEach(node => {
+      if(!node || node === keepGroup) return;
+      try {
+        hardRemoveGroup(node);
+      } catch (err) {
+        if(node.parentNode){
+          try { node.remove(); } catch (removeErr) {}
+        }
+      }
+    });
+  }
+
   function parseCssSize(value){
     const num = parseFloat(value);
     return Number.isFinite(num) ? num : 0;
@@ -4759,7 +4815,7 @@
     const key = getItaItineraryKey(summaryRow, detailRow);
     if (key){
       const existing = itaGroupsByKey.get(key);
-      if (existing && existing !== group && existing.__kayakCard !== card){
+      if (existing && existing !== group){
         hardRemoveGroup(existing);
       }
     }
@@ -4779,6 +4835,7 @@
       } else {
         delete group.dataset.itaKey;
       }
+      cleanupItaDuplicateGroups(summaryRow, detailRow, key, group);
       cardGroupMap.set(card, group);
       registerGroup(card, group);
     }else{
@@ -4805,6 +4862,7 @@
       } else {
         delete group.dataset.itaKey;
       }
+      cleanupItaDuplicateGroups(summaryRow, detailRow, key, group);
     }
 
     let configData = null;
