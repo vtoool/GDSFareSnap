@@ -352,6 +352,7 @@
       const segmentCount = segments.length || itineraryText.split('\n').filter(line => line.trim()).length;
       updateAvailabilityPreview(raw);
       const shouldAutoCopy = state.autoCopy && (!sameInput || itineraryText !== state.lastCopied);
+      animateConversionResult();
 
       if (shouldAutoCopy){
         const outcome = await copyOutputText(itineraryText);
@@ -359,6 +360,7 @@
           state.lastCopied = itineraryText;
           showStatus(`Copied ${segmentCount} segment${segmentCount === 1 ? '' : 's'} to clipboard.`);
           flashCopyButtonLabel();
+          animateCopyTrigger(copyBtn);
           return;
         }
         state.lastCopied = '';
@@ -399,6 +401,8 @@
       state.lastCopied = text;
       showStatus('Copied to clipboard.');
       flashCopyButtonLabel();
+      animateCopyTrigger(copyBtn);
+      animateConversionResult();
       return;
     }
     state.lastCopied = '';
@@ -458,6 +462,7 @@
       state.lastAvailabilityCopiedIndex = index;
       const label = entry && entry.label ? entry.label : `Journey ${index + 1}`;
       showStatus(`Copied availability (${label}).`);
+      animateCopyTrigger(triggerButton);
       return;
     }
     if (triggerButton && typeof triggerButton.focus === 'function'){
@@ -509,6 +514,59 @@
       selection.removeAllRanges();
       selection.addRange(range);
     } catch (err) {}
+  }
+
+  function animateElementWithClass(element, className){
+    if (!element || !className) return;
+    try {
+      if (element.classList && typeof element.classList.remove === 'function'){
+        element.classList.remove(className);
+      }
+    } catch (err) {}
+    try {
+      void element.offsetWidth;
+    } catch (err) {}
+    try {
+      if (element.classList && typeof element.classList.add === 'function'){
+        element.classList.add(className);
+        if (typeof element.addEventListener === 'function'){
+          const cleanup = () => {
+            try {
+              element.classList.remove(className);
+            } catch (err) {}
+            try {
+              element.removeEventListener('animationend', cleanup);
+            } catch (err) {}
+          };
+          element.addEventListener('animationend', cleanup, { once: true });
+        } else {
+          setTimeout(() => {
+            try {
+              element.classList.remove(className);
+            } catch (err) {}
+          }, 400);
+        }
+      }
+    } catch (err) {}
+  }
+
+  function animateConversionResult(){
+    if (outputEl){
+      animateElementWithClass(outputEl, 'is-animating-glow');
+    }
+  }
+
+  function animateCopyTrigger(element){
+    const target = element || copyBtn;
+    if (target){
+      animateElementWithClass(target, 'is-animating-pulse');
+    }
+  }
+
+  function animateStatusMessage(element){
+    if (element){
+      animateElementWithClass(element, 'is-animating-status');
+    }
   }
 
   function updateAvailabilityPreview(rawText){
@@ -762,15 +820,39 @@
     }
     const normalized = sourceSegments.map((seg, idx) => {
       const carrier = toCarrierCode(seg && seg.airlineCode);
-      return {
+      const depDateToken = seg && (seg.depDateString || seg.depDate)
+        ? String(seg.depDateString || seg.depDate).toUpperCase()
+        : '';
+      const arrDateToken = seg && (seg.arrDateString || seg.arrDate)
+        ? String(seg.arrDateString || seg.arrDate).toUpperCase()
+        : '';
+      const depGds = seg && (seg.depGDS || seg.depTime)
+        ? String(seg.depGDS || seg.depTime).toUpperCase()
+        : '';
+      const arrGds = seg && (seg.arrGDS || seg.arrTime)
+        ? String(seg.arrGDS || seg.arrTime).toUpperCase()
+        : '';
+      const entry = {
         depAirport: toAirportCode(seg && seg.depAirport),
         arrAirport: toAirportCode(seg && seg.arrAirport),
-        depDate: seg && seg.depDateString ? String(seg.depDateString).toUpperCase() : '',
+        depDate: depDateToken,
+        arrDate: arrDateToken,
+        depGDS: depGds,
+        arrGDS: arrGds,
         marketingCarrier: carrier,
         airlineCode: carrier,
         direction: '',
         index: idx
       };
+      if (Number.isFinite(seg && seg.arrOffset)){
+        entry.arrOffset = Number(seg.arrOffset);
+      }
+      if (Number.isFinite(seg && seg.elapsedMinutes)){
+        entry.elapsedMinutes = Number(seg.elapsedMinutes);
+      } else if (Number.isFinite(seg && seg.elapsedHours)){
+        entry.elapsedMinutes = Math.round(seg.elapsedHours * 60);
+      }
+      return entry;
     });
     const journeys = inferViJourneysFromSegments(sourceSegments);
     if (!journeys.length){
@@ -1177,6 +1259,7 @@
     convertStatusEl.textContent = '';
     convertErrorEl.textContent = message;
     convertErrorEl.style.display = 'block';
+    animateStatusMessage(convertErrorEl);
   }
 
   function showStatus(message){
@@ -1185,6 +1268,7 @@
     convertErrorEl.textContent = '';
     convertStatusEl.textContent = message;
     convertStatusEl.style.display = 'block';
+    animateStatusMessage(convertStatusEl);
   }
 
   function flashCopyButtonLabel(){
@@ -1333,6 +1417,8 @@
         cabinRaw: null,
         elapsedHours: parseElapsedHoursFromTokens(tokens)
       };
+      segment.depGDS = segment.depTime ? String(segment.depTime).toUpperCase() : '';
+      segment.arrGDS = segment.arrTime ? String(segment.arrTime).toUpperCase() : '';
       segments.push(segment);
       lastSegment = segment;
     }
@@ -1413,6 +1499,8 @@
     segment.arrDateObj = arrival;
     segment.arrDateString = formatDatePart(arrival);
     segment.arrDow = DOW_CHARS[arrival.getDay()] || '';
+    segment.depDate = segment.depDateString;
+    segment.arrDate = segment.arrDateString;
   }
 
   function toMidnight(date){

@@ -285,6 +285,57 @@
       flex-wrap: wrap;
     }
 
+    @keyframes buttonPulse {
+      0% {
+        transform: scale(1);
+      }
+      45% {
+        transform: scale(1.06);
+      }
+      100% {
+        transform: scale(1);
+      }
+    }
+
+    @keyframes fieldGlow {
+      0% {
+        box-shadow: 0 0 0 0 rgba(75, 107, 255, 0.35);
+      }
+      40% {
+        box-shadow: 0 0 0 6px rgba(75, 107, 255, 0.15);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(75, 107, 255, 0);
+      }
+    }
+
+    @keyframes statusLift {
+      0% {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      50% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .is-animating-pulse {
+      animation: buttonPulse 280ms ease;
+    }
+
+    .is-animating-glow {
+      animation: fieldGlow 620ms ease;
+    }
+
+    .is-animating-status {
+      animation: statusLift 360ms ease;
+    }
+
     .btn {
       border: none;
       border-radius: 999px;
@@ -297,6 +348,7 @@
       color: var(--color-accent-strong);
       border: 1px solid rgba(75, 107, 255, 0.35);
       box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+      will-change: transform;
     }
 
     .btn-primary {
@@ -399,6 +451,7 @@
       cursor: pointer;
       box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
       transition: transform var(--transition), box-shadow var(--transition), filter var(--transition);
+      will-change: transform;
     }
 
     .availability-pill:hover,
