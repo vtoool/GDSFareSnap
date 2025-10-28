@@ -186,16 +186,18 @@
     .auto-detect {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       padding: 10px 12px;
       border-radius: var(--radius-sm);
       background: rgba(75, 107, 255, 0.08);
+      flex-wrap: wrap;
     }
 
     .auto-detect__note {
       font-size: 0.74rem;
       color: var(--color-muted);
-      flex: 1;
+      flex: 1 1 180px;
+      line-height: 1.45;
     }
 
     .auto-detect__action {
@@ -213,6 +215,8 @@
       cursor: pointer;
       transition: transform var(--transition), box-shadow var(--transition), background var(--transition), border-color var(--transition);
       box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+      flex-shrink: 0;
+      align-self: flex-start;
     }
 
     .auto-detect__action:hover,
