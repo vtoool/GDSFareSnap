@@ -830,6 +830,43 @@
     return anchor;
   }
 
+  function safeNodeInnerText(node){
+    if(!node) return '';
+    try {
+      if(typeof node.innerText === 'string'){
+        return node.innerText;
+      }
+      if(typeof node.textContent === 'string'){
+        return node.textContent;
+      }
+    } catch (err) {}
+    return '';
+  }
+
+  function nodeHasJourneyHeaderText(node){
+    if(!node || node.nodeType !== 1) return false;
+    const text = safeNodeInnerText(node);
+    if(!text) return false;
+    return /(Depart|Departure|Return|Outbound|Inbound)\b/i.test(text);
+  }
+
+  function ensureKayakCardHasJourneyHeader(node, selectBtn){
+    if(!node || node.nodeType !== 1) return node;
+    if(nodeHasJourneyHeaderText(node)) return node;
+    let current = node.parentElement;
+    let hops = 0;
+    while(current && current.nodeType === 1 && hops < 4){
+      if(current === document.body || current === document.documentElement) break;
+      if(selectBtn && current !== node && !current.contains(selectBtn)) break;
+      if(nodeHasJourneyHeaderText(current)){
+        return current;
+      }
+      current = current.parentElement;
+      hops++;
+    }
+    return node;
+  }
+
   function hasDisqualifyingSignature(el){
     if(!el || el.nodeType !== 1) return false;
     const signature = nodeSignatureTokens(el).join(' ').replace(/\s+/g, ' ').toLowerCase();
@@ -3529,6 +3566,15 @@
 
     const anchor = findStableCardAnchor(bestEntry.node, selectBtn);
     if(anchor && anchor !== bestEntry.node){
+      const anchorWithHeader = ensureKayakCardHasJourneyHeader(anchor, selectBtn);
+      if(anchorWithHeader && anchorWithHeader !== anchor){
+        if(!cardHasFlightClues(anchorWithHeader, selectBtn, { suppressSelectLookup: true, allowMissingSelect })){
+          getCardKey(bestEntry.node);
+          return bestEntry.node;
+        }
+        getCardKey(anchorWithHeader);
+        return anchorWithHeader;
+      }
       if(!cardHasFlightClues(anchor, selectBtn, { suppressSelectLookup: true, allowMissingSelect })){
         getCardKey(bestEntry.node);
         return bestEntry.node;
@@ -3542,10 +3588,26 @@
         getCardKey(bestEntry.node);
         return bestEntry.node;
       }
+      const finalAnchor = ensureKayakCardHasJourneyHeader(anchor, selectBtn);
+      if(finalAnchor && finalAnchor !== anchor){
+        if(!cardHasFlightClues(finalAnchor, selectBtn, { suppressSelectLookup: true, allowMissingSelect })){
+          getCardKey(anchor);
+          return anchor;
+        }
+        getCardKey(finalAnchor);
+        return finalAnchor;
+      }
       getCardKey(anchor);
       return anchor;
     }
 
+    const fallback = ensureKayakCardHasJourneyHeader(bestEntry.node, selectBtn);
+    if(fallback && fallback !== bestEntry.node){
+      if(cardHasFlightClues(fallback, selectBtn, { suppressSelectLookup: true, allowMissingSelect })){
+        getCardKey(fallback);
+        return fallback;
+      }
+    }
     getCardKey(bestEntry.node);
     return bestEntry.node;
   }
