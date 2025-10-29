@@ -588,6 +588,8 @@ function loadFixtureNodes(relativePath){
 
 const root = new StubElement('section');
 [
+  'Depart • Fri, 14 Nov',
+  'Return • Wed, 26 Nov',
   'Flight 1 • Thu, Jul 16',
   '19h 10m',
   '*I✓',
@@ -633,6 +635,14 @@ const root = new StubElement('section');
 
 const extracted = extractVisibleText(root);
 
+assert.ok(
+  extracted.includes('Depart • Fri, 14 Nov'),
+  'Kayak depart header should remain in extracted text'
+);
+assert.ok(
+  extracted.includes('Return • Wed, 26 Nov'),
+  'Kayak return header should remain in extracted text'
+);
 assert.ok(extracted.includes('WestJet 1862'), 'WestJet segment should remain in extracted text');
 assert.ok(extracted.includes('ZIPAIR 51'), 'ZIPAIR segment should remain in extracted text');
 assert.ok(extracted.includes('EVA Air 67'), 'EVA Air segment should remain in extracted text');
