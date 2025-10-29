@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "FareSnap GDS Tool",
   "version": "2.0.0",
-  "description": "Adds Kayak pills that copy itineraries as *I commands; popup lets you adjust booking class and segment status.",
+  "description": "Copy any Kayak or Matrix itinerary as Sabre *IA format with 1-click; accurate booking class & segment status.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
