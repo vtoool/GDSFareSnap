@@ -502,6 +502,32 @@
     return ok;
   }
 
+  function logAvailabilityBuildError(err){
+    if (!err && err !== 0){
+      try {
+        console.warn('Availability command build failed:', err);
+      } catch (logErr) {}
+      return;
+    }
+    let message = '';
+    if (typeof err === 'string'){
+      message = err;
+    } else if (err && typeof err.message === 'string'){
+      message = err.message;
+    }
+    const normalized = message ? message.toLowerCase() : '';
+    if (normalized && (
+      normalized.includes('no segments parsed from itinerary') ||
+      normalized.includes('no inbound segments found') ||
+      normalized.includes('no outbound segments found')
+    )){
+      return;
+    }
+    try {
+      console.warn('Availability command build failed:', err);
+    } catch (logErr) {}
+  }
+
   function highlightAvailabilityCommand(index){
     if (!availabilityPreview) return;
     try {
@@ -665,7 +691,7 @@
               seen.add(command);
             }
           } catch (err) {
-            console.warn('Availability command build failed:', err);
+            logAvailabilityBuildError(err);
           }
         });
       }
@@ -684,7 +710,7 @@
               seen.add(command);
             }
           } catch (err) {
-            console.warn('Availability command build failed:', err);
+            logAvailabilityBuildError(err);
           }
         });
       }
@@ -699,7 +725,7 @@
             seen.add(fallback);
           }
         } catch (err) {
-          console.warn('Availability command build failed:', err);
+          logAvailabilityBuildError(err);
         }
       }
       return {
