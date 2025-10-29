@@ -1,4 +1,4 @@
-# Kayak ➜ *I Chrome extension
+# FareSnap GDS Tool Chrome extension
 
 This repository contains an unpacked Chromium extension that adds a “*I” copy pill to expanded Kayak itineraries and a popup to configure booking class and segment status defaults.
 

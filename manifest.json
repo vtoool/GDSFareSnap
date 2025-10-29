@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Kayak ➜ *I (GDS)",
+  "name": "FareSnap GDS Tool",
   "version": "2.0.0",
   "description": "Adds Kayak pills that copy itineraries as *I commands; popup lets you adjust booking class and segment status.",
   "icons": {
@@ -468,7 +468,7 @@
     }
   },
   "action": {
-    "default_title": "Kayak ➜ *I",
+    "default_title": "FareSnap GDS Tool",
     "default_popup": "popup.html"
   }
 }
