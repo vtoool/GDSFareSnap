@@ -147,4 +147,20 @@ const detailedOutbound = detailedCommands.find(entry => entry && typeof entry.co
 
 assert.ok(detailedOutbound && /750PFRA-160/.test(detailedOutbound.command), 'detailed availability should include departure time and layover minutes for VI* conversions');
 
+const viThreeDigitSample = [
+  ' 1 AA 1234 16MAY DAB CLT  151P  340P 738 1.95',
+  'CABIN-ECONOMY',
+  ' 2 AA 2234 16MAY CLT LHR  550P  700A\u00a51 772 8.00',
+  'CABIN-ECONOMY',
+  ' 3 AA 3234 17MAY LHR AGP 1210P  520P 321 2.10'
+].join('\n');
+
+const threeDigitConversion = convertViToI(viThreeDigitSample, { autoCabin: false, bookingClass: 'J', segmentStatus: 'SS1' });
+const threeDigitPreview = buildViAvailabilityPreview(threeDigitConversion.segments);
+const threeDigitCommands = buildViAvailabilityCommands({ preview: threeDigitPreview });
+const dabAgpCommand = threeDigitCommands.find(entry => entry && typeof entry.command === 'string' && /DABAGP/.test(entry.command));
+
+assert.ok(dabAgpCommand, 'three-digit time sample should produce an availability command for DAB-AGP');
+assert.ok(/151PCLT-130\/LHR-310/.test(dabAgpCommand.command), 'three-digit time sample should include departure time and layover minutes');
+
 console.log('All tests passed.');
