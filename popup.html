@@ -524,7 +524,9 @@
 
     /* New style for the cabin link */
     .cabin-cta {
-      display: inline-block;
+      display: block;
+      width: 100%;
+      text-align: left;
       font-size: 0.75rem;
       color: var(--color-muted);
       text-decoration: none;
@@ -563,7 +565,7 @@
   <main class="popup" aria-labelledby="popupTitle">
     <section class="card">
       <header class="card__header">
-        <a href="https://www.cabin-story.com" target="_blank" class="cabin-cta">
+        <a href="https://www.cabin-story.com" target="_blank" rel="noopener noreferrer" class="cabin-cta">
           Coming soon: cabin-story.com &rarr;
         </a>
         <span class="card__eyebrow">Defaults</span>
