@@ -522,6 +522,23 @@
       border: 0;
     }
 
+    /* New style for the cabin link */
+    .cabin-cta {
+      display: inline-block;
+      font-size: 0.75rem;
+      color: var(--color-muted);
+      text-decoration: none;
+      margin-bottom: 4px;
+      transition: color var(--transition), transform var(--transition);
+      font-weight: 500;
+    }
+    
+    .cabin-cta:hover {
+      color: var(--color-accent);
+      text-decoration: underline;
+      transform: translateY(-1px);
+    }
+
     @media (max-width: 420px) {
       body {
         padding: 16px;
@@ -546,6 +563,9 @@
   <main class="popup" aria-labelledby="popupTitle">
     <section class="card">
       <header class="card__header">
+        <a href="https://www.cabin-story.com" target="_blank" class="cabin-cta">
+          Coming soon: cabin-story.com &rarr;
+        </a>
         <span class="card__eyebrow">Defaults</span>
         <h1 id="popupTitle" class="card__title">Clipboard preferences</h1>
         <p class="card__subtitle">Control the booking class, segment status, and on-page availability pills.</p>
